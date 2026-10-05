@@ -1,0 +1,34 @@
+DeskForge
+Copyright (c) 2026 Noah (gmnoah)
+
+DeskForge is an independent local-first desktop work agent. It is not
+WorkBuddy, not Tencent WorkBuddy, and not a Tencent product. Those names
+belong to their respective owners.
+
+Architectural patterns in DeskForge — a sandboxed renderer, main-process
+approval, a separate agent worker, a separate tool worker, risk-tiered
+policy, a hash-chained audit log, on-demand capability loading, SKILL.md
+skills, and MCP as an extension point — are inspired by OpenWorkbuddy:
+
+  OpenWorkbuddy
+  https://github.com/chenin0931/OpenWorkbuddy
+  Copyright (c) 2026 OpenWorkbuddy contributors
+  Licensed under the MIT License
+
+DeskForge does not include OpenWorkbuddy source code. Ideas were reimplemented
+for this project. If you redistribute DeskForge, keep this NOTICE with the
+MIT license so that attribution stays attached.
+
+Third-party software that DeskForge depends on remains under its own license,
+including:
+
+  @earendil-works/pi-agent-core and @earendil-works/pi-ai
+  https://github.com/earendil-works/pi
+  Copyright Mario Zechner and Pi contributors
+  MIT License
+
+  Electron
+  https://github.com/electron/electron
+  MIT License
+
+The resolved dependency set is recorded in pnpm-lock.yaml.

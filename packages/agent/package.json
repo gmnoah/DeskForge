@@ -1,0 +1,24 @@
+{
+  "name": "@deskforge/agent",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.test.json --noEmit",
+    "pretest": "pnpm --filter @deskforge/core build",
+    "test": "tsc -p tsconfig.test.json && node --test dist-test/*.test.js"
+  },
+  "dependencies": {
+    "@deskforge/core": "workspace:*",
+    "@earendil-works/pi-agent-core": "1.0.3",
+    "@earendil-works/pi-ai": "1.0.3"
+  }
+}
