@@ -1,88 +1,138 @@
-import { existsSync, realpathSync, statSync } from "node:fs";
-import path from "node:path";
+import { lstat, realpath } from 'node:fs/promises'
+import path from 'node:path'
 
-export class PathGuardError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "PathGuardError";
-  }
+export type PathIntent = 'read' | 'write' | 'create'
+
+export interface PathFileSystem {
+  realpath(pathname: string): Promise<string>
+  exists(pathname: string): Promise<boolean>
 }
 
-/** Reject empty paths and the filesystem root. `/` is never a valid workspace. */
-export function assertSafeWorkspaceRoot(root: string): string {
-  if (typeof root !== "string" || root.trim() === "") {
-    throw new PathGuardError("工作区路径不能为空");
-  }
-  if (!path.isAbsolute(root)) {
-    throw new PathGuardError("工作区必须是绝对路径");
-  }
-  const resolved = path.resolve(root);
-  if (resolved === path.parse(resolved).root) {
-    throw new PathGuardError("拒绝把文件系统根目录当作工作区");
-  }
-  return resolved;
-}
-
-function existingRealPath(candidate: string): { real: string; missing: string[] } {
-  const missing: string[] = [];
-  let current = candidate;
-  while (!existsSync(current)) {
-    const parent = path.dirname(current);
-    if (parent === current) {
-      throw new PathGuardError("路径不在工作区内");
+const nodeFileSystem: PathFileSystem = {
+  realpath,
+  async exists(pathname) {
+    try {
+      await lstat(pathname)
+      return true
+    } catch (error) {
+      if (isMissingError(error)) return false
+      throw error
     }
-    missing.push(path.basename(current));
-    current = parent;
-  }
-  return { real: realpathSync(current), missing: missing.reverse() };
+  },
 }
 
-function assertInside(baseReal: string, real: string): void {
-  const relative = path.relative(baseReal, real);
-  if (relative.startsWith("..") || path.isAbsolute(relative)) {
-    throw new PathGuardError("路径不在工作区内");
+export interface GuardedPath {
+  requestedPath: string
+  absolutePath: string
+  canonicalPath: string
+  authorizedRoot: string
+  exists: boolean
+  intent: PathIntent
+}
+
+export class PathAuthorizationError extends Error {
+  readonly code: 'INVALID_PATH' | 'OUTSIDE_AUTHORIZED_ROOTS' | 'PATH_NOT_FOUND' | 'NO_AUTHORIZED_ROOTS'
+
+  constructor(code: PathAuthorizationError['code'], message: string) {
+    super(message)
+    this.name = 'PathAuthorizationError'
+    this.code = code
   }
+}
+
+function isMissingError(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && (error as { code?: unknown }).code === 'ENOENT'
+}
+
+function isInside(root: string, candidate: string): boolean {
+  const relative = path.relative(root, candidate)
+  return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative))
+}
+
+async function canonicalizeTarget(
+  absolutePath: string,
+  intent: PathIntent,
+  fileSystem: PathFileSystem,
+): Promise<{ canonicalPath: string; exists: boolean }> {
+  if (await fileSystem.exists(absolutePath)) {
+    return { canonicalPath: await fileSystem.realpath(absolutePath), exists: true }
+  }
+  if (intent === 'read') {
+    throw new PathAuthorizationError('PATH_NOT_FOUND', `Path does not exist: ${absolutePath}`)
+  }
+
+  const missingSegments: string[] = []
+  let cursor = absolutePath
+  while (!(await fileSystem.exists(cursor))) {
+    const parent = path.dirname(cursor)
+    if (parent === cursor) {
+      throw new PathAuthorizationError('PATH_NOT_FOUND', `No existing ancestor for path: ${absolutePath}`)
+    }
+    missingSegments.unshift(path.basename(cursor))
+    cursor = parent
+  }
+
+  const canonicalAncestor = await fileSystem.realpath(cursor)
+  return { canonicalPath: path.join(canonicalAncestor, ...missingSegments), exists: false }
+}
+
+export interface PathGuard {
+  readonly roots: readonly string[]
+  authorize(candidatePath: string, intent?: PathIntent): Promise<GuardedPath>
 }
 
 /**
- * Resolve a user-supplied file path and prove the real path stays inside the workspace.
- * Symlinks that point outside the workspace are rejected.
+ * Resolves authorized roots once, then resolves every candidate (or its nearest
+ * existing ancestor for creates) to prevent `..` and symlink escapes.
  */
-export function resolveWorkspaceFile(root: string, userPath: string): string {
-  const base = assertSafeWorkspaceRoot(root);
-  if (typeof userPath !== "string" || userPath.trim() === "" || userPath.includes("\0")) {
-    throw new PathGuardError("文件路径无效");
+export async function createPathGuard(
+  authorizedRoots: readonly string[],
+  options: { cwd?: string; fileSystem?: PathFileSystem } = {},
+): Promise<PathGuard> {
+  if (authorizedRoots.length === 0) {
+    throw new PathAuthorizationError('NO_AUTHORIZED_ROOTS', 'At least one authorized workspace root is required.')
   }
-  const baseReal = realpathSync(base);
-  const candidate = path.resolve(baseReal, userPath);
-  const { real, missing } = existingRealPath(candidate);
-  if (missing.length === 0 && real === baseReal) {
-    throw new PathGuardError("不能把工作区目录本身当作文件");
+  const cwd = options.cwd ?? process.cwd()
+  const fileSystem = options.fileSystem ?? nodeFileSystem
+  const canonicalRoots = Array.from(
+    new Set(await Promise.all(authorizedRoots.map((root) => fileSystem.realpath(path.resolve(cwd, root))))),
+  )
+
+  return {
+    roots: canonicalRoots,
+    async authorize(candidatePath, intent = 'read') {
+      if (!candidatePath || candidatePath.includes('\0')) {
+        throw new PathAuthorizationError('INVALID_PATH', 'Path must be non-empty and cannot contain null bytes.')
+      }
+      const absolutePath = path.resolve(cwd, candidatePath)
+      const target = await canonicalizeTarget(absolutePath, intent, fileSystem)
+      const authorizedRoot = canonicalRoots.find((root) => isInside(root, target.canonicalPath))
+      if (!authorizedRoot) {
+        throw new PathAuthorizationError(
+          'OUTSIDE_AUTHORIZED_ROOTS',
+          `Resolved path is outside authorized workspace roots: ${target.canonicalPath}`,
+        )
+      }
+      return {
+        requestedPath: candidatePath,
+        absolutePath,
+        canonicalPath: target.canonicalPath,
+        authorizedRoot,
+        exists: target.exists,
+        intent,
+      }
+    },
   }
-  assertInside(baseReal, real);
-  const target = path.join(real, ...missing);
-  const relative = path.relative(baseReal, target);
-  if (relative === "" || relative.startsWith("..") || path.isAbsolute(relative)) {
-    throw new PathGuardError("路径不在工作区内");
-  }
-  return target;
 }
 
-/** Working directory for a shell command: the workspace root or a directory inside it. */
-export function resolveWorkspaceCwd(root: string, cwd?: string): string {
-  const base = assertSafeWorkspaceRoot(root);
-  const baseReal = realpathSync(base);
-  if (cwd === undefined || cwd.trim() === "" || cwd === ".") {
-    const stat = statSync(baseReal);
-    if (!stat.isDirectory()) throw new PathGuardError("工作区不是目录");
-    return baseReal;
+/** Re-resolve immediately before mutation to detect a swapped symlink/target. */
+export async function revalidateGuardedPath(
+  guard: PathGuard,
+  guarded: GuardedPath,
+): Promise<GuardedPath> {
+  const current = await guard.authorize(guarded.absolutePath, guarded.intent)
+  if (current.canonicalPath !== guarded.canonicalPath || current.authorizedRoot !== guarded.authorizedRoot) {
+    throw new PathAuthorizationError('OUTSIDE_AUTHORIZED_ROOTS', 'Path resolution changed since authorization; re-read before writing.')
   }
-  if (cwd.includes("\0")) throw new PathGuardError("工作目录无效");
-  const candidate = path.resolve(baseReal, cwd);
-  const { real, missing } = existingRealPath(candidate);
-  if (missing.length > 0) throw new PathGuardError("工作目录不存在");
-  if (real !== baseReal) assertInside(baseReal, real);
-  const stat = statSync(real);
-  if (!stat.isDirectory()) throw new PathGuardError("工作目录不是文件夹");
-  return real;
+  return current
 }

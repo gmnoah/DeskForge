@@ -1,34 +1,17 @@
 DeskForge
 Copyright (c) 2026 Noah (gmnoah)
 
-DeskForge is an independent local-first desktop work agent. It is not
-WorkBuddy, not Tencent WorkBuddy, and not a Tencent product. Those names
-belong to their respective owners.
+This product includes code adapted from OpenWorkbuddy
+(https://github.com/chenin0931/OpenWorkbuddy), which is licensed under the MIT License.
+Copyright (c) 2026 OpenWorkbuddy contributors.
 
-Architectural patterns in DeskForge — a sandboxed renderer, main-process
-approval, a separate agent worker, a separate tool worker, risk-tiered
-policy, a hash-chained audit log, on-demand capability loading, SKILL.md
-skills, and MCP as an extension point — are inspired by OpenWorkbuddy:
+DeskForge is an independent project. It is not WorkBuddy and it is not a Tencent product.
 
-  OpenWorkbuddy
-  https://github.com/chenin0931/OpenWorkbuddy
-  Copyright (c) 2026 OpenWorkbuddy contributors
-  Licensed under the MIT License
+The adapted desktop app also depends on third-party software, including:
 
-DeskForge does not include OpenWorkbuddy source code. Ideas were reimplemented
-for this project. If you redistribute DeskForge, keep this NOTICE with the
-MIT license so that attribution stays attached.
+- Electron (https://www.electronjs.org/), MIT License, Copyright (c) Electron contributors
+- @earendil-works/pi-agent-core and @earendil-works/pi-ai, used for the local agent loop
+- React, better-sqlite3, and the other packages listed in the workspace lockfile
 
-Third-party software that DeskForge depends on remains under its own license,
-including:
-
-  @earendil-works/pi-agent-core and @earendil-works/pi-ai
-  https://github.com/earendil-works/pi
-  Copyright Mario Zechner and Pi contributors
-  MIT License
-
-  Electron
-  https://github.com/electron/electron
-  MIT License
-
-The resolved dependency set is recorded in pnpm-lock.yaml.
+Those packages remain under their own licenses. This NOTICE does not change the MIT
+license of DeskForge itself.

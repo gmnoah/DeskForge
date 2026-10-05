@@ -1,118 +1,69 @@
 # DeskForge
 
-DeskForge is a local-first macOS work agent. It is not WorkBuddy and not a Tencent product.
+本地优先的 macOS 桌面工作 Agent。界面在沙箱里，审批、策略和密钥留在主进程，模型和工具分别在独立进程里跑。文件和 Shell 只作用于你选中的工作区，不会把授权根默认设成磁盘根目录 `/`。
 
-DeskForge 是一个本地优先的 macOS 桌面工作代理。模型可以提出动作，但不能自己批准动作。界面跑在沙箱里，文件和 Shell 只在你点头之后，由单独的工具进程在工作区内执行。
+DeskForge 是独立项目，不是 WorkBuddy，也不是腾讯的产品。桌面实现改编自 [OpenWorkbuddy](https://github.com/chenin0931/OpenWorkbuddy)（MIT，Copyright (c) 2026 OpenWorkbuddy contributors）。详见 `NOTICE`。
 
-它不是 WorkBuddy，也不是腾讯的产品。进程划分、风险策略、哈希链审计、按需加载能力和 `SKILL.md` 这些想法，参考了开源项目 [OpenWorkbuddy](https://github.com/chenin0931/OpenWorkbuddy)（MIT）。DeskForge 重新实现了自己的代码，详见 [NOTICE](NOTICE)。
+DeskForge is an independent local-first macOS work agent. It is not WorkBuddy and it is not a Tencent product.
 
-## 它能做什么（P0）
+## 模型
 
-- 只做 macOS Electron 桌面应用
-- 选择一个工作区文件夹。文件系统根目录 `/` 不能当作工作区，也没有「全盘访问」默认值
-- 用 OpenAI 兼容的 `baseUrl` 调用模型。预置 DeepSeek、Kimi、通义千问，也可以填自定义地址
-- 模型先调用 `capability_load`，再使用文件读写、工作区 Shell，或读取 `SKILL.md`
-- 工作区内的读取自动放行；写入要批准；Shell 每次都要批准
-- SQLite 保存会话；审计日志用 SHA-256 串成哈希链
-- MCP 只有类型和占位客户端，P0 不会真正拉起服务器
+设置里选择 OpenAI 兼容接口，并填写可修改的 `baseUrl`：
 
-## 架构
+| 预设 | 默认地址 | 默认模型 |
+| --- | --- | --- |
+| DeepSeek | `https://api.deepseek.com/v1` | `deepseek-chat` |
+| Kimi | `https://api.moonshot.cn/v1` | `moonshot-v1-auto` |
+| 通义 | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `qwen-plus` |
+| 自定义 | 由你填写 | 由你填写 |
 
-```text
-沙箱界面（没有 Node，也拿不到密钥）
-        │  preload
-        ▼
-Electron 主进程
-  策略、批准、审计、SQLite、密钥只留在内存
-        │                         │
-        ▼                         ▼
-  agent 进程                   工具进程
-  Pi agent loop                工作区内的文件和 Shell
-  调用你配置的 baseUrl
-```
+API Key 在设置里写入。macOS 上由系统钥匙串（Electron `safeStorage`）加密后保存在本机数据库，界面不能读回。密钥框留空表示保留已有密钥。加密不可用时保存会失败，不会把明文写入 SQLite。
 
-Pi（`@earendil-works/pi-agent-core` 与 `@earendil-works/pi-ai`）只负责模型回合和工具循环。它不是权限边界。工具回调必须回到主进程，主进程同意之后，工具进程才会执行。
+## 如何在 macOS 开发运行
 
-## 环境
-
-- macOS 14 或更新版本（正式使用）
-- Node.js 22.14 或更新版本
-- pnpm 10（可以用 Corepack）
-
-仓库里的单元测试可以在 Linux 上跑。桌面壳在非 macOS 上也能启动，用来检查界面，但 P0 不承诺 Windows 或 Linux 桌面支持。
-
-## 在 macOS 上运行
+需要 macOS、Node.js 22.14 或更新版本，以及 pnpm 10.33。
 
 ```bash
-git clone https://github.com/gmnoah/DeskForge.git
-cd DeskForge
+corepack enable
 corepack pnpm install
 corepack pnpm dev
 ```
 
-第一次打开后：
-
-1. 在右侧选择一个项目文件夹。不要选 `/`。
-2. 选择 DeepSeek、Kimi、通义千问或自定义，确认 `baseUrl` 和模型名，然后保存。
-3. 把 API key 放到环境变量里再启动，或者在界面里临时填写。临时密钥只活在这次进程的内存中，不会写入 SQLite。
-4. 发送一条工作说明。模型如果要读文件，会先加载 `files` 能力。
-
-开发机检查：
+常用检查：
 
 ```bash
 corepack pnpm typecheck
 corepack pnpm test
-corepack pnpm smoke
+corepack pnpm build
+DESKFORGE_SMOKE=1 corepack pnpm smoke
 ```
 
-`smoke` 会拉起 Electron、等到界面和两个 worker 就绪后退出。没有图形界面时可以在前面加 `xvfb-run -a`。
+`pnpm smoke` 会先构建，再按当前 CPU 架构为 Electron 重建 `better-sqlite3`，然后以 `DESKFORGE_SMOKE=1` 启动。窗口加载完成后标准输出出现 `deskforge-ready`，进程退出。`better-sqlite3` 不能同时服务系统 Node 和 Electron：跑完 smoke 后再执行 `pnpm test`，测试的 pretest 会把它重建回 Node。
 
-密钥从主进程的环境变量读取，名字见 [.env.example](.env.example)：
+在 macOS 上打未签名包（不包含 Chrome 扩展或本机消息宿主）：
 
-| 预设 | 变量 |
-| --- | --- |
-| DeepSeek | `DEEPSEEK_API_KEY` |
-| Kimi | `MOONSHOT_API_KEY` |
-| 通义千问 | `DASHSCOPE_API_KEY` |
-| 自定义，或上面三个都没设 | `DESKFORGE_API_KEY` |
-
-`DESKFORGE_BASE_URL` 和 `DESKFORGE_MODEL` 会在还没有保存过模型时，预填到界面里。真正生效的是你点保存之后的 `baseUrl`。四个预设都走 Chat Completions 兼容协议，不把供应商锁死在某一家。
-
-## 安全边界
-
-- 渲染进程开启了 `contextIsolation` 和 `sandbox`，没有 Node，也没有文件系统
-- 主进程拒绝把 `/` 设为工作区；文件路径会做真实路径检查，指向工作区外的符号链接会被拒绝
-- Shell 的工作目录必须落在工作区里，子进程环境变量里不带 API key。这不是操作系统级沙箱：命令本身仍可能尝试访问外部路径，所以每条命令都要你看过再批准
-- 少数明显危险的命令（例如删除根目录、`mkfs`、关机）会直接拒绝
-- 审计记录不保存文件正文和密钥。启动时会重算哈希链
-- P0 的 API key 会在单次运行期间交给 agent 进程，因为 Pi 在那里发 HTTP。渲染进程拿不到它
-
-## 仓库
-
-```text
-apps/desktop        Electron 主进程、沙箱界面、agent worker、tool worker
-packages/core       策略、路径、审计、SQLite、工具执行
-packages/agent      Pi agent loop，以及可替换的 AgentDriver
+```bash
+corepack pnpm package
 ```
 
-内置技能在 `apps/desktop/resources/skills/workspace-notes/SKILL.md`。工作区里还可以放 `.deskforge/skills/<name>/SKILL.md`。
+这会执行 `electron-builder --mac`，并设置 `CSC_IDENTITY_AUTO_DISCOVERY=false`。产物在 `outputs/release/`。当前脚本按 x64 重建 `better-sqlite3`。Apple Silicon 上如需 arm64 包，在 `apps/desktop` 里改用 `pnpm package:mac:signed:arm64` 前，先确认本机有对应的 Electron 重建环境；未签名包仍会被 Gatekeeper 拦截，需要在「隐私与安全性」里手动放行，或使用自己的 Developer ID 走 `package:mac:signed:*`。
 
-## 路线图
+### 常见失败
 
-P1：
+- `pnpm install` 没编译 `better-sqlite3`：确认 `pnpm-workspace.yaml` 里的 `onlyBuiltDependencies` 包含 `better-sqlite3` 和 `electron`，然后重新安装。
+- Electron 启动报 `NODE_MODULE_VERSION` 或架构不匹配：`better-sqlite3` 需要按 Electron 重建。`pnpm smoke` 会按当前架构做这件事；也可以在 `apps/desktop` 执行 `pnpm rebuild:electron:arm64` 或 `pnpm rebuild:electron:x64`。跑测试前由 pretest 重建回 Node。
+- 打开 `.app` 被 Gatekeeper 拒绝：未签名包的预期结果。开发时用 `pnpm dev`，分发前再签名并公证。
+- 保存 API Key 提示系统安全存储不可用：当前环境没有可用的钥匙串加密。不要改成明文落库；在已登录的 macOS 图形会话里再保存。
+- `pnpm package` 在 Linux 上失败：macOS 包需要在 macOS 上构建。
 
-- MCP stdio 真正接上，仍然走同一套批准
-- 模型请求改由主进程代理，密钥不再进入 agent 进程
-- 崩溃后恢复未完成的批准
-- 签名的 macOS 安装包
-- 更多低风险工具
+## 示例 Skills
 
-P2，这次不做：
+`skills/examples/workspace-summary`（工作区总结）和 `skills/examples/safe-shell`（安全 Shell 使用说明）会随应用安装到本机 Skills 目录。说明只覆盖当前工作区，并要求 Shell 走审批。
 
-- 飞书、企业微信、钉钉
-- 无头服务
-- Windows
+## 路线
 
-## 许可
+P0 是这台 macOS Electron 应用：工作区白名单、审批、审计、SQLite 会话、按需加载工具，以及上面的模型预设。
 
-[MIT](LICENSE)。归属说明在 [NOTICE](NOTICE)。
+P1：把模型请求的密钥留在主进程、崩溃后恢复未完成审批、签名并公证的 macOS 包。
+
+P2 尚未实现，也不在本仓库的当前范围内：飞书、企业微信、钉钉、无界面服务、Windows。

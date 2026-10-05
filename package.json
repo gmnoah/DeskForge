@@ -9,16 +9,18 @@
   },
   "scripts": {
     "dev": "pnpm --filter @deskforge/desktop dev",
-    "build": "pnpm -r build",
+    "build": "pnpm --filter @deskforge/desktop build",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
-    "smoke": "pnpm --filter @deskforge/desktop smoke"
+    "smoke": "pnpm --filter @deskforge/desktop build && pnpm --filter @deskforge/desktop smoke",
+    "package": "pnpm --filter @deskforge/desktop package:mac"
   },
   "devDependencies": {
-    "@types/node": "^22.19.0",
-    "typescript": "^5.9.3"
+    "@types/node": "^24.10.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.15"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["electron"]
+    "onlyBuiltDependencies": ["better-sqlite3", "electron", "esbuild"]
   }
 }

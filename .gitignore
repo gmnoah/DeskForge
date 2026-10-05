@@ -12,3 +12,8 @@ release/
 *.sqlite
 *.sqlite-*
 coverage/
+
+outputs/
+test-results/
+playwright-report/
+blob-report/
