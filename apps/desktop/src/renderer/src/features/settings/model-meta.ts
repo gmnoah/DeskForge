@@ -11,7 +11,7 @@ export const MODEL_PROVIDER_META: Record<ModelProvider, {
   deepseek: {
     name: 'DeepSeek',
     mark: 'D',
-    defaultModelId: 'deepseek-chat',
+    defaultModelId: 'deepseek-flash',
     defaultBaseUrl: 'https://api.deepseek.com/v1',
     keyPlaceholder: 'DeepSeek API Key',
     baseUrlEditable: true,
@@ -19,7 +19,7 @@ export const MODEL_PROVIDER_META: Record<ModelProvider, {
   kimi: {
     name: 'Kimi',
     mark: 'K',
-    defaultModelId: 'moonshot-v1-auto',
+    defaultModelId: 'kimi-k2.6',
     defaultBaseUrl: 'https://api.moonshot.cn/v1',
     keyPlaceholder: 'Moonshot API Key',
     baseUrlEditable: true,

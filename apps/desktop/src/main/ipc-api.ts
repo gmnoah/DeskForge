@@ -2,7 +2,7 @@ import { basename, dirname, isAbsolute, join, relative } from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
 import { lstat, mkdir, readFile, realpath, writeFile } from 'node:fs/promises'
 import { app, dialog, shell } from 'electron'
-import { DesktopInvokeContracts, type AppSettings, type DesktopInvokeChannel, type InstalledCapabilityPackage, type ModelProfile } from '@deskforge/contracts'
+import { DesktopInvokeContracts, type AppSettings, type DesktopInvokeChannel, type InstalledCapabilityPackage, type ModelConnectionTest, type ModelProfile } from '@deskforge/contracts'
 import { classifyModelError, redactSecrets } from '@deskforge/core'
 import type { AppDatabase } from './database'
 import type { SecretStore } from './secret-store'
@@ -46,6 +46,26 @@ export class IpcApi {
   private settings(): AppSettings {
     const stored = this.database.getSetting<Partial<AppSettings> & { defaultRunLimits?: any }>('appSettings', {})
     return { ...DEFAULT_SETTINGS, ...stored, defaultRunLimits: normalizeRunLimits(stored.defaultRunLimits) }
+  }
+
+  /** Probe a provider with a tiny request. Keys stay in memory only for the call. */
+  private async testModelConnection(
+    input: { provider: string; modelId: string; baseUrl: string },
+    encryptedKey?: Buffer,
+    plainKey?: string,
+  ): Promise<ModelConnectionTest> {
+    const started = Date.now()
+    const target = { ...input, provider: input.provider as ModelConnectionTest['provider'] }
+    let apiKey = plainKey ?? ''
+    try {
+      if (!apiKey && encryptedKey) apiKey = await this.secrets.decrypt(encryptedKey)
+      const result = await this.host.testProvider({ ...target, apiKey }) as { notice?: string }
+      return { ok: true, ...target, latencyMs: Date.now() - started, ...(result?.notice ? { notice: result.notice } : {}) }
+    } catch (error) {
+      return { ok: false, ...target, latencyMs: Date.now() - started, error: classifyModelError(error, apiKey ? [apiKey] : [], target) }
+    } finally {
+      apiKey = ''
+    }
   }
 
   private modelProfiles(): ModelProfile[] {
@@ -142,18 +162,16 @@ export class IpcApi {
       'models:set-secret': async ({ profileId, apiKey }) => { this.database.setModelEncryptedKey(profileId, await this.secrets.encrypt(apiKey)); this.database.audit('secret', 'set_model_key', '模型密钥已更新', { actor: 'user', outcome: 'succeeded', target: profileId }) },
       'models:delete-secret': ({ profileId }) => { this.database.setModelEncryptedKey(profileId, null) },
       'models:test': async ({ profileId }) => {
-        const started = Date.now(); const raw = this.database.getModelProfileSecret(profileId)
+        const raw = this.database.getModelProfileSecret(profileId)
         if (!raw?.encryptedKey) throw new Error('模型配置尚未设置 API Key')
-        let apiKey = ''
-        try {
-          apiKey = await this.secrets.decrypt(raw.encryptedKey)
-          await this.host.testProvider({ provider: raw.provider, modelId: raw.modelId, baseUrl: raw.baseUrl, apiKey })
-          return { ok: true, provider: raw.provider, modelId: raw.modelId, latencyMs: Date.now() - started }
-        } catch (error) {
-          return { ok: false, provider: raw.provider, modelId: raw.modelId, latencyMs: Date.now() - started, error: classifyModelError(error, apiKey ? [apiKey] : []) }
-        } finally {
-          apiKey = ''
-        }
+        return this.testModelConnection({ provider: raw.provider, modelId: raw.modelId, baseUrl: raw.baseUrl }, raw.encryptedKey)
+      },
+      'models:test-draft': async ({ provider, modelId, baseUrl, apiKey, profileId }) => {
+        const target = { provider, modelId: modelId.trim(), baseUrl: baseUrl.trim() }
+        if (apiKey?.trim()) return this.testModelConnection(target, undefined, apiKey.trim())
+        const saved = profileId ? this.database.getModelProfileSecret(profileId) : undefined
+        if (!saved?.encryptedKey) throw new Error('请先填写 API Key 再测试连接')
+        return this.testModelConnection(target, saved.encryptedKey)
       },
       'models:set-defaults': ({ defaultModelProfileId, subagentModelProfileId }) => {
         this.database.setDefaultModelProfile(defaultModelProfileId)

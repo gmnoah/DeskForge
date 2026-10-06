@@ -4,6 +4,7 @@ import { Icon, type IconName } from '../../icons'
 import type { JsonRecord, RunDetailView, SourceItem, TraceSpanItem, WorkbenchSnapshot } from '../../types'
 import { EmptyState, Modal, Tabs } from '../../ui'
 import { PanelResizer, usePersistentPanelWidth } from '../shell/panel-resizer'
+import { readTokenUsage, tokenUsageLines } from './run-insights'
 
 export type WorkInspectorTab = 'details' | 'changes' | 'activity'
 
@@ -103,6 +104,7 @@ function DetailsPanel({ detail, snapshot, onBindChrome, onOpenSettings }: Pick<W
   const model = snapshot.models.find((item) => item.id === detail.modelProfileId)
   const sources = sourcesFor(detail)
   const verification = detail.verification
+  const tokenUsage = readTokenUsage(detail.tokenUsage)
   const browserRelevant = snapshot.chrome.grants.some((grant) => grant.runId === detail.id)
     || detail.toolCalls.some((tool) => tool.toolName.startsWith('chrome_'))
 
@@ -119,6 +121,8 @@ function DetailsPanel({ detail, snapshot, onBindChrome, onOpenSettings }: Pick<W
 
     <Section title="当前目标" icon="tasks"><p className="inspector-goal">{detail.goal ?? detail.prompt ?? detail.title}</p></Section>
 
+    {tokenUsage && <Section title="Token 用量" icon="layers"><div className="token-usage-list">{tokenUsageLines(tokenUsage).map((line) => <div key={line.label}><span>{line.label}</span><strong>{line.value}</strong></div>)}</div><p className="token-usage-note">数据来自模型服务返回的 usage，仅统计本次工作。</p></Section>}
+
     {browserRelevant && <Section title="浏览器连接" icon="globe"><div className="chrome-card"><div className="connection-line"><span className={`connection-dot ${snapshot.chrome.connected ? 'online' : ''}`} /><strong>{snapshot.chrome.connected ? '已连接' : '需要重新连接'}</strong></div><p>{snapshot.chrome.connected ? `${snapshot.chrome.grants.length} 个标签页已授权；只能访问你主动绑定的标签页。` : '这项工作使用了浏览器能力，继续前需要恢复连接。'}</p>{snapshot.chrome.connected ? <button type="button" className="button secondary small" onClick={onBindChrome}>绑定当前标签页</button> : <button type="button" className="button secondary small" onClick={onOpenSettings}>查看连接设置</button>}</div></Section>}
 
     <details className="technical-disclosure">
@@ -126,7 +130,7 @@ function DetailsPanel({ detail, snapshot, onBindChrome, onOpenSettings }: Pick<W
       <div className="context-list">
         {workspace && <div><span className="context-icon"><Icon name="folder" size={14} /></span><span><strong>{workspace.name}</strong><small>{shortPath(workspace.path)}</small></span></div>}
         {model && <div><span className="context-icon"><Icon name="layers" size={14} /></span><span><strong>{model.name}</strong><small>{model.modelId}</small></span></div>}
-        <div><span className="context-icon trusted"><Icon name="shield" size={14} /></span><span><strong>执行权限</strong><small>'工作区内操作按需批准，不会授权 /'</small></span></div>
+        <div><span className="context-icon trusted"><Icon name="shield" size={14} /></span><span><strong>执行权限</strong><small>工作区内操作按需批准，不会授权 /</small></span></div>
       </div>
     </details>
   </>

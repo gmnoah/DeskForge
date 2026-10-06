@@ -357,6 +357,15 @@ export class RunCoordinator {
       }
       return
     }
+    if (event.type === 'agent.request_integrity') {
+      // Diagnostics only (field names / counts, never payload content).
+      const alias = (event.diagnostics as string[]).find((item) => item.startsWith('provider:model_alias:'))
+      const summary = alias
+        ? `已下线的模型 ID 已自动映射：${alias.slice('provider:model_alias:'.length)}`
+        : `模型请求已按兼容规则调整（${event.removed + event.repaired + event.blocked + event.providerAdjustments} 项）`
+      this.database.appendRunEvent(runId, 'agent.request_integrity', summary, event)
+      return
+    }
     if (event.type === 'agent.started') {
       this.database.appendRunEvent(runId, 'agent.started', `使用 ${event.provider}/${event.modelId} 开始`, event)
       return

@@ -7,6 +7,8 @@ import { LibraryPage, type LibraryView } from './features/library/LibraryPage'
 import { AuditPage } from './features/settings/AuditPage'
 import { SettingsPage, SettingRow } from './features/settings/SettingsPage'
 import { MODEL_PROVIDER_META } from './features/settings/model-meta'
+import { connectionTestFailure, describeConnectionTest, type ConnectionTestView } from './features/settings/connection-test'
+import { ConnectionTestNotice } from './features/settings/ConnectionTestNotice'
 import { ShellSidebar } from './features/shell/ShellSidebar'
 import { WelcomeComposer } from './features/shell/WelcomeComposer'
 import { WorkTimeline } from './features/work/WorkTimeline'
@@ -220,10 +222,12 @@ function Onboarding({
   const initialStep = connectedModel ? snapshot.workspaces.length ? 3 : 2 : snapshot.models.length ? 1 : 0
   const [step, setStep] = useState(initialStep)
   const [provider, setProvider] = useState<ModelProvider>('deepseek')
-  const [modelId, setModelId] = useState('deepseek-chat')
+  const [modelId, setModelId] = useState(MODEL_PROVIDER_META.deepseek.defaultModelId)
   const [baseUrl, setBaseUrl] = useState(MODEL_PROVIDER_META.deepseek.defaultBaseUrl)
   const [key, setKey] = useState('')
   const [saving, setSaving] = useState(false)
+  const [testing, setTesting] = useState(false)
+  const [testResult, setTestResult] = useState<ConnectionTestView>()
   const [memoryEnabled, setMemoryEnabled] = useState(snapshot.settings.memoryEnabled !== false)
   const [defaultExecutionMode, setDefaultExecutionMode] = useState<'plan' | 'execute'>(snapshot.settings.defaultExecutionMode === 'plan' ? 'plan' : 'execute')
   useEffect(() => {
@@ -233,13 +237,26 @@ function Onboarding({
   if (!open) return null
   const selectProvider = (nextProvider: ModelProvider) => {
     setKey('')
+    setTestResult(undefined)
     setProvider(nextProvider)
     setModelId(MODEL_PROVIDER_META[nextProvider].defaultModelId)
     setBaseUrl(MODEL_PROVIDER_META[nextProvider].defaultBaseUrl)
   }
+  const testConnection = async () => {
+    setTesting(true)
+    setTestResult(undefined)
+    try {
+      setTestResult(describeConnectionTest(await bridge.testModelDraft({ provider, modelId: modelId.trim(), baseUrl: baseUrl.trim(), apiKey: key.trim() })))
+    } catch (error) {
+      setTestResult(connectionTestFailure(error))
+    } finally {
+      setTesting(false)
+    }
+  }
   const saveModel = async () => {
     const submittedKey = key.trim()
     setKey('')
+    setTestResult(undefined)
     setSaving(true)
     try {
       const profile = await perform(() => bridge.saveModel({ name: MODEL_PROVIDER_META[provider].name, provider, modelId, baseUrl: baseUrl.trim() }), undefined, { refresh: false })
@@ -281,7 +298,7 @@ function Onboarding({
         </div>
         <div className="onboarding-main">
           {step === 0 && <div className="setup-panel welcome-panel"><div className="setup-illustration"><span><BrandMark size={32} /></span><i /><i /><i /></div><span className="eyebrow">安静的本地工作台</span><h1>交代工作，<br />把控制权留在手里。</h1><p>DeskForge 会理解目标、执行操作并整理结果。文件、活动记录与密钥由本机边界管理。</p><div className="setup-feature-row"><span><Icon name="folder" />文件与命令</span><span><Icon name="globe" />现有 Chrome</span><span><Icon name="shield" />确认与记录</span></div><button type="button" className="button primary setup-next" onClick={() => setStep(1)}>开始设置<Icon name="arrowRight" /></button></div>}
-          {step === 1 && <div className="setup-panel"><span className="eyebrow">第 1 步，共 4 步</span><h1>连接一个模型</h1><p>直接使用你的官方 API Key。密钥保存后不可从界面读取。</p><div className="provider-choice"><button type="button" className={provider === 'deepseek' ? 'is-active' : ''} onClick={() => selectProvider('deepseek')}><span>D</span><div><strong>DeepSeek</strong><small>OpenAI 兼容</small></div><i /></button><button type="button" className={provider === 'kimi' ? 'is-active' : ''} onClick={() => selectProvider('kimi')}><span>K</span><div><strong>Kimi</strong><small>Moonshot</small></div><i /></button><button type="button" className={provider === 'tongyi' ? 'is-active' : ''} onClick={() => selectProvider('tongyi')}><span>通</span><div><strong>通义</strong><small>DashScope</small></div><i /></button><button type="button" className={provider === 'custom' ? 'is-active' : ''} onClick={() => selectProvider('custom')}><span>自</span><div><strong>自定义</strong><small>自备 baseUrl</small></div><i /></button></div><Field label="服务地址" hint={provider === 'custom' ? '必填，OpenAI 兼容的 /v1 地址' : '可按服务商文档修改'}><input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="https://example.com/v1" /></Field><Field label="模型 ID"><input value={modelId} onChange={(event) => setModelId(event.target.value)} placeholder={provider === 'custom' ? '模型 ID' : MODEL_PROVIDER_META[provider].defaultModelId} /></Field><Field label="API Key" hint="留空不会覆盖已保存的密钥。macOS 使用系统钥匙串加密；加密不可用时会明确失败，不会把明文写入数据库。"><input type="password" value={key} onChange={(event) => setKey(event.target.value)} placeholder={MODEL_PROVIDER_META[provider].keyPlaceholder} /></Field><div className="secret-note"><Icon name="lock" />密钥只写入本机加密存储，不会进入工具、日志或上下文。DeskForge 不是 WorkBuddy，也不是腾讯的产品。</div><button type="button" className="button primary setup-next" disabled={!modelId.trim() || !baseUrl.trim() || !key.trim() || saving} onClick={() => void saveModel()}>{saving && <Spinner size={14} />}安全保存并继续<Icon name="arrowRight" /></button></div>}
+          {step === 1 && <div className="setup-panel"><span className="eyebrow">第 1 步，共 4 步</span><h1>连接一个模型</h1><p>直接使用你的官方 API Key。密钥保存后不可从界面读取。</p><div className="provider-choice"><button type="button" className={provider === 'deepseek' ? 'is-active' : ''} onClick={() => selectProvider('deepseek')}><span>D</span><div><strong>DeepSeek</strong><small>OpenAI 兼容</small></div><i /></button><button type="button" className={provider === 'kimi' ? 'is-active' : ''} onClick={() => selectProvider('kimi')}><span>K</span><div><strong>Kimi</strong><small>Moonshot</small></div><i /></button><button type="button" className={provider === 'tongyi' ? 'is-active' : ''} onClick={() => selectProvider('tongyi')}><span>通</span><div><strong>通义</strong><small>DashScope</small></div><i /></button><button type="button" className={provider === 'custom' ? 'is-active' : ''} onClick={() => selectProvider('custom')}><span>自</span><div><strong>自定义</strong><small>自备 baseUrl</small></div><i /></button></div><Field label="服务地址" hint={provider === 'custom' ? '必填，OpenAI 兼容的 /v1 地址' : '可按服务商文档修改'}><input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="https://example.com/v1" /></Field><Field label="模型 ID"><input value={modelId} onChange={(event) => setModelId(event.target.value)} placeholder={provider === 'custom' ? '模型 ID' : MODEL_PROVIDER_META[provider].defaultModelId} /></Field><Field label="API Key" hint="留空不会覆盖已保存的密钥。macOS 使用系统钥匙串加密；加密不可用时会明确失败，不会把明文写入数据库。"><input type="password" value={key} onChange={(event) => setKey(event.target.value)} placeholder={MODEL_PROVIDER_META[provider].keyPlaceholder} /></Field><div className="secret-note"><Icon name="lock" />密钥只写入本机加密存储，不会进入工具、日志或上下文。DeskForge 不是 WorkBuddy，也不是腾讯的产品。</div>{testResult && <ConnectionTestNotice result={testResult} onClose={() => setTestResult(undefined)} />}<div className="setup-actions"><button type="button" className="button secondary setup-test" disabled={!modelId.trim() || !baseUrl.trim() || !key.trim() || testing || saving} onClick={() => void testConnection()}>{testing && <Spinner size={14} />}测试连接</button><button type="button" className="button primary setup-next" disabled={!modelId.trim() || !baseUrl.trim() || !key.trim() || saving} onClick={() => void saveModel()}>{saving && <Spinner size={14} />}安全保存并继续<Icon name="arrowRight" /></button></div></div>}
           {step === 2 && <div className="setup-panel"><span className="eyebrow">第 2 步，共 4 步</span><h1>授权一个工作区</h1><p>DeskForge 只能通过文件工具访问你明确选择的根目录，并会阻止路径穿越和符号链接逃逸。</p><div className="workspace-picker-illustration"><span><Icon name="folder" size={30} /></span><div><strong>选择项目或资料文件夹</strong><small>你可以稍后添加多个工作区</small></div></div><ul className="safety-list"><li><Icon name="check" />修改前确认文件没有被其他程序更新</li><li><Icon name="check" />写入前保存快照，完成后展示变更</li><li><Icon name="check" />未知命令会在执行前请你确认</li></ul><button type="button" className="button primary setup-next" onClick={() => void chooseWorkspace()}>选择文件夹<Icon name="arrowRight" /></button></div>}
           {step === 3 && <div className="setup-panel"><span className="eyebrow">第 3 步，共 4 步</span><h1>连接 Chrome</h1><p>使用现有登录状态时，需要你手动加载扩展并绑定标签页；应用不会读取未授权页面。</p><div className="chrome-settings"><div className="chrome-illustration"><Icon name="globe" size={24} /></div><div><strong>{snapshot.chrome.connected ? 'Chrome 已连接' : snapshot.chrome.extensionInstalled ? '扩展已安装，当前离线' : '尚未检测到浏览器连接'}</strong><span>本地桥接：{snapshot.chrome.nativeHostInstalled ? '已安装' : '待安装'} · 可以稍后继续配置</span></div><span className={snapshot.chrome.connected ? 'health-pill healthy' : 'health-pill'}><i />{snapshot.chrome.connected ? '在线' : '可跳过'}</span></div><ul className="safety-list"><li><Icon name="check" />只访问你主动绑定给当前工作的标签页</li><li><Icon name="check" />不会导出 Cookie，也不会读取其他既有标签</li><li><Icon name="check" />提交、购买、发送、上传和删除仍需确认</li></ul><button type="button" className="button primary setup-next" onClick={() => setStep(4)}>{snapshot.chrome.connected ? '继续' : '稍后配置并继续'}<Icon name="arrowRight" /></button></div>}
           {step === 4 && <div className="setup-panel"><span className="eyebrow">第 4 步，共 4 步</span><h1>确认工作方式</h1><p>文件和 Shell 只在你选择的工作区内执行。写入和命令需要批准，不会默认授权磁盘根目录 /。</p><div className="secret-note"><Icon name="shield" />工作区白名单是唯一文件边界。DeskForge 不提供“完全访问 = /”。</div><SettingRow title="新工作默认方式" detail="先整理计划时只使用只读能力。"><select value={defaultExecutionMode} onChange={(event) => setDefaultExecutionMode(event.target.value as 'plan' | 'execute')}><option value="execute">直接处理</option><option value="plan">先整理计划（只读）</option></select></SettingRow><SettingRow title="允许提出记忆候选" detail="所有候选仍需你确认后才生效。"><Toggle checked={memoryEnabled} onChange={setMemoryEnabled} label="记忆建议" /></SettingRow><button type="button" className="button primary setup-next" onClick={() => void finish()}>进入工作台<Icon name="arrowRight" /></button></div>}

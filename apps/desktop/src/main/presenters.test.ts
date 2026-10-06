@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { RunDetailSchema, type ModelProfile } from '@deskforge/contracts'
-import { normalizeRunLimits, presentRunDetail } from './presenters'
+import { normalizeRunLimits, presentRunDetail, presentRunError } from './presenters'
 
 const now = '2026-07-11T12:00:00.000Z'
 
@@ -190,5 +190,29 @@ describe('run detail public projection', () => {
     }, model)
     expect(detail.run.completionStatus).toBeUndefined()
     expect(detail.verification).toBeUndefined()
+  })
+})
+
+describe('run failure and usage projection', () => {
+  const failedRow = (error: string, extra: Record<string, unknown> = {}) => ({
+    id: 'run-failed', workspaceId: 'workspace-1', accessMode: 'approval', title: 'Failed', prompt: 'x', goal: 'x', status: 'failed',
+    modelSnapshot: { profileId: model.id, provider: 'kimi', modelId: 'moonshot-v1-auto', capabilities: model.capabilities },
+    limits: {}, modelTurns: 1, createdAt: now, updatedAt: now, messages: [], error, ...extra,
+  })
+
+  it('turns provider failures into Chinese guidance that still validates against the contract', () => {
+    const detail = presentRunDetail(failedRow('404 Not found the model moonshot-v1-auto or Permission denied', {
+      tokenUsage: { inputTokens: 10, outputTokens: 2, cacheReadTokens: 0, reasoningTokens: 0, totalTokens: 12, modelCalls: 1 },
+    }), model)
+    expect(detail.run.lastError).toMatchObject({ code: 'MODEL_NOT_FOUND', retryable: false })
+    expect(detail.run.lastError?.suggestedAction).toContain('已被 Moonshot 下线')
+    expect(detail.run.tokenUsage).toMatchObject({ totalTokens: 12 })
+    expect(RunDetailSchema.parse(detail)).toEqual(detail)
+  })
+
+  it('keeps unrecognised errors verbatim', () => {
+    expect(presentRunError('模型配置尚未设置 API Key', { provider: 'deepseek' })).toEqual({ code: 'RUN_ERROR', message: '模型配置尚未设置 API Key', retryable: true })
+    expect(presentRunError('工具执行超时', { provider: 'deepseek' }).code).toBe('RUN_ERROR')
+    expect(presentRunError('Connection error.', { provider: 'tongyi' })).toMatchObject({ code: 'MODEL_NETWORK_UNREACHABLE', message: '无法连接到通义千问。' })
   })
 })

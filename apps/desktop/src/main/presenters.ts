@@ -12,6 +12,7 @@ import type {
   ModelProfile,
   ModelSelectionSnapshot,
   ProviderId,
+  PublicError,
   Run,
   RunDetail,
   RunLimits,
@@ -21,6 +22,7 @@ import type {
   ToolReceipt,
   Workspace,
 } from '@deskforge/contracts'
+import { classifyModelError } from '@deskforge/core'
 import { defaultBaseUrl } from './model-providers'
 
 export const DEFAULT_LIMITS: RunLimits = {
@@ -62,15 +64,24 @@ export const DEFAULT_SETTINGS: AppSettings = {
   timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Shanghai',
 }
 
+const PRESET_REASONING: Record<ProviderId, RegExp> = {
+  // deepseek-chat is the retired non-thinking alias; every other DeepSeek chat model is hybrid.
+  deepseek: /^(?!deepseek-chat$)deepseek-/i,
+  kimi: /^kimi-k(?:2\.[5-9]|3)|thinking/i,
+  tongyi: /^(?:qwen3|qwen-(?:plus|flash|turbo)|deepseek-v[34])(?!.*-instruct)|qwq|thinking|-r1/i,
+  custom: /reason|thinking|qwq/i,
+}
+
 export function inferCapabilities(provider: ProviderId, modelId: string, partial: Partial<ModelCapabilities> = {}): ModelCapabilities {
-  const kimiK27 = provider === 'kimi' && /^kimi-k2\.7-code(?:-highspeed)?$/.test(modelId)
+  const longContext = provider === 'kimi' && /^kimi-k(?:2\.[5-9]|3)/i.test(modelId)
+  const deepseek = provider === 'deepseek'
   return {
-    contextWindow: kimiK27 ? 262_144 : provider === 'tongyi' ? 131_072 : 128_000,
-    maxOutputTokens: kimiK27 ? 32_768 : 8_192,
+    contextWindow: longContext ? 262_144 : provider === 'tongyi' ? 131_072 : 128_000,
+    maxOutputTokens: longContext || deepseek ? 32_768 : 8_192,
     toolCalling: true,
     vision: false,
-    reasoning: kimiK27 || /reason|thinking|k2\.[567]|deepseek-reasoner/i.test(modelId),
-    promptCaching: provider === 'deepseek' || kimiK27,
+    reasoning: PRESET_REASONING[provider].test(modelId),
+    promptCaching: deepseek || longContext,
     ...partial,
   }
 }
@@ -176,8 +187,25 @@ export function presentRun(row: any, fallbackModel: ModelProfile): Run {
     ...(row.finishedAt ?? row.finished_at ? { completedAt: row.finishedAt ?? row.finished_at } : {}),
     createdAt: row.createdAt ?? row.created_at,
     updatedAt: row.updatedAt ?? row.updated_at,
-    ...(row.error ? { lastError: { code: 'RUN_ERROR', message: row.error, retryable: true } } : {}),
+    ...(row.tokenUsage ? { tokenUsage: row.tokenUsage } : {}),
+    ...(row.error ? { lastError: presentRunError(String(row.error), snapshot) } : {}),
   } as Run
+}
+
+/**
+ * Model failures get a stable code and Chinese guidance; anything the classifier
+ * does not recognise keeps its original text (it is usually already Chinese).
+ */
+export function presentRunError(message: string, model: { provider?: string; modelId?: string; baseUrl?: string }): PublicError {
+  const classified = classifyModelError(message, [], {
+    ...(model.provider ? { provider: model.provider } : {}),
+    ...(model.modelId ? { modelId: model.modelId } : {}),
+    ...(model.baseUrl ? { baseUrl: model.baseUrl } : {}),
+  })
+  if (classified.code === 'MODEL_CONNECTION_FAILED' || classified.code === 'MODEL_REQUEST_ABORTED') {
+    return { code: 'RUN_ERROR', message, retryable: true }
+  }
+  return classified
 }
 
 export function presentArtifact(row: any): ArtifactRef {

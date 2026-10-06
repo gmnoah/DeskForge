@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import Database from 'better-sqlite3'
-import type { RunStatus, TaskStepStatus } from '@deskforge/contracts'
+import type { RunStatus, RunTokenUsage, TaskStepStatus } from '@deskforge/contracts'
 import { assertRunTransition, assertStepTransition, isTerminalRunStatus } from '@deskforge/core'
 import { defaultBaseUrl } from './model-providers'
 
@@ -269,6 +269,7 @@ export class AppDatabase {
         entry_hash TEXT,
         created_at TEXT NOT NULL
       );
+      CREATE INDEX IF NOT EXISTS audit_events_run_idx ON audit_events(run_id, category, action);
       CREATE TABLE IF NOT EXISTS run_traces (
         id TEXT PRIMARY KEY,
         run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
@@ -486,9 +487,36 @@ export class AppDatabase {
   listRuns(limit = 100): any[] { return (this.db.prepare('SELECT * FROM runs ORDER BY updated_at DESC LIMIT ?').all(limit) as any[]).map((r) => this.hydrateRun(r)) }
   deleteRun(id: string): void { this.db.prepare('DELETE FROM runs WHERE id=?').run(id) }
 
+  /** Sum provider-reported usage of every model call in a run; undefined when none reported usage. */
+  getRunTokenUsage(runId: string): RunTokenUsage | undefined {
+    const row = this.db.prepare(`SELECT
+        COUNT(*) AS calls,
+        COALESCE(SUM(json_extract(payload_json,'$.usage.input')),0) AS input,
+        COALESCE(SUM(json_extract(payload_json,'$.usage.output')),0) AS output,
+        COALESCE(SUM(json_extract(payload_json,'$.usage.cacheRead')),0) AS cache_read,
+        COALESCE(SUM(json_extract(payload_json,'$.usage.reasoning')),0) AS reasoning,
+        COALESCE(SUM(json_extract(payload_json,'$.usage.totalTokens')),0) AS total
+      FROM audit_events WHERE run_id=? AND category='model' AND action='completion'
+        AND json_type(payload_json,'$.usage') = 'object'`).get(runId) as Record<string, number | null>
+    const count = (value: number | null | undefined): number => Math.max(0, Math.round(Number(value ?? 0)) || 0)
+    const usage: RunTokenUsage = {
+      inputTokens: count(row.input),
+      outputTokens: count(row.output),
+      cacheReadTokens: count(row.cache_read),
+      reasoningTokens: count(row.reasoning),
+      totalTokens: count(row.total),
+      modelCalls: count(row.calls),
+    }
+    if (!usage.modelCalls || (!usage.totalTokens && !usage.inputTokens && !usage.outputTokens)) return undefined
+    if (!usage.totalTokens) usage.totalTokens = usage.inputTokens + usage.outputTokens + usage.cacheReadTokens
+    return usage
+  }
+
   private hydrateRun(run: any): any {
+    const tokenUsage = this.getRunTokenUsage(run.id)
     return {
       ...run,
+      ...(tokenUsage ? { tokenUsage } : {}),
       workspaceId: run.workspace_id,
       modelProfileId: run.model_profile_id,
       modelSnapshot: parse(run.model_snapshot_json, {}),

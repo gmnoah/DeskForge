@@ -250,3 +250,14 @@
   .approval-card { margin-left: 0; }
   .result-summary { align-items: flex-start; flex-direction: column; }
 }
+
+/* Run failure guidance and token usage */
+.run-failure > span { display: grid; gap: 6px; line-height: 1.55; }
+.run-failure-detail summary { cursor: pointer; color: var(--text-secondary); font-size: 11px; }
+.run-failure-detail code { display: block; margin-top: 4px; padding: 6px 8px; color: var(--text-secondary); background: var(--surface); border-radius: var(--radius-control); font-size: 11px; white-space: pre-wrap; word-break: break-all; max-height: 160px; overflow: auto; }
+.run-token-usage { margin: 4px 0 0; color: var(--text-secondary); font-size: 11px; text-align: center; }
+.token-usage-list { display: grid; gap: 6px; }
+.token-usage-list > div { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; }
+.token-usage-list span { color: var(--text-secondary); }
+.token-usage-list strong { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+.token-usage-note { margin: 8px 0 0; color: var(--text-secondary); font-size: 11px; }

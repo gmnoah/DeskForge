@@ -128,11 +128,11 @@ describe('Moonshot request guard', () => {
       prompt_cache_key: 'run-stable-cache-key',
       custom_safe_field: 'preserved',
       tool_choice: 'auto',
-      thinking: { type: 'enabled' },
       messages: [{ role: 'assistant', content: null, reasoning_content: 'keep-for-pi-replay' }],
     })
+    // Thinking is always on; an explicit object would need keep:"all", so it is omitted.
     for (const field of [
-      'temperature', 'reasoning_effort', 'prompt_cache_retention', 'max_completion_tokens',
+      'thinking', 'temperature', 'reasoning_effort', 'prompt_cache_retention', 'max_completion_tokens',
       'store', 'n', 'top_p', 'presence_penalty', 'frequency_penalty',
       'functions', 'function_call', 'parallel_tool_calls',
     ]) expect(payload).not.toHaveProperty(field)

@@ -80,6 +80,30 @@ export const ModelConnectionTestSchema = z
     modelId: z.string().min(1),
     latencyMs: z.number().int().nonnegative(),
     error: PublicErrorSchema.optional(),
+    notice: z.string().max(500).optional(),
+  })
+  .strict()
+
+export const ModelConnectionDraftSchema = z
+  .object({
+    provider: ProviderIdSchema,
+    modelId: z.string().trim().min(1).max(200),
+    baseUrl: ModelBaseUrlSchema,
+    apiKey: z.string().max(20_000).optional(),
+    profileId: IdSchema.optional(),
+  })
+  .strict()
+
+const TokenCountSchema = z.number().int().nonnegative()
+
+export const RunTokenUsageSchema = z
+  .object({
+    inputTokens: TokenCountSchema,
+    outputTokens: TokenCountSchema,
+    cacheReadTokens: TokenCountSchema,
+    reasoningTokens: TokenCountSchema,
+    totalTokens: TokenCountSchema,
+    modelCalls: TokenCountSchema,
   })
   .strict()
 
@@ -132,6 +156,7 @@ export const RunSchema = z
     model: ModelSelectionSnapshotSchema,
     limits: RunLimitsSchema,
     modelTurns: z.number().int().nonnegative(),
+    tokenUsage: RunTokenUsageSchema.optional(),
     startedAt: IsoDateTimeSchema.optional(),
     completedAt: IsoDateTimeSchema.optional(),
     createdAt: IsoDateTimeSchema,

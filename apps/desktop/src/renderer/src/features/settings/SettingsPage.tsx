@@ -20,6 +20,8 @@ import {
   Toggle,
 } from '../../ui'
 import { MODEL_PROVIDER_META } from './model-meta'
+import { connectionTestFailure, describeConnectionTest, type ConnectionTestView } from './connection-test'
+import { ConnectionTestNotice } from './ConnectionTestNotice'
 
 type Perform = <T>(
   action: () => Promise<T>,
@@ -38,12 +40,14 @@ export function SettingsPage({ snapshot, selectedWorkspaceId, perform, onWorkspa
   const [modelOpen, setModelOpen] = useState(false)
   const [provider, setProvider] = useState<ModelProvider>('deepseek')
   const [name, setName] = useState('DeepSeek')
-  const [modelId, setModelId] = useState('deepseek-chat')
+  const [modelId, setModelId] = useState(MODEL_PROVIDER_META.deepseek.defaultModelId)
   const [baseUrl, setBaseUrl] = useState(MODEL_PROVIDER_META.deepseek.defaultBaseUrl)
   const [apiKey, setApiKey] = useState('')
   const [modelCatalog, setModelCatalog] = useState<JsonRecord[]>([])
   const [testingId, setTestingId] = useState<string>()
-  const [testResult, setTestResult] = useState<{ ok: boolean; message: string }>()
+  const [testResult, setTestResult] = useState<ConnectionTestView>()
+  const [draftTesting, setDraftTesting] = useState(false)
+  const [draftResult, setDraftResult] = useState<ConnectionTestView>()
   const [secretProfile, setSecretProfile] = useState<ModelProfileItem>()
   const [replacementKey, setReplacementKey] = useState('')
   const [rulesWorkspace, setRulesWorkspace] = useState<WorkspaceItem>()
@@ -73,6 +77,7 @@ export function SettingsPage({ snapshot, selectedWorkspaceId, perform, onWorkspa
   const selectProvider = (nextProvider: ModelProvider) => {
     const metadata = MODEL_PROVIDER_META[nextProvider]
     setApiKey('')
+    setDraftResult(undefined)
     setProvider(nextProvider)
     setName(metadata.name)
     setModelId(metadata.defaultModelId)
@@ -80,7 +85,20 @@ export function SettingsPage({ snapshot, selectedWorkspaceId, perform, onWorkspa
   }
   const closeModelModal = () => {
     setApiKey('')
+    setDraftResult(undefined)
     setModelOpen(false)
+  }
+  const testDraftModel = async () => {
+    setDraftTesting(true)
+    setDraftResult(undefined)
+    try {
+      const result = await bridge.testModelDraft({ provider, modelId: modelId.trim(), baseUrl: baseUrl.trim(), apiKey: apiKey.trim() })
+      setDraftResult(describeConnectionTest(result))
+    } catch (error) {
+      setDraftResult(connectionTestFailure(error))
+    } finally {
+      setDraftTesting(false)
+    }
   }
   const closeSecretModal = () => {
     setReplacementKey('')
@@ -107,10 +125,7 @@ export function SettingsPage({ snapshot, selectedWorkspaceId, perform, onWorkspa
     setTestingId(id)
     const result = await perform(() => bridge.testModel({ profileId: id }), undefined, { refresh: false }) as JsonRecord | undefined
     if (result) {
-      const ok = Boolean(result.ok)
-      const latency = typeof result.latencyMs === 'number' ? ` · ${result.latencyMs} ms` : ''
-      const publicError = result.error && typeof result.error === 'object' ? result.error as JsonRecord : {}
-      setTestResult({ ok, message: ok ? `连接成功${latency}` : String(publicError.message ?? '连接测试失败') })
+      setTestResult(describeConnectionTest(result))
     }
     setTestingId(undefined)
   }
@@ -134,7 +149,7 @@ export function SettingsPage({ snapshot, selectedWorkspaceId, perform, onWorkspa
       <PageHeader title="设置" description="管理模型、工作区、浏览器、权限和本地数据。" />
 
       <SettingsSection icon="layers" title="模型" description="正在进行的工作固定使用创建时的模型；默认值只影响新工作。" action={<button className="button secondary small" type="button" onClick={() => setModelOpen(true)}><Icon name="plus" />添加配置</button>}>
-        {snapshot.models.length ? <><div className="model-list">{snapshot.models.map((model) => <div key={model.id} className="model-row"><div className={`provider-logo ${model.provider}`} aria-label={MODEL_PROVIDER_META[model.provider].name}><span>{MODEL_PROVIDER_META[model.provider].mark}</span></div><div><strong>{model.name}</strong><span>{model.modelId} · {model.hasSecret ? '密钥已配置' : '缺少密钥'}</span></div>{model.isDefault && <span className="default-pill">默认</span>}<div className="model-actions">{!model.isDefault && <button type="button" onClick={() => void perform(() => bridge.setModelDefaults(model.id, snapshot.models.find((item) => item.isSubagentDefault)?.id), '默认模型已更新')}>设为默认</button>}<button type="button" onClick={() => { setSecretProfile(model); setReplacementKey('') }}>更新 Key</button><button type="button" onClick={() => void testModel(model.id)} disabled={testingId === model.id}>{testingId === model.id ? <Spinner size={12} /> : '测试'}</button><IconButton icon="trash" label="删除模型配置" onClick={() => void perform(() => bridge.removeModel(model.id), '模型配置已删除')} /></div></div>)}</div><div className="model-defaults"><SettingRow title="工作默认模型" detail="开始新工作时默认选择的模型配置。"><select value={snapshot.models.find((item) => item.isDefault)?.id ?? snapshot.models[0]?.id} onChange={(event) => void perform(() => bridge.setModelDefaults(event.target.value, snapshot.models.find((item) => item.isSubagentDefault)?.id), '工作默认模型已更新')}>{snapshot.models.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.modelId}</option>)}</select></SettingRow><SettingRow title="并行助手默认模型" detail="没有单独指定时，用于并行处理。"><select value={snapshot.models.find((item) => item.isSubagentDefault)?.id ?? snapshot.models.find((item) => item.isDefault)?.id ?? snapshot.models[0]?.id} onChange={(event) => { const primary = snapshot.models.find((item) => item.isDefault) ?? snapshot.models[0]; if (primary) void perform(() => bridge.setModelDefaults(primary.id, event.target.value), '并行助手默认模型已更新') }}>{snapshot.models.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.modelId}</option>)}</select></SettingRow></div>{testResult && <div className={`inline-notice ${testResult.ok ? '' : 'error'}`}><Icon name={testResult.ok ? 'check' : 'warning'} /><span>{testResult.message}</span><button type="button" onClick={() => setTestResult(undefined)}>关闭</button></div>}</> : <EmptyState compact icon="key" title="尚未配置模型" description="添加 DeepSeek、Kimi、通义或自定义 OpenAI 兼容接口后才能开始工作。" />}
+        {snapshot.models.length ? <><div className="model-list">{snapshot.models.map((model) => <div key={model.id} className="model-row"><div className={`provider-logo ${model.provider}`} aria-label={MODEL_PROVIDER_META[model.provider].name}><span>{MODEL_PROVIDER_META[model.provider].mark}</span></div><div><strong>{model.name}</strong><span>{model.modelId} · {model.hasSecret ? '密钥已配置' : '缺少密钥'}</span></div>{model.isDefault && <span className="default-pill">默认</span>}<div className="model-actions">{!model.isDefault && <button type="button" onClick={() => void perform(() => bridge.setModelDefaults(model.id, snapshot.models.find((item) => item.isSubagentDefault)?.id), '默认模型已更新')}>设为默认</button>}<button type="button" onClick={() => { setSecretProfile(model); setReplacementKey('') }}>更新 Key</button><button type="button" onClick={() => void testModel(model.id)} disabled={testingId === model.id || !model.hasSecret}>{testingId === model.id ? <Spinner size={12} /> : '测试连接'}</button><IconButton icon="trash" label="删除模型配置" onClick={() => void perform(() => bridge.removeModel(model.id), '模型配置已删除')} /></div></div>)}</div><div className="model-defaults"><SettingRow title="工作默认模型" detail="开始新工作时默认选择的模型配置。"><select value={snapshot.models.find((item) => item.isDefault)?.id ?? snapshot.models[0]?.id} onChange={(event) => void perform(() => bridge.setModelDefaults(event.target.value, snapshot.models.find((item) => item.isSubagentDefault)?.id), '工作默认模型已更新')}>{snapshot.models.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.modelId}</option>)}</select></SettingRow><SettingRow title="并行助手默认模型" detail="没有单独指定时，用于并行处理。"><select value={snapshot.models.find((item) => item.isSubagentDefault)?.id ?? snapshot.models.find((item) => item.isDefault)?.id ?? snapshot.models[0]?.id} onChange={(event) => { const primary = snapshot.models.find((item) => item.isDefault) ?? snapshot.models[0]; if (primary) void perform(() => bridge.setModelDefaults(primary.id, event.target.value), '并行助手默认模型已更新') }}>{snapshot.models.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.modelId}</option>)}</select></SettingRow></div>{testResult && <ConnectionTestNotice result={testResult} onClose={() => setTestResult(undefined)} />}</> : <EmptyState compact icon="key" title="尚未配置模型" description="添加 DeepSeek、Kimi、通义或自定义 OpenAI 兼容接口后才能开始工作。" />}
       </SettingsSection>
 
       <SettingsSection icon="folder" title="工作区" description="DeskForge 只能通过文件工具访问你明确授权的工作区，不会默认使用磁盘根目录 /。" action={<button type="button" className="button secondary small" onClick={() => void addWorkspace()}><Icon name="plus" />添加工作区</button>}>
@@ -191,11 +206,12 @@ export function SettingsPage({ snapshot, selectedWorkspaceId, perform, onWorkspa
       <Modal open={modelOpen} onClose={closeModelModal} title="添加模型配置" description="API Key 由 macOS 钥匙串（系统加密存储）保护，保存后无法从界面读回。加密不可用时会直接报错。">
         <SubmitForm className="modal-form" onSubmit={() => void saveModel()}>
           <div className="field"><span className="field-label">服务商</span><div className="radio-cards provider-radio-cards"><button type="button" className={provider === 'deepseek' ? 'is-active' : ''} onClick={() => selectProvider('deepseek')}><span className="provider-mini deepseek">D</span><span><strong>DeepSeek</strong><small>OpenAI 兼容</small></span></button><button type="button" className={provider === 'kimi' ? 'is-active' : ''} onClick={() => selectProvider('kimi')}><span className="provider-mini kimi">K</span><span><strong>Kimi</strong><small>Moonshot</small></span></button><button type="button" className={provider === 'tongyi' ? 'is-active' : ''} onClick={() => selectProvider('tongyi')}><span className="provider-mini tongyi">通</span><span><strong>通义</strong><small>DashScope</small></span></button><button type="button" className={provider === 'custom' ? 'is-active' : ''} onClick={() => selectProvider('custom')}><span className="provider-mini custom">自</span><span><strong>自定义</strong><small>自备地址</small></span></button></div></div>
-          <div className="field-row"><Field label="配置名称"><input value={name} onChange={(event) => setName(event.target.value)} /></Field><Field label="模型 ID" hint="使用服务商的模型 ID，例如 deepseek-chat、moonshot-v1-auto、qwen-plus。"><input list="model-catalog" value={modelId} onChange={(event) => setModelId(event.target.value)} placeholder={provider === 'custom' ? '模型 ID' : undefined} /><datalist id="model-catalog">{modelCatalog.map((item) => <option key={String(item.id)} value={String(item.id)}>{String(item.name ?? item.id)}</option>)}</datalist></Field></div>
+          <div className="field-row"><Field label="配置名称"><input value={name} onChange={(event) => setName(event.target.value)} /></Field><Field label="模型 ID" hint="使用服务商的模型 ID，例如 deepseek-flash、kimi-k2.6、qwen-plus。"><input list="model-catalog" value={modelId} onChange={(event) => setModelId(event.target.value)} placeholder={provider === 'custom' ? '模型 ID' : undefined} /><datalist id="model-catalog">{modelCatalog.map((item) => <option key={String(item.id)} value={String(item.id)}>{String(item.name ?? item.id)}</option>)}</datalist></Field></div>
           <Field label="服务地址 baseUrl" hint={provider === 'custom' ? '必填。填写 OpenAI 兼容接口，通常以 /v1 结尾。' : '预设地址可改。密钥不会随地址一起显示。'}><input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="https://example.com/v1" /></Field>
           <Field label="API Key" hint="留空表示保留已保存的密钥。保存后不能从界面读回。macOS 上由系统钥匙串加密；若加密不可用，保存会失败，不会把明文写入数据库。"><input type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder={MODEL_PROVIDER_META[provider].keyPlaceholder} autoComplete="off" /></Field>
           <div className="inline-notice"><Icon name="lock" /><span>Key 不会发送给工具，也不会写入活动记录或工作上下文。</span></div>
-          <div className="modal-actions"><button className="button secondary" type="button" onClick={closeModelModal}>取消</button><button className="button primary" type="submit" disabled={!name.trim() || !modelId.trim() || !baseUrl.trim()}>安全保存</button></div>
+          {draftResult && <ConnectionTestNotice result={draftResult} onClose={() => setDraftResult(undefined)} />}
+          <div className="modal-actions"><button className="button secondary" type="button" onClick={closeModelModal}>取消</button><button className="button secondary" type="button" onClick={() => void testDraftModel()} disabled={draftTesting || !modelId.trim() || !baseUrl.trim() || !apiKey.trim()} title={apiKey.trim() ? '发送一个极小的请求验证 Key、地址和模型 ID' : '填写 API Key 后可测试'}>{draftTesting && <Spinner size={12} />}测试连接</button><button className="button primary" type="submit" disabled={!name.trim() || !modelId.trim() || !baseUrl.trim()}>安全保存</button></div>
         </SubmitForm>
       </Modal>
       <Modal open={grantOpen} onClose={() => setGrantOpen(false)} title="添加永久授权" description={`该规则只对 ${snapshot.workspaces.find((workspace) => workspace.id === selectedWorkspaceId)?.name ?? '当前工作区'} 生效，直到你在设置中撤销。`}>
