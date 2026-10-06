@@ -29,6 +29,7 @@ import {
   ConfirmDialog,
   Field,
   IconButton,
+  Modal,
   Spinner,
   StatusBadge,
   SubmitForm,
@@ -92,13 +93,16 @@ function ApprovalCard({ approval, onRespond }: { approval: ApprovalItem; onRespo
   )
 }
 
-function RunHeader({ detail, onPause, onResume, onCancel, onToggleInspector, inspectorOpen }: {
+function RunHeader({ detail, onPause, onResume, onCancel, onToggleInspector, inspectorOpen, onRename, onExport, onDelete }: {
   detail: RunDetailView
   onPause: () => void
   onResume: () => void
   onCancel: () => void
   onToggleInspector: () => void
   inspectorOpen: boolean
+  onRename: () => void
+  onExport: () => void
+  onDelete: () => void
 }) {
   const active = ['understanding', 'planning', 'running', 'verifying', 'waiting_approval', 'waiting_user'].includes(detail.status)
   return (
@@ -110,6 +114,9 @@ function RunHeader({ detail, onPause, onResume, onCancel, onToggleInspector, ins
       <div className="run-actions no-drag">
         {detail.status === 'paused' ? <IconButton icon="play" label="继续处理" onClick={onResume} /> : active ? <IconButton icon="pause" label="暂停" onClick={onPause} /> : null}
         {active && <IconButton icon="stop" label="停止" onClick={onCancel} />}
+        <IconButton icon="edit" label="重命名会话" onClick={onRename} />
+        <IconButton icon="download" label="导出为 Markdown" onClick={onExport} />
+        {!active && <IconButton icon="trash" label="删除会话" onClick={onDelete} />}
         <IconButton icon="panelRight" label="工作详情" active={inspectorOpen} onClick={onToggleInspector} />
       </div>
     </header>
@@ -169,6 +176,9 @@ function TasksView({
   onPause,
   onResume,
   onCancel,
+  onRename,
+  onExport,
+  onDelete,
   onApproval,
   onBindChrome,
   onRevealArtifact,
@@ -186,6 +196,9 @@ function TasksView({
   onPause: () => void
   onResume: () => void
   onCancel: () => void
+  onRename: () => void
+  onExport: () => void
+  onDelete: () => void
   onApproval: (approval: ApprovalItem, decision: 'approve' | 'edit' | 'reject', scope?: ApprovalScopeChoice, editedArguments?: JsonRecord) => void
   onBindChrome: () => void
   onRevealArtifact: (id: string) => void
@@ -200,7 +213,7 @@ function TasksView({
   return (
     <div className="task-workbench">
       <main className="main-pane run-pane">
-        <RunHeader detail={detail} onPause={onPause} onResume={onResume} onCancel={onCancel} onToggleInspector={onInspector} inspectorOpen={inspectorOpen} />
+        <RunHeader detail={detail} onPause={onPause} onResume={onResume} onCancel={onCancel} onToggleInspector={onInspector} inspectorOpen={inspectorOpen} onRename={onRename} onExport={onExport} onDelete={onDelete} />
         <div className="run-scroll">
           <WorkTimeline
             detail={detail}
@@ -329,6 +342,8 @@ export default function App() {
     return stored === null ? true : stored === 'true'
   })
   const [cancelOpen, setCancelOpen] = useState(false)
+  const [renameDraft, setRenameDraft] = useState<string>()
+  const [deleteOpen, setDeleteOpen] = useState(false)
   const [onboardingDismissed, setOnboardingDismissed] = useState(false)
   useResolvedTheme(snapshot.settings.theme)
 
@@ -455,6 +470,13 @@ export default function App() {
           onPause={() => selectedRunId && void perform(() => bridge.pauseRun(selectedRunId), '工作已暂停', { refreshRun: true })}
           onResume={() => selectedRunId && void perform(() => bridge.resumeRun(selectedRunId), '继续处理', { refreshRun: true })}
           onCancel={() => setCancelOpen(true)}
+          onRename={() => setRenameDraft(runDetail?.title ?? '')}
+          onExport={() => selectedRunId && void perform(async () => {
+            const exported = await bridge.exportRunMarkdown(selectedRunId)
+            if (exported) notify('success', '会话已导出为 Markdown', `${exported.path}（密钥类内容已脱敏）`)
+            return exported
+          }, undefined, { refresh: false })}
+          onDelete={() => setDeleteOpen(true)}
           onApproval={(approval, decision, scope, editedArguments) => void respondApproval(approval, decision, scope, editedArguments)}
           onBindChrome={() => selectedRunId && void perform(() => bridge.requestChromeBinding(selectedRunId), '已向 Chrome 发出绑定请求')}
           onRevealArtifact={(id) => void perform(() => bridge.revealArtifact(id), undefined, { refresh: false })}
@@ -466,6 +488,26 @@ export default function App() {
         {view === 'audit' && <AuditPage snapshot={snapshot} perform={perform} />}
       </section>
       <ConfirmDialog open={cancelOpen} title="停止当前工作？" description="正在运行的操作会收到停止信号，已经完成的本地变更不会自动撤销。" confirmLabel="停止工作" danger onCancel={() => setCancelOpen(false)} onConfirm={() => { setCancelOpen(false); if (selectedRunId) void perform(() => bridge.cancelRun(selectedRunId), '已停止', { refreshRun: true }) }} />
+      <Modal open={renameDraft !== undefined} title="重命名会话" description="新名称会同步到侧栏和会话搜索。" onClose={() => setRenameDraft(undefined)}>
+        <SubmitForm className="modal-form" onSubmit={() => {
+          const title = (renameDraft ?? '').trim()
+          if (!title || !selectedRunId) return
+          setRenameDraft(undefined)
+          void perform(() => bridge.renameRun(selectedRunId, title), '会话已重命名', { refreshRun: true })
+        }}>
+          <Field label="会话名称"><input autoFocus maxLength={500} value={renameDraft ?? ''} onChange={(event) => setRenameDraft(event.target.value)} aria-label="会话名称" /></Field>
+          <div className="modal-actions">
+            <button type="button" className="button secondary" onClick={() => setRenameDraft(undefined)}>取消</button>
+            <button type="submit" className="button primary" disabled={!(renameDraft ?? '').trim()}>保存</button>
+          </div>
+        </SubmitForm>
+      </Modal>
+      <ConfirmDialog open={deleteOpen} title="删除这个会话？" description="会话消息、步骤和工具记录会从本机删除，且无法恢复；审计日志仍会保留。已写入工作区的文件不受影响。" confirmLabel="删除会话" danger onCancel={() => setDeleteOpen(false)} onConfirm={() => {
+        setDeleteOpen(false)
+        const id = selectedRunId
+        if (!id) return
+        void perform(async () => { await bridge.removeRun(id); setSelectedRunId(undefined) }, '会话已删除')
+      }} />
       <Onboarding open={shouldOnboard} snapshot={snapshot} perform={perform} onDone={() => { setOnboardingDismissed(true); void refresh() }} />
       <Toasts items={toasts} onDismiss={dismissToast} />
     </div>

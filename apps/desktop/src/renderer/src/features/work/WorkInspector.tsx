@@ -20,7 +20,7 @@ interface WorkInspectorProps {
 }
 
 const TOOL_LABELS: Record<string, string> = {
-  web_search: '搜索网页', web_fetch: '读取网页', file_list: '浏览文件', file_read: '读取文件', file_search: '搜索工作区', file_find: '查找文件', attachment_open: '打开附件', output_register: '登记产物',
+  web_search: '搜索网页', web_fetch: '读取网页', file_list: '浏览文件', file_read: '读取文件', file_search: '搜索工作区', file_find: '查找文件', knowledge_search: '检索知识库', attachment_open: '打开附件', output_register: '登记产物',
   file_write: '写入文件', file_replace: '修改文件', file_delete: '移入废纸篓', shell_run: '运行命令', process_start: '启动后台进程', process_poll: '读取后台进程', process_stop: '停止后台进程', document_render: '导出 PDF', task_plan: '整理计划',
   task_step_update: '更新步骤', task_complete: '完成检查', skill_read: '读取技能', memory_propose: '提出记忆', agent_delegate: '并行处理',
   chrome_snapshot: '读取网页', chrome_screenshot: '网页截图', chrome_navigate: '打开网页', chrome_click: '点击网页', chrome_type: '网页输入',

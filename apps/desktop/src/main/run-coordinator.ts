@@ -599,7 +599,7 @@ export class RunCoordinator {
     return recovery
   }
 
-  private emitRun(runId: string): void {
+  emitRun(runId: string): void {
     const run = this.getRun(runId)
     this.emit({ id: randomUUID(), runId, sequence: this.nextSequence(runId), at: new Date().toISOString(), kind: 'run.updated', run })
   }

@@ -16,6 +16,9 @@ import type { McpOAuthService } from './mcp-oauth'
 import type { ArtifactStore } from './artifact-store'
 import type { McpService } from './mcp-service'
 import type { SkillImportService } from './skill-import'
+import type { KnowledgeIndexService } from './knowledge/knowledge-index'
+import type { EmbeddingsSettingsService } from './knowledge/embeddings'
+import { exportSessionMarkdown } from './session-export'
 import { BUNDLED_SKILL_NAMES, REMOVED_BUNDLED_SKILLS_SETTING } from './bundled-skills'
 import { DEFAULT_SETTINGS, normalizeRunLimits, presentArtifact, presentAudit, presentChromeGrant, presentMcp, presentMemory, presentModel, presentRunSummary, presentSessionRule, presentWorkspace } from './presenters'
 import { auditExportFileName, presentAuditRecord, renderAuditExport } from './audit-export'
@@ -59,6 +62,8 @@ export class IpcApi {
     private artifacts: ArtifactStore,
     private mcp: McpService,
     private skillImports: SkillImportService,
+    private knowledge: KnowledgeIndexService,
+    private embeddings: EmbeddingsSettingsService,
   ) {
     this.handlers = this.createHandlers()
   }
@@ -152,7 +157,7 @@ export class IpcApi {
         this.database.db.prepare('UPDATE workspaces SET name=?,rules=?,updated_at=? WHERE id=?').run(name ?? existing.name, rules ?? existing.rules, new Date().toISOString(), id)
         return presentWorkspace(this.database.getWorkspace(id), this.database.getSetting('selectedWorkspaceId', ''))
       },
-      'workspaces:remove': ({ id }) => { this.database.removeWorkspace(id) },
+      'workspaces:remove': async ({ id }) => { this.database.removeWorkspace(id); await this.knowledge.drop(id).catch(() => undefined) },
       'workspaces:select': ({ id }) => { const row = this.database.getWorkspace(id); if (!row) throw new Error('工作区不存在'); this.database.setSetting('selectedWorkspaceId', id); return presentWorkspace(row, id) },
 
       'runs:list': (input) => {
@@ -170,6 +175,50 @@ export class IpcApi {
       'runs:cancel': ({ id }) => this.coordinator.cancel(id),
       'runs:remove': ({ id }) => { this.coordinator.delete(id) },
       'runs:respond-approval': (input) => { this.broker.respondToApproval(input) },
+      'runs:search': ({ query, workspaceId, limit }) => {
+        const hits = this.database.searchRuns(query, { ...(workspaceId ? { workspaceId } : {}), ...(limit ? { limit } : {}) })
+        return hits.flatMap((hit) => {
+          const run = this.database.getRun(hit.runId)
+          if (!run) return []
+          return [{ runId: hit.runId, title: String(run.title), workspaceId: String(run.workspaceId ?? ''), status: run.status, updatedAt: String(run.updatedAt), matchedIn: hit.matchedIn, ...(hit.messageId ? { messageId: hit.messageId } : {}), snippet: hit.snippet.slice(0, 300) }]
+        })
+      },
+      'runs:rename': async ({ id, title }) => {
+        const next = String(title).replace(/\s+/g, ' ').trim().slice(0, 500)
+        if (!next) throw new Error('会话名称不能为空')
+        this.database.renameRun(id, next)
+        this.database.audit('session', 'rename', `会话已重命名为「${next.slice(0, 60)}」`, { actor: 'user', outcome: 'succeeded', target: id }, id)
+        this.coordinator.emitRun(id)
+        return this.coordinator.getDetail(id).run
+      },
+      'runs:export-markdown': async ({ id }) => {
+        const detail = await this.coordinator.getDetail(id)
+        return exportSessionMarkdown(detail, {
+          database: this.database,
+          secrets: this.secrets,
+          appVersion: app.getVersion(),
+          timeZone: this.settings().timezone,
+          chooseTarget: async (defaultName) => {
+            const target = await dialog.showSaveDialog({ title: '导出会话为 Markdown', defaultPath: join(app.getPath('documents'), defaultName), filters: [{ name: 'Markdown', extensions: ['md'] }] })
+            return target.canceled || !target.filePath ? undefined : target.filePath
+          },
+        })
+      },
+      'knowledge:list-status': async () => Promise.all(this.database.listWorkspaces().map((row: any) => this.knowledge.status(String(row.id)))),
+      'knowledge:rebuild': async ({ workspaceId, mode }) => {
+        const status = await this.knowledge.build(workspaceId, mode)
+        this.database.audit('knowledge', mode === 'full' ? 'rebuild' : 'update', `本地知识库${mode === 'full' ? '重建' : '增量更新'}：${status.fileCount} 个文件，${status.chunkCount} 个片段`, { actor: 'user', outcome: status.error ? 'failed' : 'succeeded', target: workspaceId, ...(status.lastRun ?? {}), truncated: status.truncated })
+        return status
+      },
+      'knowledge:clear': async ({ workspaceId }) => {
+        const status = await this.knowledge.clear(workspaceId)
+        this.database.audit('knowledge', 'clear', '本地知识库索引已清除', { actor: 'user', outcome: 'succeeded', target: workspaceId })
+        return status
+      },
+      'knowledge:search': ({ workspaceId, query, limit }) => this.knowledge.search(workspaceId, query, { ...(limit ? { limit } : {}) }),
+      'knowledge:get-embeddings': () => this.embeddings.view(),
+      'knowledge:set-embeddings': (input) => this.embeddings.update(input),
+      'knowledge:test-embeddings': () => this.embeddings.test(),
       'approvals:list-session-rules': (input) => this.database.listSessionRules(input?.runId).map(presentSessionRule),
       'approvals:revoke-session-rule': ({ id }) => { this.broker.revokeSessionRule(id); return { revoked: true as const } },
 

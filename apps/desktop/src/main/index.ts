@@ -6,6 +6,8 @@ import { SecretStore } from './secret-store'
 import { ArtifactStore } from './artifact-store'
 import { AgentHostBridge, ToolRunnerBridge } from './worker-bridge'
 import { ChromeBridge } from './chrome-bridge'
+import { KnowledgeIndexService } from './knowledge/knowledge-index'
+import { EmbeddingsSettingsService } from './knowledge/embeddings'
 import { ToolBroker } from './tool-broker'
 import { RunCoordinator } from './run-coordinator'
 import { SkillService } from './skill-service'
@@ -150,6 +152,22 @@ async function initialize(): Promise<void> {
   }
   const mcp = new McpService(database, secrets, runner, { isolatedRoot: join(userData, 'mcp-servers'), refreshOAuth: refreshMcpOAuth })
   const documentRenderer = new DocumentRenderService(runner, artifacts)
+  const embeddings = new EmbeddingsSettingsService(database, secrets, (action, summary, payload) => {
+    database.audit('knowledge', action, summary, { actor: 'user', outcome: 'succeeded', ...payload })
+  })
+  const knowledge = new KnowledgeIndexService({
+    directory: join(userData, 'knowledge'),
+    resolveWorkspace: (id) => {
+      const row = database.getWorkspace(id)
+      return row ? { id: String(row.id), name: String(row.name), path: String(row.root_path) } : undefined
+    },
+    embedder: () => embeddings.embedder(),
+    embeddingsEnabled: () => embeddings.enabled(),
+    onEgress: ({ workspaceId, host, purpose, items }) => {
+      // Every off-device transfer of workspace text is recorded in the audit log.
+      database.audit('knowledge', purpose === 'index' ? 'embeddings_index' : 'embeddings_query', purpose === 'index' ? `向 ${host} 发送 ${items} 个文档片段生成向量` : `向 ${host} 发送检索词生成向量`, { actor: 'system', outcome: 'allowed', target: host, workspaceId, items })
+    },
+  })
   const broker = new ToolBroker(
     database,
     runner,
@@ -161,6 +179,7 @@ async function initialize(): Promise<void> {
     refreshMcpOAuth,
     documentRenderer,
     mcp,
+    knowledge,
   )
   const coordinator = new RunCoordinator(database, secrets, host, runner, broker, artifacts, broadcast, notify)
   coordinatorRef.current = coordinator
@@ -210,7 +229,7 @@ async function initialize(): Promise<void> {
   })
   oauthRef.current = oauth
   const skillImports = new SkillImportService(skills, { tempRoot: join(userData, 'skill-imports') })
-  const api = new IpcApi(database, secrets, host, runner, coordinator, broker, chrome, skills, automations, oauth, artifacts, mcp, skillImports)
+  const api = new IpcApi(database, secrets, host, runner, coordinator, broker, chrome, skills, automations, oauth, artifacts, mcp, skillImports, knowledge, embeddings)
   oauthCallbackHandler = (url) => { void api.completeOAuthCallback(url).then(() => notify('MCP 已授权', 'OAuth 令牌已安全保存到本机。')).catch((error) => notify('MCP OAuth 失败', error instanceof Error ? error.message : String(error))) }
   for (const url of queuedOAuthCallbacks.splice(0)) oauthCallbackHandler(url)
   if (process.platform === 'darwin') app.setAsDefaultProtocolClient('deskforge')
@@ -243,7 +262,7 @@ async function initialize(): Promise<void> {
 
   cleanup = async () => {
     app.removeListener('child-process-gone', workerFailureHandler)
-    automations.dispose(); host.stop(); runner.stop(); await chrome.stop(); database.close()
+    automations.dispose(); host.stop(); runner.stop(); await chrome.stop(); knowledge.close(); database.close()
   }
 }
 

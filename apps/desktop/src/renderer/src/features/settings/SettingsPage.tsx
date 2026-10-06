@@ -23,6 +23,7 @@ import { MODEL_PROVIDER_META } from './model-meta'
 import { connectionTestFailure, describeConnectionTest, type ConnectionTestView } from './connection-test'
 import { ConnectionTestNotice } from './ConnectionTestNotice'
 import { McpServersPanel } from '../mcp/McpServersPanel'
+import { EmbeddingsPanel, KnowledgePanel } from '../knowledge/KnowledgePanel'
 
 type Perform = <T>(
   action: () => Promise<T>,
@@ -160,6 +161,14 @@ export function SettingsPage({ snapshot, selectedWorkspaceId, perform, onWorkspa
 
       <SettingsSection icon="plug" title="MCP 连接" description="添加 stdio 或 Streamable HTTP 的 MCP Server。密钥使用系统加密保存；调用 MCP 工具每次都需要你批准。" action={<button type="button" className="button secondary small" onClick={() => setMcpEditorOpen(true)}><Icon name="plus" />添加 MCP Server</button>}>
         <McpServersPanel servers={snapshot.mcpServers} workspaceId={selectedWorkspaceId} perform={perform} editorOpen={mcpEditorOpen} onEditorOpenChange={setMcpEditorOpen} />
+      </SettingsSection>
+
+      <SettingsSection icon="search" title="本地知识库" description="为授权工作区建立本地全文索引（中英文），Agent 可用只读工具 knowledge_search 检索并引用 文件:行号。">
+        <KnowledgePanel snapshot={snapshot} selectedWorkspaceId={selectedWorkspaceId} perform={perform} />
+      </SettingsSection>
+
+      <SettingsSection icon="globe" title="向量检索（可选）" description="配置 OpenAI 兼容的 Embeddings 接口后，知识库使用关键词 + 向量混合排序；不配置也能完整使用。">
+        <EmbeddingsPanel perform={perform} />
       </SettingsSection>
 
       <SettingsSection icon="skill" title="本地能力包" description="组合 Skills、MCP 配置、规则和模板；安装前会显示命令、环境和权限，不允许 JavaScript 注入。" action={<button type="button" className="button secondary small" onClick={() => void chooseCapabilityPackage()}><Icon name="plus" />选择能力包</button>}>

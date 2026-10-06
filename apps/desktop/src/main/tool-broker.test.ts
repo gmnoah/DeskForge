@@ -793,3 +793,31 @@ describe('M2 approval experience', () => {
     await expect(fixture.broker.handle({ runId: 'run-1', requestId: 'f3', toolCallId: 'f3', toolId: 'file_find', args: { pattern: '*.ts', extra: true } })).rejects.toThrow()
   })
 })
+
+describe('knowledge_search tool (M4)', () => {
+  it('runs without approval, scopes to the run workspace and returns citations with line ranges', async () => {
+    const database = new FakeDatabase()
+    const calls: any[] = []
+    const knowledge = {
+      search: async (workspaceId: string, query: string, options: any) => {
+        calls.push({ workspaceId, query, options })
+        return { query, state: 'ready' as const, mode: 'keyword' as const, fileCount: 2, results: [{ path: 'docs/周报.md', startLine: 3, endLine: 4, chunkStartLine: 1, chunkEndLine: 4, snippet: '下周计划：回滚演练', score: 0.016, matchedBy: 'keyword' as const }] }
+      },
+    }
+    const events: any[] = []
+    const broker = new ToolBroker(database as any, { execute: async () => { throw new Error('runner must not be used') } } as any, {} as any, {} as any, {} as any, (event) => events.push(event), async () => ({}), undefined, undefined, undefined, knowledge)
+    const result = await broker.handle({ runId: 'run-1', requestId: 'kb-1', toolCallId: 'kb-call-1', toolId: 'knowledge_search', args: { query: '  回滚演练 ', limit: 5, pathPrefix: 'docs/' } }) as any
+    expect(database.approvals).toHaveLength(0)
+    expect(calls).toEqual([{ workspaceId: 'workspace-1', query: '回滚演练', options: { limit: 5, pathPrefix: 'docs/' } }])
+    expect(result.results[0]).toMatchObject({ path: 'docs/周报.md', startLine: 3, endLine: 4, citation: 'docs/周报.md:3-4' })
+    expect(result.trust).toContain('不可信')
+    expect(database.toolRows.find((row) => row.tool_id === 'knowledge_search')).toMatchObject({ state: 'succeeded' })
+  })
+
+  it('fails clearly when the query is empty or the knowledge service is missing', async () => {
+    const database = new FakeDatabase()
+    const broker = new ToolBroker(database as any, { execute: async () => ({}) } as any, {} as any, {} as any, {} as any, () => undefined, async () => ({}))
+    await expect(broker.handle({ runId: 'run-1', requestId: 'kb-2', toolCallId: 'kb-call-2', toolId: 'knowledge_search', args: { query: 'x' } })).rejects.toMatchObject({ code: 'KNOWLEDGE_UNAVAILABLE' })
+    expect(database.approvals).toHaveLength(0)
+  })
+})
