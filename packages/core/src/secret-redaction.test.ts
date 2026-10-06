@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { classifyModelError, redactSecrets } from './secret-redaction'
+import { classifyModelError } from './model-errors'
+import { redactSecrets } from './secret-redaction'
 
 describe('runtime secret redaction', () => {
   it('removes exact and key-shaped secrets from public text', () => {

@@ -1,6 +1,7 @@
 export * from './approval'
 export * from './context'
 export * from './file-version'
+export * from './model-errors'
 export * from './path-guard'
 export * from './policy'
 export * from './retry'
