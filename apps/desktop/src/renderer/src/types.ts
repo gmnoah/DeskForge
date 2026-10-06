@@ -313,16 +313,62 @@ export interface MemoryItem extends JsonRecord {
   createdAt?: string
 }
 
+export interface McpToolItem extends JsonRecord {
+  name: string
+  title?: string
+  description?: string
+  enabled: boolean
+  readOnlyHint?: boolean
+  destructiveHint?: boolean
+}
+
+export type McpCwdMode = 'isolated' | 'workspace' | 'custom'
+
 export interface McpServerItem extends JsonRecord {
   id: string
   name: string
   transport: 'stdio' | 'http'
+  enabled: boolean
+  toolNamespace?: string
   command?: string
+  args?: string[]
+  env?: Record<string, string>
+  envKeys?: string[]
+  cwdMode?: McpCwdMode
+  cwd?: string
   url?: string
+  headers?: Record<string, string>
+  secretHeaderKeys?: string[]
+  sseFallback?: boolean
   status?: 'connected' | 'stopped' | 'error' | 'testing'
   toolCount?: number
+  tools?: McpToolItem[]
+  connectedVia?: 'stdio' | 'streamable_http' | 'sse'
+  serverVersion?: string
+  lastError?: string
+  lastCheckedAt?: string
   auth?: 'none' | 'bearer' | 'headers' | 'oauth'
   secretConfigured?: boolean
+}
+
+export interface McpTestResult {
+  ok: boolean
+  latencyMs?: number
+  toolCount?: number
+  tools: McpToolItem[]
+  connectedVia?: 'stdio' | 'streamable_http' | 'sse'
+  serverVersion?: string
+  error?: string
+}
+
+export interface SkillOrigin {
+  kind: 'bundled' | 'folder' | 'git'
+  path?: string
+  url?: string
+  ref?: string
+  subpath?: string
+  commit?: string
+  importedAt?: string
 }
 
 export interface SkillItem extends JsonRecord {
@@ -331,8 +377,32 @@ export interface SkillItem extends JsonRecord {
   description: string
   enabled: boolean
   source?: string
+  origin?: SkillOrigin
   version?: string
   permissions?: string[]
+}
+
+export interface SkillImportFileItem {
+  path: string
+  size: number
+  kind: 'entry' | 'script' | 'reference' | 'asset'
+}
+
+export interface SkillImportPreviewItem {
+  selectionId: string
+  expiresAt?: string
+  origin: SkillOrigin
+  name: string
+  description: string
+  version: string
+  permissions: string[]
+  instructionsPreview: string
+  files: SkillImportFileItem[]
+  fileCount: number
+  totalBytes: number
+  scriptFiles: string[]
+  warnings: string[]
+  replaces?: { id: string; version: string; enabled: boolean }
 }
 
 export interface AutomationItem extends JsonRecord {

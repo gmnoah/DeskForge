@@ -472,6 +472,12 @@ export const SkillPermissionSchema = z
   })
   .strict()
 
+export const SkillSourceSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('bundled') }).strict(),
+  z.object({ kind: z.literal('folder'), path: z.string().min(1), importedAt: IsoDateTimeSchema }).strict(),
+  z.object({ kind: z.literal('git'), url: z.string().url(), ref: z.string().optional(), subpath: z.string().optional(), commit: z.string().optional(), importedAt: IsoDateTimeSchema }).strict(),
+])
+
 export const SkillManifestSchema = z
   .object({
     id: IdSchema,
@@ -483,20 +489,51 @@ export const SkillManifestSchema = z
     permissions: z.array(SkillPermissionSchema),
     entrypoint: z.string().min(1),
     loadedAt: IsoDateTimeSchema.optional(),
+    source: SkillSourceSchema.optional(),
   })
   .strict()
 
+export const McpCwdModeSchema = z.enum(['isolated', 'workspace', 'custom'])
+const McpStringMapSchema = z.record(z.string(), z.string())
+
+export const McpStdioTransportSchema = z.object({
+  type: z.literal('stdio'),
+  command: z.string().min(1),
+  args: z.array(z.string()),
+  envKeys: z.array(z.string()),
+  env: McpStringMapSchema.optional(),
+  cwdMode: McpCwdModeSchema.optional(),
+  cwd: z.string().optional(),
+}).strict()
+
+const McpHttpTransportShape = {
+  type: z.literal('streamable_http'),
+  url: z.string().url(),
+  auth: z.enum(['none', 'bearer', 'headers', 'oauth']),
+  headers: McpStringMapSchema.optional(),
+  secretHeaderKeys: z.array(z.string()).optional(),
+  sseFallback: z.boolean().optional(),
+}
+
 export const McpTransportSchema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('stdio'), command: z.string().min(1), args: z.array(z.string()), envKeys: z.array(z.string()) }).strict(),
-  z
-    .object({
-      type: z.literal('streamable_http'),
-      url: z.string().url(),
-      auth: z.enum(['none', 'bearer', 'headers', 'oauth']),
-      secretConfigured: z.boolean(),
-    })
-    .strict(),
+  McpStdioTransportSchema,
+  z.object({ ...McpHttpTransportShape, secretConfigured: z.boolean() }).strict(),
 ])
+
+/** Input form of a transport: `secretConfigured` is derived by the host. */
+export const McpTransportInputSchema = z.discriminatedUnion('type', [
+  McpStdioTransportSchema,
+  z.object({ ...McpHttpTransportShape, secretConfigured: z.boolean().optional() }).strict(),
+])
+
+export const McpToolSummarySchema = z.object({
+  name: z.string().min(1),
+  title: z.string().optional(),
+  description: z.string().optional(),
+  enabled: z.boolean(),
+  readOnlyHint: z.boolean().optional(),
+  destructiveHint: z.boolean().optional(),
+}).strict()
 
 export const McpServerConfigSchema = z
   .object({
@@ -510,6 +547,9 @@ export const McpServerConfigSchema = z
     health: z.enum(['unknown', 'healthy', 'unhealthy', 'authorizing']),
     lastCheckedAt: IsoDateTimeSchema.optional(),
     lastError: PublicErrorSchema.optional(),
+    tools: z.array(McpToolSummarySchema).optional(),
+    disabledTools: z.array(z.string()).optional(),
+    connectedVia: z.enum(['stdio', 'streamable_http', 'sse']).optional(),
   })
   .strict()
 

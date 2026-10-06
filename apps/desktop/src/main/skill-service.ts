@@ -14,7 +14,7 @@ import {
 import { basename, isAbsolute, join, relative, resolve } from 'node:path'
 
 import type { SkillDetail } from '@deskforge/contracts'
-import type { SkillManifest, SkillPermission } from '@deskforge/contracts'
+import type { SkillManifest, SkillPermission, SkillSource } from '@deskforge/contracts'
 
 import type { AppDatabase } from './database'
 
@@ -41,9 +41,10 @@ interface SkillRow {
   enabled: boolean
   permissions: SkillPermission[]
   updatedAt?: string
+  source?: SkillSource
 }
 
-interface ParsedSkill {
+export interface ParsedSkill {
   name: string
   description: string
   version: string
@@ -129,16 +130,25 @@ const parsePermissions = (value: unknown): SkillPermission[] => {
   return result
 }
 
-const splitFrontmatter = (raw: string): { metadata: Record<string, unknown>; instructions: string } => {
+const splitFrontmatter = (raw: string, strict = false): { metadata: Record<string, unknown>; instructions: string } => {
   const normalized = raw.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n')
-  if (!normalized.startsWith('---\n')) return { metadata: {}, instructions: normalized.trim() }
+  if (!normalized.startsWith('---\n')) {
+    if (strict) throw new Error(`${ENTRYPOINT} 需要以 YAML frontmatter 开头（第一行为 ---），并写明 name 和 description`)
+    return { metadata: {}, instructions: normalized.trim() }
+  }
 
   const end = normalized.indexOf('\n---\n', 4)
   const terminalEnd = normalized.endsWith('\n---') ? normalized.length - 4 : -1
   const endIndex = end >= 0 ? end : terminalEnd
-  if (endIndex < 0) throw new Error(`${ENTRYPOINT} 的 YAML frontmatter 未闭合`)
+  if (endIndex < 0) throw new Error(`${ENTRYPOINT} 的 YAML frontmatter 未闭合（缺少结尾的 ---）`)
 
-  const parsed = parseYaml(normalized.slice(4, endIndex))
+  let parsed: unknown
+  try {
+    parsed = parseYaml(normalized.slice(4, endIndex))
+  } catch (error) {
+    const detail = error instanceof Error ? error.message.split('\n')[0] : String(error)
+    throw new Error(`${ENTRYPOINT} 的 YAML frontmatter 解析失败：${detail}`)
+  }
   if (parsed !== null && parsed !== undefined && !isRecord(parsed)) {
     throw new Error(`${ENTRYPOINT} 的 YAML frontmatter 必须是对象`)
   }
@@ -146,10 +156,25 @@ const splitFrontmatter = (raw: string): { metadata: Record<string, unknown>; ins
   return { metadata: (parsed ?? {}) as Record<string, unknown>, instructions: normalized.slice(bodyOffset).trim() }
 }
 
-const parseSkillFile = async (directory: string): Promise<ParsedSkill> => {
+/**
+ * Parses SKILL.md content. `strict` (used for imports) requires frontmatter
+ * with explicit name and description plus a non-empty body.
+ */
+export const parseSkillMarkdown = (raw: string, fallbackName: string, strict = false): ParsedSkill => {
+  const { metadata, instructions } = splitFrontmatter(raw, strict)
+  if (strict && (typeof metadata.name !== 'string' || !metadata.name.trim())) throw new Error(`${ENTRYPOINT} 的 frontmatter 缺少 name`)
+  if (strict && (typeof metadata.description !== 'string' || !metadata.description.trim())) throw new Error(`${ENTRYPOINT} 的 frontmatter 缺少 description`)
+  if (strict && !instructions) throw new Error(`${ENTRYPOINT} 正文为空，请写明这个 Skill 的使用说明`)
+  return parsedFromMetadata(metadata, instructions, fallbackName)
+}
+
+const parseSkillFile = async (directory: string, strict = false): Promise<ParsedSkill> => {
   const raw = await readTextWithinLimit(join(directory, ENTRYPOINT))
-  const { metadata, instructions } = splitFrontmatter(raw)
-  const name = ensureValidName(metadata.name, basename(directory))
+  return parseSkillMarkdown(raw, basename(directory), strict)
+}
+
+const parsedFromMetadata = (metadata: Record<string, unknown>, instructions: string, fallbackName: string): ParsedSkill => {
+  const name = ensureValidName(metadata.name, fallbackName)
   const description = typeof metadata.description === 'string' ? metadata.description.trim() : ''
   if (!description) throw new Error('Skill description 不能为空')
   if (description.length > 1_024) throw new Error('Skill description 不能超过 1024 个字符')
@@ -172,6 +197,9 @@ const parseSkillFile = async (directory: string): Promise<ParsedSkill> => {
   }
 }
 
+/** Never copied into an installed skill: VCS metadata and Finder litter. */
+export const SKILL_IGNORED_ENTRIES = new Set(['.git', '.DS_Store'])
+
 const copyTree = async (source: string, destination: string, budget: CopyBudget): Promise<void> => {
   const sourceInfo = await lstat(source)
   if (sourceInfo.isSymbolicLink()) throw new Error(`Skill 包不能包含符号链接：${source}`)
@@ -179,7 +207,7 @@ const copyTree = async (source: string, destination: string, budget: CopyBudget)
     await mkdir(destination, { recursive: true, mode: 0o700 })
     const entries = await readdir(source, { withFileTypes: true })
     for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-      if (entry.name === '.' || entry.name === '..') continue
+      if (entry.name === '.' || entry.name === '..' || SKILL_IGNORED_ENTRIES.has(entry.name)) continue
       await copyTree(join(source, entry.name), join(destination, entry.name), budget)
     }
     return
@@ -237,6 +265,7 @@ const toManifest = (row: SkillRow): SkillManifest => {
     entrypoint: ENTRYPOINT,
   }
   if (row.updatedAt) manifest.loadedAt = row.updatedAt
+  if (row.source) manifest.source = row.source
   return manifest
 }
 
@@ -257,6 +286,7 @@ export class SkillService {
       enabled: Boolean(row.enabled),
       permissions: Array.isArray(row.permissions) ? row.permissions as SkillPermission[] : [],
       ...(typeof row.updatedAt === 'string' ? { updatedAt: row.updatedAt } : {}),
+      ...(row.source && typeof row.source === 'object' ? { source: row.source as SkillSource } : {}),
     }))
   }
 
@@ -337,14 +367,23 @@ export class SkillService {
   }
 
   async import(input: string | { directory: string }): Promise<SkillManifest> {
-    return this.importDirectory(typeof input === 'string' ? input : input.directory)
+    const directory = typeof input === 'string' ? input : input.directory
+    return this.importDirectory(directory, { source: { kind: 'folder', path: await realpath(resolve(directory)), importedAt: new Date().toISOString() }, strict: true })
   }
 
-  async importDirectory(directory: string): Promise<SkillManifest> {
+  /** Installed skill with the given name, if any. */
+  findByName(name: string): SkillManifest | undefined {
+    const root = resolve(this.skillsRoot)
+    const row = this.rows().find((candidate) => candidate.name === name && resolve(candidate.path) === join(root, name))
+      ?? this.rows().find((candidate) => candidate.name === name)
+    return row ? toManifest(row) : undefined
+  }
+
+  async importDirectory(directory: string, options: { source?: SkillSource; strict?: boolean } = {}): Promise<SkillManifest> {
     const source = await realpath(resolve(directory))
     const sourceInfo = await lstat(source)
     if (!sourceInfo.isDirectory()) throw new Error('请选择包含 SKILL.md 的目录')
-    const parsed = await parseSkillFile(source)
+    const parsed = await parseSkillFile(source, options.strict)
     const root = await this.canonicalRoot()
     const destination = join(root, parsed.name)
     if (!isWithin(root, destination)) throw new Error('非法的 Skill 目标路径')
@@ -383,6 +422,7 @@ export class SkillService {
         path: canonical,
         permissions: parsed.permissions,
         enabled: existing?.enabled ?? true,
+        ...(options.source ? { source: options.source } : {}),
       })
 
       const saved = this.rows().find((row) => row.path === canonical)
@@ -407,7 +447,7 @@ export class SkillService {
     return toManifest(this.rowById(id))
   }
 
-  async remove(input: string | { id: string }): Promise<void> {
+  async remove(input: string | { id: string }): Promise<SkillManifest> {
     const id = typeof input === 'string' ? input : input.id
     const row = this.rowById(id)
     const root = await this.canonicalRoot()
@@ -421,5 +461,6 @@ export class SkillService {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
     }
     this.database.db.prepare('DELETE FROM skills WHERE id=?').run(id)
+    return toManifest(row)
   }
 }

@@ -15,7 +15,9 @@ import {
   IsoDateTimeSchema,
   JsonValueSchema,
   McpServerConfigSchema,
-  McpTransportSchema,
+  McpToolSummarySchema,
+  McpTransportInputSchema,
+  SkillPermissionSchema,
   MemoryEntrySchema,
   ModelConnectionTestSchema,
   ModelConnectionDraftSchema,
@@ -47,7 +49,9 @@ import type {
   ChromeTabGrant,
   JsonValue,
   McpServerConfig,
+  McpToolSummary,
   McpTransport,
+  SkillPermission,
   MemoryEntry,
   MemoryScope,
   MemoryType,
@@ -163,12 +167,28 @@ export interface MemoryProposalInput {
   source: { kind: 'run' | 'message' | 'file' | 'user'; reference: string; excerpt?: string }
 }
 
+/** Transport as submitted by the settings form; `secretConfigured` is derived by the host. */
+export type McpTransportInput =
+  | Extract<McpTransport, { type: 'stdio' }>
+  | (Omit<Extract<McpTransport, { type: 'streamable_http' }>, 'secretConfigured'> & { secretConfigured?: boolean })
+
 export interface McpServerInput {
   id?: string
   name: string
   enabled: boolean
-  transport: McpTransport
+  transport: McpTransportInput
   toolNamespace: string
+  disabledTools?: string[]
+}
+
+/**
+ * Secret values submitted with a save. Keys must be declared in `envKeys` /
+ * `secretHeaderKeys`; an empty string keeps the value already stored.
+ */
+export interface McpSecretInput {
+  env?: Record<string, string>
+  headers?: Record<string, string>
+  bearer?: string
 }
 
 export interface McpConnectionTest {
@@ -176,7 +196,42 @@ export interface McpConnectionTest {
   latencyMs: number
   serverVersion?: string
   toolCount?: number
+  tools?: McpToolSummary[]
+  connectedVia?: 'stdio' | 'streamable_http' | 'sse'
   error?: { code: string; message: string; retryable: boolean }
+}
+
+export type SkillImportSource =
+  | { kind: 'folder'; path: string }
+  | { kind: 'git'; url: string; ref?: string; subpath?: string; commit?: string }
+
+export interface SkillImportFile {
+  path: string
+  size: number
+  kind: 'entry' | 'script' | 'reference' | 'asset'
+}
+
+export interface SkillImportPreview {
+  selectionId: string
+  expiresAt: string
+  source: SkillImportSource
+  name: string
+  description: string
+  version: string
+  permissions: SkillPermission[]
+  instructionsPreview: string
+  files: SkillImportFile[]
+  fileCount: number
+  totalBytes: number
+  scriptFiles: string[]
+  warnings: string[]
+  replaces?: { id: string; version: string; enabled: boolean }
+}
+
+export interface SkillGitImportInput {
+  url: string
+  ref?: string
+  subpath?: string
 }
 
 export interface SkillDetail {
@@ -346,9 +401,12 @@ export interface DesktopApi {
   }
   mcp: {
     list(): Promise<McpServerConfig[]>
-    upsert(input: McpServerInput & { secrets?: Record<string, string> }): Promise<McpServerConfig>
+    upsert(input: McpServerInput & { secrets?: McpSecretInput }): Promise<McpServerConfig>
     remove(input: { id: string }): Promise<void>
-    test(input: { id: string }): Promise<McpConnectionTest>
+    test(input: { id: string; workspaceId?: string }): Promise<McpConnectionTest>
+    setEnabled(input: { id: string; enabled: boolean }): Promise<McpServerConfig>
+    setToolEnabled(input: { id: string; toolName: string; enabled: boolean }): Promise<McpServerConfig>
+    chooseCwd(): Promise<string | null>
     startOAuth(input: { id: string }): Promise<{ authorizationUrl: string; state: string }>
     completeOAuth(input: { id: string; callbackUrl: string; state: string }): Promise<McpServerConfig>
   }
@@ -358,6 +416,11 @@ export interface DesktopApi {
     import(input: { directory: string }): Promise<SkillManifest>
     remove(input: { id: string }): Promise<void>
     setEnabled(input: { id: string; enabled: boolean }): Promise<SkillManifest>
+    previewFolder(): Promise<SkillImportPreview | null>
+    previewGit(input: SkillGitImportInput): Promise<SkillImportPreview>
+    previewUpdate(input: { id: string }): Promise<SkillImportPreview>
+    confirmImport(input: { selectionId: string }): Promise<SkillManifest>
+    cancelImport(input: { selectionId: string }): Promise<void>
   }
   automations: {
     list(input?: { workspaceId?: string }): Promise<AutomationSpec[]>
@@ -435,9 +498,12 @@ export interface DesktopInvokeMap {
   'memory:disable': { input: { id: string }; output: MemoryEntry }
   'memory:remove': { input: { id: string }; output: undefined }
   'mcp:list': { input: undefined; output: McpServerConfig[] }
-  'mcp:upsert': { input: McpServerInput & { secrets?: Record<string, string> }; output: McpServerConfig }
+  'mcp:upsert': { input: McpServerInput & { secrets?: McpSecretInput }; output: McpServerConfig }
   'mcp:remove': { input: { id: string }; output: undefined }
-  'mcp:test': { input: { id: string }; output: McpConnectionTest }
+  'mcp:test': { input: { id: string; workspaceId?: string }; output: McpConnectionTest }
+  'mcp:set-enabled': { input: { id: string; enabled: boolean }; output: McpServerConfig }
+  'mcp:set-tool-enabled': { input: { id: string; toolName: string; enabled: boolean }; output: McpServerConfig }
+  'mcp:choose-cwd': { input: undefined; output: string | null }
   'mcp:start-oauth': { input: { id: string }; output: { authorizationUrl: string; state: string } }
   'mcp:complete-oauth': { input: { id: string; callbackUrl: string; state: string }; output: McpServerConfig }
   'skills:list': { input: undefined; output: SkillManifest[] }
@@ -445,6 +511,11 @@ export interface DesktopInvokeMap {
   'skills:import': { input: { directory: string }; output: SkillManifest }
   'skills:remove': { input: { id: string }; output: undefined }
   'skills:set-enabled': { input: { id: string; enabled: boolean }; output: SkillManifest }
+  'skills:preview-folder': { input: undefined; output: SkillImportPreview | null }
+  'skills:preview-git': { input: SkillGitImportInput; output: SkillImportPreview }
+  'skills:preview-update': { input: { id: string }; output: SkillImportPreview }
+  'skills:confirm-import': { input: { selectionId: string }; output: SkillManifest }
+  'skills:cancel-import': { input: { selectionId: string }; output: undefined }
   'automations:list': { input: { workspaceId?: string } | undefined; output: AutomationSpec[] }
   'automations:upsert': { input: AutomationInput; output: AutomationSpec }
   'automations:remove': { input: { id: string }; output: undefined }
@@ -471,6 +542,43 @@ export type DesktopInvoker = <C extends DesktopInvokeChannel>(
 
 const VoidSchema = z.undefined()
 const ByIdSchema = z.object({ id: IdSchema }).strict()
+
+const McpStringMap = z.record(z.string().max(256), z.string().max(8192))
+export const McpSecretInputSchema = z.object({
+  env: McpStringMap.optional(),
+  headers: McpStringMap.optional(),
+  bearer: z.string().max(8192).optional(),
+}).strict()
+
+export const McpServerInputSchema = z.object({
+  id: IdSchema.optional(),
+  name: z.string().min(1).max(128),
+  enabled: z.boolean(),
+  transport: McpTransportInputSchema,
+  toolNamespace: z.string().regex(/^[a-zA-Z][a-zA-Z0-9_-]*$/).max(64),
+  disabledTools: z.array(z.string().min(1).max(256)).max(512).optional(),
+  secrets: McpSecretInputSchema.optional(),
+}).strict()
+
+export const SkillImportPreviewSchema = z.object({
+  selectionId: IdSchema,
+  expiresAt: IsoDateTimeSchema,
+  source: z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('folder'), path: z.string().min(1) }).strict(),
+    z.object({ kind: z.literal('git'), url: z.string().url(), ref: z.string().optional(), subpath: z.string().optional(), commit: z.string().optional() }).strict(),
+  ]),
+  name: z.string().min(1),
+  description: z.string(),
+  version: z.string().min(1),
+  permissions: z.array(SkillPermissionSchema),
+  instructionsPreview: z.string(),
+  files: z.array(z.object({ path: z.string().min(1), size: z.number().int().nonnegative(), kind: z.enum(['entry', 'script', 'reference', 'asset']) }).strict()),
+  fileCount: z.number().int().nonnegative(),
+  totalBytes: z.number().int().nonnegative(),
+  scriptFiles: z.array(z.string()),
+  warnings: z.array(z.string()),
+  replaces: z.object({ id: IdSchema, version: z.string(), enabled: z.boolean() }).strict().optional(),
+}).strict()
 const AuditFilterSchema = z.object({
   runId: IdSchema.optional(),
   category: z.string().min(1).max(64).optional(),
@@ -604,9 +712,12 @@ export const DesktopInvokeContracts: Record<DesktopInvokeChannel, { input: z.Zod
   'memory:disable': { input: ByIdSchema, output: MemoryEntrySchema },
   'memory:remove': { input: ByIdSchema, output: VoidSchema },
   'mcp:list': { input: VoidSchema, output: z.array(McpServerConfigSchema) },
-  'mcp:upsert': { input: z.object({ id: IdSchema.optional(), name: z.string().min(1), enabled: z.boolean(), transport: McpTransportSchema, toolNamespace: z.string().regex(/^[a-zA-Z][a-zA-Z0-9_-]*$/), secrets: z.record(z.string(), z.string()).optional() }).strict(), output: McpServerConfigSchema },
+  'mcp:upsert': { input: McpServerInputSchema, output: McpServerConfigSchema },
   'mcp:remove': { input: ByIdSchema, output: VoidSchema },
-  'mcp:test': { input: ByIdSchema, output: z.object({ ok: z.boolean(), latencyMs: z.number().int().nonnegative(), serverVersion: z.string().optional(), toolCount: z.number().int().nonnegative().optional(), error: z.object({ code: z.string(), message: z.string(), retryable: z.boolean() }).strict().optional() }).strict() },
+  'mcp:test': { input: z.object({ id: IdSchema, workspaceId: IdSchema.optional() }).strict(), output: z.object({ ok: z.boolean(), latencyMs: z.number().int().nonnegative(), serverVersion: z.string().optional(), toolCount: z.number().int().nonnegative().optional(), tools: z.array(McpToolSummarySchema).optional(), connectedVia: z.enum(['stdio', 'streamable_http', 'sse']).optional(), error: z.object({ code: z.string(), message: z.string(), retryable: z.boolean() }).strict().optional() }).strict() },
+  'mcp:set-enabled': { input: z.object({ id: IdSchema, enabled: z.boolean() }).strict(), output: McpServerConfigSchema },
+  'mcp:set-tool-enabled': { input: z.object({ id: IdSchema, toolName: z.string().min(1).max(256), enabled: z.boolean() }).strict(), output: McpServerConfigSchema },
+  'mcp:choose-cwd': { input: VoidSchema, output: z.string().nullable() },
   'mcp:start-oauth': { input: ByIdSchema, output: z.object({ authorizationUrl: z.string().url(), state: z.string().min(1) }).strict() },
   'mcp:complete-oauth': { input: z.object({ id: IdSchema, callbackUrl: z.string().url(), state: z.string().min(1) }).strict(), output: McpServerConfigSchema },
   'skills:list': { input: VoidSchema, output: z.array(SkillManifestSchema) },
@@ -614,6 +725,11 @@ export const DesktopInvokeContracts: Record<DesktopInvokeChannel, { input: z.Zod
   'skills:import': { input: z.object({ directory: z.string().min(1) }).strict(), output: SkillManifestSchema },
   'skills:remove': { input: ByIdSchema, output: VoidSchema },
   'skills:set-enabled': { input: z.object({ id: IdSchema, enabled: z.boolean() }).strict(), output: SkillManifestSchema },
+  'skills:preview-folder': { input: VoidSchema, output: SkillImportPreviewSchema.nullable() },
+  'skills:preview-git': { input: z.object({ url: z.string().min(1).max(2048), ref: z.string().max(256).optional(), subpath: z.string().max(1024).optional() }).strict(), output: SkillImportPreviewSchema },
+  'skills:preview-update': { input: ByIdSchema, output: SkillImportPreviewSchema },
+  'skills:confirm-import': { input: z.object({ selectionId: IdSchema }).strict(), output: SkillManifestSchema },
+  'skills:cancel-import': { input: z.object({ selectionId: IdSchema }).strict(), output: VoidSchema },
   'automations:list': { input: OptionalByWorkspaceSchema, output: z.array(AutomationSpecSchema) },
   'automations:upsert': { input: z.object({ id: IdSchema.optional(), workspaceId: IdSchema, name: z.string().min(1), enabled: z.boolean(), objective: z.string().min(1), modelProfileId: IdSchema, schedule: AutomationScheduleSchema }).strict(), output: AutomationSpecSchema },
   'automations:remove': { input: ByIdSchema, output: VoidSchema },

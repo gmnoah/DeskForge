@@ -22,6 +22,7 @@ import {
 import { MODEL_PROVIDER_META } from './model-meta'
 import { connectionTestFailure, describeConnectionTest, type ConnectionTestView } from './connection-test'
 import { ConnectionTestNotice } from './ConnectionTestNotice'
+import { McpServersPanel } from '../mcp/McpServersPanel'
 
 type Perform = <T>(
   action: () => Promise<T>,
@@ -38,6 +39,7 @@ function formatBytes(value?: number) {
 
 export function SettingsPage({ snapshot, selectedWorkspaceId, perform, onWorkspaceAdded, onWorkspaceSelected, onOpenAudit }: { snapshot: WorkbenchSnapshot; selectedWorkspaceId: string | undefined; perform: Perform; onWorkspaceAdded: () => void; onWorkspaceSelected: (id: string) => void; onOpenAudit: () => void }) {
   const [modelOpen, setModelOpen] = useState(false)
+  const [mcpEditorOpen, setMcpEditorOpen] = useState(false)
   const [provider, setProvider] = useState<ModelProvider>('deepseek')
   const [name, setName] = useState('DeepSeek')
   const [modelId, setModelId] = useState(MODEL_PROVIDER_META.deepseek.defaultModelId)
@@ -154,6 +156,10 @@ export function SettingsPage({ snapshot, selectedWorkspaceId, perform, onWorkspa
 
       <SettingsSection icon="folder" title="工作区" description="DeskForge 只能通过文件工具访问你明确授权的工作区，不会默认使用磁盘根目录 /。" action={<button type="button" className="button secondary small" onClick={() => void addWorkspace()}><Icon name="plus" />添加工作区</button>}>
         <div className="workspace-settings-list">{snapshot.workspaces.map((workspace) => <div key={workspace.id} className={workspace.id === selectedWorkspaceId ? 'is-selected' : ''}><span className="folder-symbol"><Icon name="folder" /></span><span><strong>{workspace.name}</strong><small>{workspace.path}</small></span>{workspace.id === selectedWorkspaceId ? <span className="default-pill">当前</span> : <button type="button" className="text-button" onClick={() => onWorkspaceSelected(workspace.id)}>切换</button>}<IconButton icon="edit" label="编辑工作区规则" onClick={() => { setRulesWorkspace(workspace); setRulesText(typeof workspace.rules === 'string' ? workspace.rules : '') }} /><IconButton icon="trash" label="移除工作区授权" onClick={() => void perform(() => bridge.removeWorkspace(workspace.id), '工作区授权已移除')} /></div>)}</div>
+      </SettingsSection>
+
+      <SettingsSection icon="plug" title="MCP 连接" description="添加 stdio 或 Streamable HTTP 的 MCP Server。密钥使用系统加密保存；调用 MCP 工具每次都需要你批准。" action={<button type="button" className="button secondary small" onClick={() => setMcpEditorOpen(true)}><Icon name="plus" />添加 MCP Server</button>}>
+        <McpServersPanel servers={snapshot.mcpServers} workspaceId={selectedWorkspaceId} perform={perform} editorOpen={mcpEditorOpen} onEditorOpenChange={setMcpEditorOpen} />
       </SettingsSection>
 
       <SettingsSection icon="skill" title="本地能力包" description="组合 Skills、MCP 配置、规则和模板；安装前会显示命令、环境和权限，不允许 JavaScript 注入。" action={<button type="button" className="button secondary small" onClick={() => void chooseCapabilityPackage()}><Icon name="plus" />选择能力包</button>}>

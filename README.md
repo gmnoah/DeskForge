@@ -97,20 +97,82 @@ API Key 在设置或引导里填写。macOS 上由系统钥匙串（Electron `sa
   - 查看哈希链校验结果（逐条重算哈希，并检查与前一条的链接）；
   - 通过保存对话框导出为 JSON、CSV 或 Markdown（导出内容带 `prevHash` / `entryHash` 和校验结果，并经过脱敏）。
 
+## MCP 连接
+
+在「设置 → MCP 连接」（或「资料库 → 连接」）里可以添加、编辑、删除、启用或停用 MCP Server。
+
+- **stdio**：填写启动命令、参数（按空格分隔，含空格的参数加引号）、环境变量和工作目录。
+  - 工作目录有三种：「独立目录」（默认，每个 Server 一个空目录，位于应用数据目录的 `mcp-servers/<id>`）、「当前工作区」（在任务所在的工作区里运行，没有工作区时拒绝启动），以及「指定文件夹」。指定的文件夹必须是通过「选择文件夹」对话框选的，或者位于已授权的工作区内；不能是磁盘根目录或个人主目录。启动时会重新解析路径，被替换成软链接的目录会被拒绝。
+  - Server 进程继承的系统环境会先去掉名称含 `TOKEN`、`SECRET`、`API_KEY`、`PASSWORD`、`COOKIE` 等的变量，再加上你配置的环境变量；DeskForge 的模型 Key 不在环境变量里，也不会传给它。`LD_*`、`DYLD_*`、`NODE_OPTIONS` 等能改变加载行为的变量不允许设置。
+  - stdio Server 以当前系统用户身份运行，**不是沙箱**，只添加你信任的命令。
+- **Streamable HTTP**：填写 Server URL（必须是 HTTPS；只有 `localhost` / `127.0.0.1` 允许 http）、普通 Header 和认证方式（无、Bearer Token、自定义加密 Header、OAuth）。勾选「旧版 SSE 兼容」后，如果服务器对 Streamable HTTP 返回 4xx（401/403 除外），会改用 SSE 传输重试一次。
+- **密钥**：环境变量和 Header 每一行都有「加密保存」选项。勾选后，值用 Electron `safeStorage` 加密存进本机数据库，配置里只保留名称；界面不会回显，编辑时留空表示保留原值。名称像密钥（含 `TOKEN`、`SECRET`、`API_KEY`、`PASSWORD`、`Authorization` 等）却没有勾选时，保存会失败并提示「请勾选加密保存」。连接错误里出现的密钥值会被替换成 `[REDACTED]`；审计日志只记录密钥名称，不记录值。
+- **测试连接**：会真正启动或连接 Server，列出发现的工具，并显示连接方式（stdio / Streamable HTTP / SSE）、耗时和版本。每个工具都可以单独停用；停用的工具不会出现在 Agent 的工具列表里，调用会被直接拒绝。
+- **审批**：`mcp_list_tools` 是只读操作，自动执行。`mcp_call_tool` 属于 `external_side_effect`，**每次调用都要你批准**，不提供「本工作相同参数」和「本会话总是允许」两种范围，也不会被会话规则自动放行。Server 自己声明的 `readOnlyHint` 等标注只作展示，不影响审批。
+
+示例：本地文件检索（stdio）和团队知识库（HTTP）。界面表单最终提交的就是这种结构；本地能力包里的 `mcp/*.json` 也用同样的格式，但不能包含 `id`、`secrets`、自定义工作目录或需要密钥的认证，这些要在安装后到设置里补充。
+
+```json
+[
+  {
+    "name": "本地文件检索",
+    "enabled": true,
+    "toolNamespace": "files",
+    "transport": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "."],
+      "env": { "LOG_LEVEL": "info" },
+      "envKeys": [],
+      "cwdMode": "workspace"
+    }
+  },
+  {
+    "name": "团队知识库",
+    "enabled": true,
+    "toolNamespace": "kb",
+    "transport": {
+      "type": "streamable_http",
+      "url": "https://kb.example.com/mcp",
+      "auth": "bearer",
+      "headers": { "x-team": "office" },
+      "secretHeaderKeys": ["x-api-key"],
+      "sseFallback": true
+    }
+  }
+]
+```
+
+上例中 Bearer Token 和 `x-api-key` 的值在界面里填写，只以加密形式保存，不会出现在配置 JSON 中。
+
+## 导入 Skill
+
+在「资料库 → 技能」里导入、更新、启停和移除 Skill。
+
+- **从文件夹导入**：选择根目录包含 `SKILL.md` 的文件夹。
+- **从 Git 导入**：填写仓库地址，可选分支 / 标签和子目录（如 `skills/weekly-report`）。
+  - 只接受公开的 `https://` 地址；`git@`、`ssh://`、`file://`、带用户名或令牌的地址、本机和内网地址都会被拒绝。
+  - DeskForge 用 `git clone --depth 1` 浅克隆到临时目录，并关闭 Git 钩子、子模块、LFS 下载、凭据助手和交互式登录，只允许 HTTPS 协议。子目录不能包含 `..`、绝对路径或软链接。
+- **先预览再安装**：预览列出名称、版本（更新时显示旧版本 → 新版本）、来源（Git 会记录 commit）、权限声明、全部文件（脚本单独标出）和提醒。确认前不会安装；确认时会重新校验文件指纹，预览后有改动就要求重新预览。导入只复制文件，**不会执行任何脚本**。
+- **校验**：`SKILL.md` 必须以 YAML frontmatter 开头，包含 `name`、`description` 和非空正文。任何位置的软链接、设备文件、单个超过 10 MB 或总计超过 50 MB 的内容都会被拒绝，错误信息为中文，例如「Skill 包不能包含符号链接：references/leak.txt」「SKILL.md 缺少 name」。
+- **更新**：从文件夹或 Git 导入的 Skill 可以「更新」，即按记录的来源重新导入。名称必须不变，启用状态保持不变。内置 Skill 随应用更新。
+- **移除**：移除只删除 DeskForge 里的副本，不影响原文件夹或仓库。移除的内置 Skill 不会在下次启动时自动装回。
+
 ## 项目结构
 
 ```
 DeskForge/
 ├── apps/desktop/               Electron 应用
-│   ├── src/main/               主进程：IPC、SQLite、策略与审批、任务调度、密钥加密
+│   ├── src/main/               主进程：IPC、SQLite、策略与审批、任务调度、密钥加密、MCP 与 Skill 导入
+│   ├── resources/skills/       内置 Skill
 │   ├── src/preload/            受限的 renderer ↔ main 桥（只暴露白名单通道）
 │   ├── src/renderer/           React 界面（引导、对话、设置、检查面板）
-│   └── src/workers/            utilityProcess：agent-host（模型与 Agent 循环）、tool-runner（工具执行）
+│   └── src/workers/            utilityProcess：agent-host（模型与 Agent 循环）、tool-runner（工具执行、MCP 客户端）
 │       ├── provider-compat.ts  各服务商 OpenAI 兼容差异（思考模式、tool_choice、采样参数、旧模型映射）
 │       └── agent-host-runtime.ts  pi-ai 运行时、请求守卫、连接测试
 ├── packages/contracts/         zod schema 与类型：IPC、worker 协议、公共数据结构
-├── packages/core/              纯逻辑：路径守卫、风险策略、diff、会话规则、状态机、脱敏、模型错误分类
-├── skills/examples/            随应用安装的示例 Skill
+├── packages/core/              纯逻辑：路径守卫、风险策略、diff、会话规则、状态机、脱敏、模型错误分类、MCP 配置校验
+├── skills/examples/            示例 Skill（与内置 Skill 相同，可作为编写模板）
 ├── docs/ROADMAP.md             路线图
 └── .github/workflows/ci.yml    CI：push / PR 时运行安装、typecheck 和测试
 ```
@@ -146,7 +208,17 @@ pnpm package
 
 ## 示例 Skills
 
-`skills/examples/workspace-summary`（工作区总结）和 `skills/examples/safe-shell`（安全 Shell 使用说明）会随应用安装到本机的 Skills 目录。它们只作用于当前工作区，并要求 Shell 操作走审批。
+下面这些 Skill 随应用安装（源文件在 `apps/desktop/resources/skills/`，`skills/examples/` 里有同样的副本），都只读写当前工作区和任务附件，不联网：
+
+| Skill | 用途 |
+| --- | --- |
+| `weekly-report` | 从日报、待办、会议记录里整理周报 / 日报，每条可追溯到素材 |
+| `meeting-minutes` | 把转写稿或速记整理成会议纪要，提取决议、待办（负责人、截止时间）和未决问题 |
+| `document-key-points` | 提取合同、制度等文档的要点和风险提示，标注原文出处（不构成法律意见） |
+| `spreadsheet-summary` | 按维度汇总 CSV / TSV 数据并做总计核对；数据量大时只用 Python 标准库脚本，运行需批准 |
+| `repo-overview` | 只读浏览代码仓库，输出技术栈、结构、入口和上手建议 |
+| `workspace-summary` | 总结当前工作区的目录、关键文件和近期变化 |
+| `safe-shell` | 说明如何在工作区内安全使用 Shell |
 
 ## 许可
 

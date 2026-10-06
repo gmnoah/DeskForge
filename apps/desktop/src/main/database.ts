@@ -356,6 +356,16 @@ export class AppDatabase {
     if (!mcpColumns.some((column) => column.name === 'last_checked_at')) {
       this.db.exec('ALTER TABLE mcp_servers ADD COLUMN last_checked_at TEXT')
     }
+    if (!mcpColumns.some((column) => column.name === 'tools_json')) {
+      this.db.exec('ALTER TABLE mcp_servers ADD COLUMN tools_json TEXT')
+    }
+    if (!mcpColumns.some((column) => column.name === 'connected_via')) {
+      this.db.exec('ALTER TABLE mcp_servers ADD COLUMN connected_via TEXT')
+    }
+    const skillColumns = this.db.pragma('table_info(skills)') as Array<{ name: string }>
+    if (!skillColumns.some((column) => column.name === 'source_json')) {
+      this.db.exec('ALTER TABLE skills ADD COLUMN source_json TEXT')
+    }
     // A provider tool-call id identifies a call only inside the provider's
     // conversation/response. Some providers restart their generated counter
     // for every new run or resumed turn (for example `web_search_0`), so it
@@ -938,15 +948,33 @@ export class AppDatabase {
     } catch { return [] }
   }
 
-  listMcpServers(): any[] { return (this.db.prepare('SELECT * FROM mcp_servers ORDER BY name').all() as any[]).map(({ encrypted_secret: _secret, ...m }) => ({ ...m, config: parse(m.config_json, {}), enabled: Boolean(m.enabled), hasSecret: Boolean(_secret), createdAt: m.created_at, updatedAt: m.updated_at })) }
-  getMcpServer(id: string): any { const m = this.db.prepare('SELECT * FROM mcp_servers WHERE id=?').get(id) as any; return m ? { ...m, config: parse(m.config_json, {}) } : undefined }
-  saveMcpServer(input: any, encryptedSecret?: Buffer): string {
+  listMcpServers(): any[] { return (this.db.prepare('SELECT * FROM mcp_servers ORDER BY name').all() as any[]).map(({ encrypted_secret: _secret, ...m }) => ({ ...m, config: parse(m.config_json, {}), tools: parse(m.tools_json, undefined), enabled: Boolean(m.enabled), hasSecret: Boolean(_secret), createdAt: m.created_at, updatedAt: m.updated_at })) }
+  getMcpServer(id: string): any { const m = this.db.prepare('SELECT * FROM mcp_servers WHERE id=?').get(id) as any; return m ? { ...m, config: parse(m.config_json, {}), tools: parse(m.tools_json, undefined), enabled: Boolean(m.enabled), hasSecret: Boolean(m.encrypted_secret) } : undefined }
+  /** `encryptedSecret`: a Buffer replaces, `null` clears, `undefined` keeps the stored secret. */
+  saveMcpServer(input: any, encryptedSecret?: Buffer | null): string {
     const id = input.id ?? randomUUID(); const timestamp = now()
-    const existing = this.db.prepare('SELECT encrypted_secret FROM mcp_servers WHERE id=?').get(id) as any
+    const existing = this.db.prepare('SELECT encrypted_secret,config_json FROM mcp_servers WHERE id=?').get(id) as any
+    const secret = encryptedSecret === undefined ? existing?.encrypted_secret ?? null : encryptedSecret
+    const configJson = json(input.config)
     this.db.prepare(`INSERT INTO mcp_servers(id,name,transport,config_json,encrypted_secret,enabled,created_at,updated_at)
       VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,transport=excluded.transport,config_json=excluded.config_json,encrypted_secret=excluded.encrypted_secret,enabled=excluded.enabled,updated_at=excluded.updated_at`)
-      .run(id, input.name, input.transport, json(input.config), encryptedSecret ?? existing?.encrypted_secret ?? null, input.enabled === false ? 0 : 1, timestamp, timestamp)
+      .run(id, input.name, input.transport, configJson, secret, input.enabled === false ? 0 : 1, timestamp, timestamp)
+    if (existing && existing.config_json !== configJson) {
+      // Connection settings changed: the last health check no longer applies.
+      this.db.prepare("UPDATE mcp_servers SET health='unknown',last_error=NULL WHERE id=?").run(id)
+    }
     return id
+  }
+  setMcpEnabled(id: string, enabled: boolean): void {
+    const result = this.db.prepare('UPDATE mcp_servers SET enabled=?,updated_at=? WHERE id=?').run(enabled ? 1 : 0, now(), id)
+    if (result.changes !== 1) throw new Error('MCP Server 不存在')
+  }
+  setMcpConfig(id: string, config: Json): void {
+    const result = this.db.prepare('UPDATE mcp_servers SET config_json=?,updated_at=? WHERE id=?').run(json(config), now(), id)
+    if (result.changes !== 1) throw new Error('MCP Server 不存在')
+  }
+  updateMcpTools(id: string, tools: Json, connectedVia?: string): void {
+    this.db.prepare('UPDATE mcp_servers SET tools_json=?,connected_via=?,updated_at=? WHERE id=?').run(json(tools), connectedVia ?? null, now(), id)
   }
   setMcpEncryptedSecret(id: string, encryptedSecret: Buffer | null): void {
     const result = this.db.prepare('UPDATE mcp_servers SET encrypted_secret=?,updated_at=? WHERE id=?').run(encryptedSecret, now(), id)
@@ -959,15 +987,15 @@ export class AppDatabase {
   }
   removeMcpServer(id: string): void { this.db.prepare('DELETE FROM mcp_servers WHERE id=?').run(id) }
 
-  listSkills(): any[] { return (this.db.prepare('SELECT * FROM skills ORDER BY name').all() as any[]).map((s) => ({ ...s, permissions: parse(s.permissions_json, []), enabled: Boolean(s.enabled), createdAt: s.created_at, updatedAt: s.updated_at })) }
+  listSkills(): any[] { return (this.db.prepare('SELECT * FROM skills ORDER BY name').all() as any[]).map((s) => ({ ...s, permissions: parse(s.permissions_json, []), source: parse(s.source_json, undefined), enabled: Boolean(s.enabled), createdAt: s.created_at, updatedAt: s.updated_at })) }
   getSkill(id: string): any | undefined { const s = this.db.prepare('SELECT * FROM skills WHERE id=?').get(id) as any; return s ? { ...s, permissions: parse(s.permissions_json, []), enabled: Boolean(s.enabled), createdAt: s.created_at, updatedAt: s.updated_at } : undefined }
   setSkillEnabled(id: string, enabled: boolean): void { this.db.prepare('UPDATE skills SET enabled=?,updated_at=? WHERE id=?').run(enabled ? 1 : 0, now(), id) }
   removeSkill(id: string): void { this.db.prepare('DELETE FROM skills WHERE id=?').run(id) }
   upsertSkill(input: any): string {
     const id = input.id ?? randomUUID(); const timestamp = now()
-    this.db.prepare(`INSERT INTO skills(id,name,description,version,scope,path,permissions_json,enabled,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)
-      ON CONFLICT(path) DO UPDATE SET name=excluded.name,description=excluded.description,version=excluded.version,scope=excluded.scope,permissions_json=excluded.permissions_json,enabled=excluded.enabled,updated_at=excluded.updated_at`)
-      .run(id, input.name, input.description, input.version ?? '1.0.0', input.scope ?? 'user', input.path, json(input.permissions ?? []), input.enabled === false ? 0 : 1, timestamp, timestamp)
+    this.db.prepare(`INSERT INTO skills(id,name,description,version,scope,path,permissions_json,enabled,source_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)
+      ON CONFLICT(path) DO UPDATE SET name=excluded.name,description=excluded.description,version=excluded.version,scope=excluded.scope,permissions_json=excluded.permissions_json,enabled=excluded.enabled,source_json=COALESCE(excluded.source_json,skills.source_json),updated_at=excluded.updated_at`)
+      .run(id, input.name, input.description, input.version ?? '1.0.0', input.scope ?? 'user', input.path, json(input.permissions ?? []), input.enabled === false ? 0 : 1, input.source === undefined ? null : json(input.source), timestamp, timestamp)
     return id
   }
 

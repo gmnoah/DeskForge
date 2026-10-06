@@ -32,9 +32,11 @@ export interface PreparedMcpConnection {
     command: string
     args: string[]
     cwd?: string
+    /** Non-secret variables from the server config. */
+    environment: Record<string, string>
     secretEnvironment: Record<string, string>
   }
-  http?: { url: URL; headers: Record<string, string> }
+  http?: { url: URL; headers: Record<string, string>; sseFallback: boolean }
 }
 
 export interface ClosableConnection {
@@ -782,6 +784,8 @@ const validateHeaderRecord = (value: unknown): Record<string, string> => {
   return result
 }
 
+const BLOCKED_MCP_ENV = /^(?:LD_|DYLD_)|^(?:NODE_OPTIONS|NODE_PATH|ELECTRON_RUN_AS_NODE|ELECTRON_NO_ATTACH_CONSOLE|PYTHONSTARTUP|PERL5OPT|RUBYOPT|BASH_ENV|ENV)$/i
+
 const secretRecord = (server: Record<string, unknown>): Record<string, unknown> | undefined => plainRecord(server.secret ?? server.secrets)
 
 const firstString = (...values: unknown[]): string | undefined => values.find((value): value is string => typeof value === 'string' && value.length > 0)
@@ -817,10 +821,16 @@ export function prepareMcpConnection(server: Record<string, unknown>): PreparedM
     const nestedEnvironment = plainRecord(secrets?.env)
     const secretEnvironment: Record<string, string> = {}
     for (const key of envKeys) {
-      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) throw new Error(`MCP 环境变量名无效：${key}`)
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key) || BLOCKED_MCP_ENV.test(key)) throw new Error(`MCP 环境变量名无效：${key}`)
       const value = firstString(nestedEnvironment?.[key], secrets?.[key])
       if (!value) throw new Error(`MCP 缺少允许注入的 Secret：${key}`)
       secretEnvironment[key] = value
+    }
+    const environment: Record<string, string> = {}
+    for (const [key, value] of Object.entries(plainRecord(config.env) ?? {})) {
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key) || BLOCKED_MCP_ENV.test(key)) throw new Error(`MCP 环境变量名无效：${key}`)
+      if (typeof value !== 'string' || value.includes('\u0000')) throw new Error(`MCP 环境变量值无效：${key}`)
+      environment[key] = value
     }
     return {
       fingerprint,
@@ -829,6 +839,7 @@ export function prepareMcpConnection(server: Record<string, unknown>): PreparedM
         command: config.command,
         args,
         ...(typeof config.cwd === 'string' && config.cwd ? { cwd: config.cwd } : {}),
+        environment,
         secretEnvironment,
       },
     }
@@ -846,10 +857,20 @@ export function prepareMcpConnection(server: Record<string, unknown>): PreparedM
     if (!token) throw new Error(auth === 'oauth' ? 'MCP OAuth access token 缺失' : 'MCP Bearer token 缺失')
     if (/[\r\n]/.test(token)) throw new Error('MCP access token 包含非法换行')
     headers.authorization = `Bearer ${token}`
-  } else if (auth === 'headers') {
-    Object.assign(headers, customSecretHeaders(secret))
-  } else if (auth !== 'none') {
+  } else if (auth !== 'headers' && auth !== 'none') {
     throw new Error(`不支持的 MCP HTTP 认证类型：${auth}`)
   }
-  return { fingerprint, transport: 'http', http: { url, headers } }
+  const secretHeaderKeys = Array.isArray(config.secretHeaderKeys) ? config.secretHeaderKeys.filter((key): key is string => typeof key === 'string') : []
+  if (auth === 'headers' || secretHeaderKeys.length) {
+    const provided = customSecretHeaders(secret)
+    // Legacy `headers` auth without declared names injects every stored header.
+    const allowed = secretHeaderKeys.length ? new Set(secretHeaderKeys.map((key) => key.toLowerCase())) : undefined
+    for (const [name, value] of Object.entries(provided)) {
+      if (allowed && !allowed.has(name)) continue
+      if (name === 'authorization' && headers.authorization) throw new Error('Authorization Header 已由认证方式提供')
+      headers[name] = value
+    }
+    for (const key of allowed ?? []) if (!(key in headers)) throw new Error(`MCP 缺少加密 Header：${key}`)
+  }
+  return { fingerprint, transport: 'http', http: { url, headers, sseFallback: config.sseFallback !== false } }
 }

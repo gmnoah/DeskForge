@@ -9,6 +9,9 @@ import { ChromeBridge } from './chrome-bridge'
 import { ToolBroker } from './tool-broker'
 import { RunCoordinator } from './run-coordinator'
 import { SkillService } from './skill-service'
+import { SkillImportService } from './skill-import'
+import { McpService } from './mcp-service'
+import { BUNDLED_SKILL_NAMES, REMOVED_BUNDLED_SKILLS_SETTING } from './bundled-skills'
 import { configureAutoUpdates } from './update-service'
 import { AutomationService } from './automation-service'
 import { IpcApi } from './ipc-api'
@@ -141,6 +144,11 @@ async function initialize(): Promise<void> {
     notify('任务已恢复为暂停状态', `${startupRecovery.pausedRuns} 个未完成任务可从原记录继续。`)
   }
   const oauthRef: { current?: McpOAuthService } = {}
+  const refreshMcpOAuth = async (serverId: string, serverUrl: string): Promise<void> => {
+    if (!oauthRef.current) throw new Error('MCP OAuth 服务尚未初始化')
+    await oauthRef.current.refreshOAuthIfNeeded(serverId, serverUrl)
+  }
+  const mcp = new McpService(database, secrets, runner, { isolatedRoot: join(userData, 'mcp-servers'), refreshOAuth: refreshMcpOAuth })
   const documentRenderer = new DocumentRenderService(runner, artifacts)
   const broker = new ToolBroker(
     database,
@@ -150,11 +158,9 @@ async function initialize(): Promise<void> {
     secrets,
     (event) => coordinatorInstance().emit(event),
     (input) => coordinatorInstance().delegate(input),
-    async (serverId, serverUrl) => {
-      if (!oauthRef.current) throw new Error('MCP OAuth 服务尚未初始化')
-      await oauthRef.current.refreshOAuthIfNeeded(serverId, serverUrl)
-    },
+    refreshMcpOAuth,
     documentRenderer,
+    mcp,
   )
   const coordinator = new RunCoordinator(database, secrets, host, runner, broker, artifacts, broadcast, notify)
   coordinatorRef.current = coordinator
@@ -174,13 +180,14 @@ async function initialize(): Promise<void> {
   const skills = new SkillService(database, join(userData, 'skills'))
   await skills.scan()
   const installedSkillNames = new Set((await skills.list()).map((skill) => skill.name))
-  for (const skillName of ['data-analysis', 'document-export', 'workspace-summary', 'safe-shell']) {
-    if (installedSkillNames.has(skillName)) continue
+  const removedBundled = new Set(database.getSetting<string[]>(REMOVED_BUNDLED_SKILLS_SETTING, []))
+  for (const skillName of BUNDLED_SKILL_NAMES) {
+    if (installedSkillNames.has(skillName) || removedBundled.has(skillName)) continue
     const bundledSkill = app.isPackaged
       ? join(process.resourcesPath, 'BundledSkills', skillName)
       : join(app.getAppPath(), 'resources', 'skills', skillName)
     try {
-      await skills.importDirectory(bundledSkill)
+      await skills.importDirectory(bundledSkill, { source: { kind: 'bundled' } })
     } catch (error) {
       database.audit('skill', 'install_bundled', `内置 ${skillName} Skill 安装失败`, {
         actor: 'system', outcome: 'failed', target: bundledSkill,
@@ -202,7 +209,8 @@ async function initialize(): Promise<void> {
     },
   })
   oauthRef.current = oauth
-  const api = new IpcApi(database, secrets, host, runner, coordinator, broker, chrome, skills, automations, oauth, artifacts)
+  const skillImports = new SkillImportService(skills, { tempRoot: join(userData, 'skill-imports') })
+  const api = new IpcApi(database, secrets, host, runner, coordinator, broker, chrome, skills, automations, oauth, artifacts, mcp, skillImports)
   oauthCallbackHandler = (url) => { void api.completeOAuthCallback(url).then(() => notify('MCP 已授权', 'OAuth 令牌已安全保存到本机。')).catch((error) => notify('MCP OAuth 失败', error instanceof Error ? error.message : String(error))) }
   for (const url of queuedOAuthCallbacks.splice(0)) oauthCallbackHandler(url)
   if (process.platform === 'darwin') app.setAsDefaultProtocolClient('deskforge')

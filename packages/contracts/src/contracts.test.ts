@@ -189,6 +189,20 @@ describe('renderer contracts', () => {
     expect(SourceRefSchema.safeParse({ ...base, url: 'http://127.0.0.1/private' }).success).toBe(false)
     expect(SourceRefSchema.safeParse({ ...base, url: 'http://service.internal/private' }).success).toBe(false)
   })
+
+  it('validates MCP server inputs, secrets and skill import channels', () => {
+    const upsert = DesktopInvokeContracts['mcp:upsert'].input
+    const stdio = { name: '文件', enabled: true, toolNamespace: 'files', transport: { type: 'stdio', command: 'npx', args: ['-y', 'server'], envKeys: ['API_TOKEN'], env: { MODE: 'demo' }, cwdMode: 'workspace' }, secrets: { env: { API_TOKEN: 'x' } } }
+    expect(upsert.safeParse(stdio).success).toBe(true)
+    expect(upsert.safeParse({ ...stdio, transport: { ...stdio.transport, cwdMode: 'anywhere' } }).success).toBe(false)
+    expect(upsert.safeParse({ ...stdio, secrets: { env: { API_TOKEN: 'x' }, extra: 1 } }).success).toBe(false)
+    expect(upsert.safeParse({ name: 'h', enabled: true, toolNamespace: 'h', transport: { type: 'streamable_http', url: 'https://example.com/mcp', auth: 'headers', headers: { 'x-team': 'a' }, secretHeaderKeys: ['x-api-key'], sseFallback: true }, secrets: { headers: { 'x-api-key': 'k' } } }).success).toBe(true)
+    expect(DesktopInvokeContracts['mcp:test'].input.safeParse({ id: 'server-1', workspaceId: 'ws-1' }).success).toBe(true)
+    expect(DesktopInvokeContracts['mcp:set-tool-enabled'].input.safeParse({ id: 'server-1', toolName: 'echo', enabled: false }).success).toBe(true)
+    expect(DesktopInvokeContracts['skills:preview-git'].input.safeParse({ url: 'https://github.com/a/b', ref: 'main', subpath: 'skills/x' }).success).toBe(true)
+    expect(DesktopInvokeContracts['skills:preview-git'].input.safeParse({ url: 'https://github.com/a/b', command: 'rm -rf /' }).success).toBe(false)
+    expect(DesktopInvokeContracts['skills:confirm-import'].input.safeParse({ selectionId: 'sel-1' }).success).toBe(true)
+  })
 })
 
 describe('worker protocol', () => {

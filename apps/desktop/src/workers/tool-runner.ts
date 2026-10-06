@@ -4,14 +4,9 @@ import { existsSync } from 'node:fs'
 import { readFile, readdir, stat } from 'node:fs/promises'
 import { join, relative } from 'node:path'
 import process from 'node:process'
-import { Client } from '@modelcontextprotocol/sdk/client/index.js'
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { parseToolRunnerCommand, WORKER_PROTOCOL_VERSION, type ToolRunnerCommand } from '@deskforge/contracts'
 
 import {
-  FingerprintedConnectionCache,
-  prepareMcpConnection,
   replaceFileTextSafely,
   resolveAuthorizedPath,
   restoreFileSafely,
@@ -22,6 +17,7 @@ import {
   writeBinaryFileSafely,
 } from './runner-security'
 import { findFiles, resolveSearchScope, searchContents } from './workspace-search'
+import { callMcpTool, closeAllMcp, disconnectMcp, listMcpTools, sanitizedEnvironment } from './mcp-client'
 
 type Command = ToolRunnerCommand
 
@@ -45,9 +41,6 @@ interface ManagedProcessEntry {
   timer: NodeJS.Timeout
 }
 const managedProcesses = new Map<string, ManagedProcessEntry>()
-type McpClientEntry = { client: Client; transport: StdioClientTransport | StreamableHTTPClientTransport; fingerprint: string }
-type CachedMcpConnection = McpClientEntry & { close(): Promise<void> }
-const mcpConnections = new FingerprintedConnectionCache<CachedMcpConnection>()
 const MAX_TEXT = 2 * 1024 * 1024
 const MAX_PROCESS_OUTPUT_BYTES = 128 * 1024
 const MAX_BINARY_BYTES = 50 * 1024 * 1024
@@ -60,8 +53,7 @@ const send = (message: Record<string, unknown>): void => {
 }
 const hash = (content: Buffer | string): string => createHash('sha256').update(content).digest('hex')
 function sanitizeEnv(): Record<string, string> {
-  const blocked = /(api[_-]?key|token|secret|password|credential|authorization|cookie)/i
-  return Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined && !blocked.test(entry[0])))
+  return sanitizedEnvironment()
 }
 
 export interface BoundedTextSnapshot {
@@ -137,37 +129,6 @@ export class BoundedTextCapture {
       omittedBytes,
     }
   }
-}
-
-async function connectMcp(server: Record<string, any>): Promise<McpClientEntry> {
-  const serverId = String(server.id)
-  const prepared = prepareMcpConnection(server)
-  return mcpConnections.getOrCreate(serverId, prepared.fingerprint, async (): Promise<CachedMcpConnection> => {
-      const client = new Client({ name: 'deskforge', version: '0.3.0' })
-      const transport = prepared.transport === 'stdio'
-        ? new StdioClientTransport({
-            command: prepared.stdio!.command,
-            args: prepared.stdio!.args,
-            ...(prepared.stdio!.cwd ? { cwd: prepared.stdio!.cwd } : {}),
-            env: { ...sanitizeEnv(), ...prepared.stdio!.secretEnvironment },
-            stderr: 'pipe',
-          })
-        : new StreamableHTTPClientTransport(prepared.http!.url, { requestInit: { headers: prepared.http!.headers } })
-      try {
-        // MCP SDK 1.29's concrete StreamableHTTP type is stricter than its
-        // Transport interface under exactOptionalPropertyTypes, despite being
-        // the SDK-provided implementation.
-        await client.connect(transport as any)
-      } catch (error) {
-        await client.close().catch(() => {})
-        throw error
-      }
-      return { client, transport, fingerprint: prepared.fingerprint, close: () => client.close() }
-    })
-}
-
-async function disconnectMcp(serverId: string): Promise<boolean> {
-  return mcpConnections.disconnect(serverId)
 }
 
 async function execute(command: Extract<Command, { type: 'execute' }>): Promise<any> {
@@ -247,14 +208,12 @@ async function execute(command: Extract<Command, { type: 'execute' }>): Promise<
     case 'web.fetch': return safeFetch(String(args.url))
     case 'mcp.list_tools': {
       if (!command.mcpServer) throw new Error('未找到 MCP Server 配置')
-      const { client } = await connectMcp(command.mcpServer)
-      const result = await client.listTools()
-      return { serverId: command.mcpServer.id, tools: result.tools, serverVersion: client.getServerVersion() }
+      return listMcpTools(command.mcpServer)
     }
     case 'mcp.call_tool': {
       if (!command.mcpServer) throw new Error('未找到 MCP Server 配置')
-      const { client } = await connectMcp(command.mcpServer)
-      return client.callTool({ name: String(args.toolName), arguments: args.arguments ?? {} })
+      const toolArgs = args.arguments && typeof args.arguments === 'object' && !Array.isArray(args.arguments) ? args.arguments as Record<string, unknown> : {}
+      return callMcpTool(command.mcpServer, String(args.toolName), toolArgs)
     }
     case 'mcp.disconnect': {
       return { disconnected: await disconnectMcp(String(args.serverId)) }
@@ -418,5 +377,5 @@ process.on('exit', () => {
     clearTimeout(entry.timer)
     try { if (entry.child.pid) process.kill(-entry.child.pid, 'SIGTERM') } catch { /* already exited */ }
   }
-  void mcpConnections.closeAll()
+  void closeAllMcp()
 })

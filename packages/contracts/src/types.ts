@@ -408,6 +408,12 @@ export interface SkillPermission {
   detail?: string
 }
 
+/** Where an installed Skill came from; used for update (re-import). */
+export type SkillSource =
+  | { kind: 'bundled' }
+  | { kind: 'folder'; path: string; importedAt: IsoDateTime }
+  | { kind: 'git'; url: string; ref?: string; subpath?: string; commit?: string; importedAt: IsoDateTime }
+
 export interface SkillManifest {
   id: string
   name: string
@@ -418,11 +424,45 @@ export interface SkillManifest {
   permissions: SkillPermission[]
   entrypoint: string
   loadedAt?: IsoDateTime
+  source?: SkillSource
 }
 
+/** stdio working directory: an app-owned empty folder, the run's workspace, or a folder the user picked. */
+export type McpCwdMode = 'isolated' | 'workspace' | 'custom'
+
 export type McpTransport =
-  | { type: 'stdio'; command: string; args: string[]; envKeys: string[] }
-  | { type: 'streamable_http'; url: string; auth: 'none' | 'bearer' | 'headers' | 'oauth'; secretConfigured: boolean }
+  | {
+      type: 'stdio'
+      command: string
+      args: string[]
+      /** Names of environment variables whose values are stored encrypted. */
+      envKeys: string[]
+      /** Non-secret environment variables (values visible in settings). */
+      env?: Record<string, string>
+      cwdMode?: McpCwdMode
+      cwd?: string
+    }
+  | {
+      type: 'streamable_http'
+      url: string
+      auth: 'none' | 'bearer' | 'headers' | 'oauth'
+      secretConfigured: boolean
+      /** Non-secret request headers. */
+      headers?: Record<string, string>
+      /** Names of request headers whose values are stored encrypted. */
+      secretHeaderKeys?: string[]
+      /** Retry with the legacy HTTP+SSE transport when Streamable HTTP is not supported. */
+      sseFallback?: boolean
+    }
+
+export interface McpToolSummary {
+  name: string
+  title?: string
+  description?: string
+  enabled: boolean
+  readOnlyHint?: boolean
+  destructiveHint?: boolean
+}
 
 export interface McpServerConfig {
   id: string
@@ -435,6 +475,11 @@ export interface McpServerConfig {
   health: 'unknown' | 'healthy' | 'unhealthy' | 'authorizing'
   lastCheckedAt?: IsoDateTime
   lastError?: PublicError
+  /** Tools discovered by the last successful connection test. */
+  tools?: McpToolSummary[]
+  disabledTools?: string[]
+  /** Transport actually used by the last successful connection (SSE when fallback kicked in). */
+  connectedVia?: 'stdio' | 'streamable_http' | 'sse'
 }
 
 export type AutomationSchedule =
