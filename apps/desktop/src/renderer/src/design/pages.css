@@ -244,3 +244,7 @@
 .skill-preview-files code { overflow: hidden; font-family: var(--font-mono); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .skill-preview-files small { color: var(--text-tertiary); font-size: 11px; }
 .skill-preview pre { max-height: 220px; margin: 8px 0 0; padding: 8px 10px; overflow: auto; color: var(--text-secondary); background: var(--surface-muted); border-radius: var(--radius-control); font-family: var(--font-mono); font-size: 11px; white-space: pre-wrap; }
+.skill-preview + .modal-actions { padding: 12px 17px 16px; }
+.skill-main > div:first-child { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.skill-main h3 { margin: 0; font-size: 13px; }
+.skill-main > div:first-child > span:not(.skill-origin-pill) { color: var(--text-tertiary); font-size: 11px; }
