@@ -72,14 +72,27 @@ function Markdown({ children, onOpenPath }: { children: string; onOpenPath?: ((p
   )
 }
 
-function ResultSummary({ result, onOpenDetails, onOpenChanges, onOpenArtifact }: {
+function ResultSummary({ result, onOpenDetails, onOpenChanges, onOpenArtifact, onOpenPath }: {
   result: ResultEvidence
   onOpenDetails: () => void
   onOpenChanges: () => void
   onOpenArtifact?: ((id: string) => void) | undefined
+  onOpenPath?: ((path: string) => void) | undefined
 }) {
   const changes = result.changes?.length ?? 0
-  const outputs = result.outputs?.filter((item) => item.kind !== 'diff') ?? []
+  const outputs = useMemo(() => {
+    const list = result.outputs ?? []
+    const seen = new Set<string>()
+    return list.filter((item) => {
+      const kind = String(item.kind ?? '')
+      if (kind === 'diff' || kind === 'checkpoint' || kind === 'file_snapshot' || kind === 'attachment') return false
+      if (item.name.startsWith('context-checkpoint-') || item.name.endsWith('.before')) return false
+      const key = item.path || item.name
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+  }, [result.outputs])
   const checks = result.checks?.length ?? 0
   const sources = result.sources?.length ?? 0
   if (!changes && !outputs.length && !checks && !sources) return null
@@ -97,21 +110,41 @@ function ResultSummary({ result, onOpenDetails, onOpenChanges, onOpenArtifact }:
           {checks > 0 || sources > 0 ? <button type="button" onClick={onOpenDetails}>查看依据</button> : null}
         </div>
       </div>
-      {outputs.length > 0 && onOpenArtifact && (
+      {outputs.length > 0 && (onOpenArtifact || onOpenPath) && (
         <div className="result-summary-artifacts">
-          {outputs.map((artifact) => (
-            <button
-              type="button"
-              key={artifact.id}
-              className="result-artifact-chip"
-              title={`点击直接使用默认程序打开《${artifact.name}》`}
-              onClick={() => onOpenArtifact(artifact.id)}
-            >
-              <Icon name="file" size={13} />
-              <span className="result-artifact-name">{artifact.name}</span>
-              <span className="result-artifact-action">打开</span>
-            </button>
-          ))}
+          {outputs.map((artifact) => {
+            const handleOpen = () => {
+              if (artifact.path && onOpenPath) {
+                onOpenPath(artifact.path)
+              } else if (onOpenArtifact) {
+                onOpenArtifact(artifact.id)
+              }
+            }
+            return (
+              <button
+                type="button"
+                key={artifact.id}
+                className="result-artifact-chip"
+                title={`文件全称: ${artifact.name}${artifact.path ? `\n完整路径: ${artifact.path}` : ''}\n点击直接使用默认程序打开`}
+                onClick={handleOpen}
+              >
+                <Icon name="file" size={13} />
+                <span className="result-artifact-name" title={`文件全称: ${artifact.name}`}>{artifact.name}</span>
+                <span className="result-artifact-action">打开</span>
+                <span className="result-artifact-tooltip" role="tooltip">
+                  <span className="artifact-tooltip-label">文件全称</span>
+                  <span className="artifact-tooltip-name">{artifact.name}</span>
+                  {artifact.path ? (
+                    <>
+                      <span className="artifact-tooltip-label">完整路径</span>
+                      <span className="artifact-tooltip-path">{artifact.path}</span>
+                    </>
+                  ) : null}
+                  <span className="artifact-tooltip-hint">点击直接使用默认程序打开</span>
+                </span>
+              </button>
+            )
+          })}
         </div>
       )}
     </div>
@@ -163,7 +196,7 @@ export function WorkTimeline({ detail, approvals, onOpenDetails, onOpenChanges, 
                     />
                   )}
                   {turn.response.content && <div className="agent-turn-text"><Markdown onOpenPath={onOpenPath}>{turn.response.content}</Markdown></div>}
-                  {turn.result && <ResultSummary result={turn.result} onOpenDetails={onOpenDetails} onOpenChanges={onOpenChanges} onOpenArtifact={onOpenArtifact} />}
+                  {turn.result && <ResultSummary result={turn.result} onOpenDetails={onOpenDetails} onOpenChanges={onOpenChanges} onOpenArtifact={onOpenArtifact} onOpenPath={onOpenPath} />}
                 </div>
               </div>
             </article>

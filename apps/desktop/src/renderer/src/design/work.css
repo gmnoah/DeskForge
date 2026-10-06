@@ -243,8 +243,9 @@
 .result-summary-items { display: flex; min-width: 0; align-items: center; flex-wrap: wrap; gap: 8px 16px; }
 .result-summary-items span { display: inline-flex; align-items: center; gap: 6px; color: var(--text-secondary); font-size: 12px; font-weight: 500; }
 .result-summary-items svg { color: var(--success); }
-.result-summary-artifacts { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.result-summary-artifacts { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .result-artifact-chip {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -262,13 +263,15 @@
 .result-artifact-chip:hover {
   background: var(--accent-soft);
   border-color: var(--accent);
+  z-index: 25;
 }
 .result-artifact-name {
-  max-width: 140px;
+  max-width: min(340px, 45vw);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-weight: 600;
+  color: var(--text);
 }
 .result-artifact-action {
   padding: 1px 5px;
@@ -281,6 +284,66 @@
 .result-artifact-chip:hover .result-artifact-action {
   background: var(--accent);
   color: #ffffff;
+}
+.result-artifact-tooltip {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 180px;
+  max-width: 440px;
+  padding: 8px 10px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--separator-strong);
+  border-radius: var(--radius-surface);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+  font-size: 11px;
+  text-align: left;
+  white-space: normal;
+  word-break: break-all;
+  cursor: default;
+  transform: translateY(4px);
+  transition: opacity var(--motion-fast) ease, transform var(--motion-fast) ease, visibility var(--motion-fast) ease;
+}
+.result-artifact-chip:hover .result-artifact-tooltip {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+.artifact-tooltip-label {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.artifact-tooltip-name {
+  font-size: 12px;
+  color: var(--text);
+  font-weight: 700;
+  line-height: 1.4;
+  word-break: break-all;
+}
+.artifact-tooltip-path {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  line-height: 1.4;
+  word-break: break-all;
+}
+.artifact-tooltip-hint {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--separator);
+  font-size: 11px;
+  color: var(--accent);
+  font-weight: 600;
 }
 .result-summary-actions { display: flex; gap: 4px; margin-left: auto; }
 .result-summary-actions button {
