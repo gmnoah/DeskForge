@@ -19,6 +19,18 @@ afterEach(async () => {
 })
 
 describe('AppDatabase persistence boundary', () => {
+  it('persists the per-run permission without widening filesystem access', async () => {
+    const { path, database } = await temporaryDatabase()
+    const automatic = database.createRun({ title: 'Automatic workspace', prompt: 'Write a note', permissionMode: 'workspace_auto' })
+    const cautious = database.createRun({ title: 'Default task', prompt: 'Read a note' })
+    expect(database.getRun(cautious.id)).toMatchObject({ accessMode: 'approval', permissionMode: 'approval' })
+    database.close()
+    const reopened = new AppDatabase(path)
+    try {
+      expect(reopened.getRun(automatic.id)).toMatchObject({ accessMode: 'approval', permissionMode: 'workspace_auto' })
+    } finally { reopened.close() }
+  })
+
   it('migrates the legacy provider constraint without losing profiles, encrypted bytes or foreign keys', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'deskforge-db-legacy-provider-'))
     directories.push(directory)
@@ -104,7 +116,7 @@ describe('AppDatabase persistence boundary', () => {
         encryptedKey: encryptedBytes,
       })
       expect(database.db.prepare('SELECT model_profile_id FROM runs WHERE id=?').get('legacy-run')).toEqual({ model_profile_id: 'legacy-profile' })
-      expect(database.getRun('legacy-run')).toMatchObject({ accessMode: 'approval' })
+      expect(database.getRun('legacy-run')).toMatchObject({ accessMode: 'approval', permissionMode: 'approval' })
       expect(database.db.prepare('SELECT model_profile_id FROM automations WHERE id=?').get('legacy-automation')).toEqual({ model_profile_id: 'legacy-profile' })
 
       const kimiProfileId = database.saveModelProfile({ name: 'Kimi', provider: 'kimi', modelId: 'moonshot-v1-auto', baseUrl: 'https://api.moonshot.cn/v1' })

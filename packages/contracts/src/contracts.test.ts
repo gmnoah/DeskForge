@@ -128,7 +128,7 @@ describe('renderer contracts', () => {
   it('exposes only bounded tool receipts and approval history in run details', () => {
     const detail = RunDetailSchema.parse({
       run: {
-        id: 'run-1', workspaceId: 'workspace-1', accessMode: 'approval', title: 'Research', objective: 'Find sources', status: 'completed', completionStatus: 'partial',
+        id: 'run-1', workspaceId: 'workspace-1', accessMode: 'approval', permissionMode: 'approval', title: 'Research', objective: 'Find sources', status: 'completed', completionStatus: 'partial',
         model: {
           profileId: 'model-1', provider: 'deepseek', modelId: 'gpt-test', baseUrl: 'https://api.deepseek.com/v1',
           capabilities: { contextWindow: 128_000, maxOutputTokens: 16_384, toolCalling: true, vision: false, reasoning: false, promptCaching: true },

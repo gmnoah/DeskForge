@@ -90,6 +90,7 @@ export class AppDatabase {
         mode TEXT NOT NULL DEFAULT 'act',
         read_only INTEGER NOT NULL DEFAULT 0,
         access_mode TEXT NOT NULL DEFAULT 'approval' CHECK(access_mode IN ('approval')),
+        permission_mode TEXT NOT NULL DEFAULT 'approval' CHECK(permission_mode IN ('approval','workspace_auto')),
         workspace_id TEXT REFERENCES workspaces(id) ON DELETE SET NULL,
         model_profile_id TEXT REFERENCES model_profiles(id) ON DELETE SET NULL,
         model_snapshot_json TEXT NOT NULL DEFAULT '{}',
@@ -343,6 +344,9 @@ export class AppDatabase {
     if (!runColumns.some((column) => column.name === 'access_mode')) {
       this.db.exec("ALTER TABLE runs ADD COLUMN access_mode TEXT NOT NULL DEFAULT 'approval' CHECK(access_mode IN ('approval'))")
     }
+    if (!runColumns.some((column) => column.name === 'permission_mode')) {
+      this.db.exec("ALTER TABLE runs ADD COLUMN permission_mode TEXT NOT NULL DEFAULT 'approval' CHECK(permission_mode IN ('approval','workspace_auto'))")
+    }
     if (!runColumns.some((column) => column.name === 'active_duration_ms')) {
       this.db.exec('ALTER TABLE runs ADD COLUMN active_duration_ms INTEGER NOT NULL DEFAULT 0')
     }
@@ -594,10 +598,12 @@ export class AppDatabase {
 
   createRun(input: any): any {
     const id = randomUUID(); const timestamp = now()
-    this.db.prepare(`INSERT INTO runs(id,title,prompt,status,mode,read_only,access_mode,workspace_id,model_profile_id,model_snapshot_json,limits_json,parent_run_id,goal,created_at,updated_at)
-      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, input.title || input.prompt.slice(0, 48), input.prompt, 'understanding', input.mode ?? 'act', input.readOnly ? 1 : 0, 'approval', input.workspaceId ?? null, input.modelProfileId ?? null, json(input.modelSnapshot ?? {}), json(input.limits ?? {}), input.parentRunId ?? null, input.prompt, timestamp, timestamp)
+    const permissionMode = input.permissionMode === 'workspace_auto' ? 'workspace_auto' : 'approval'
+    this.db.prepare(`INSERT INTO runs(id,title,prompt,status,mode,read_only,access_mode,permission_mode,workspace_id,model_profile_id,model_snapshot_json,limits_json,parent_run_id,goal,created_at,updated_at)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, input.title || input.prompt.slice(0, 48), input.prompt, 'understanding', input.mode ?? 'act', input.readOnly ? 1 : 0, 'approval', permissionMode, input.workspaceId ?? null, input.modelProfileId ?? null, json(input.modelSnapshot ?? {}), json(input.limits ?? {}), input.parentRunId ?? null, input.prompt, timestamp, timestamp)
     this.addMessage(id, 'user', input.prompt)
-    this.appendRunEvent(id, 'run.created', '任务已创建', { mode: input.mode ?? 'act', accessMode: 'approval' })
+    this.appendRunEvent(id, 'run.created', '任务已创建', { mode: input.mode ?? 'act', accessMode: 'approval', permissionMode })
+    this.audit('run', 'permission_mode_selected', permissionMode === 'workspace_auto' ? '新工作选择工作区内自动处理' : '新工作选择请求批准', { actor: 'user', outcome: 'succeeded', permissionMode }, id)
     return this.getRun(id)
   }
 
@@ -650,6 +656,7 @@ export class AppDatabase {
       parentRunId: run.parent_run_id,
       readOnly: Boolean(run.read_only),
       accessMode: 'approval',
+      permissionMode: run.permission_mode === 'workspace_auto' ? 'workspace_auto' : 'approval',
       startedAt: run.started_at,
       finishedAt: run.finished_at,
       createdAt: run.created_at,
@@ -690,7 +697,7 @@ export class AppDatabase {
 
   updateRun(id: string, patch: any): void {
     const fields: [string, unknown][] = []
-    const map: Record<string, string> = { status: 'status', outcome: 'outcome', summary: 'summary', error: 'error', title: 'title', goal: 'goal', accessMode: 'access_mode', startedAt: 'started_at', finishedAt: 'finished_at', modelTurns: 'model_turns' }
+    const map: Record<string, string> = { status: 'status', outcome: 'outcome', summary: 'summary', error: 'error', title: 'title', goal: 'goal', accessMode: 'access_mode', permissionMode: 'permission_mode', startedAt: 'started_at', finishedAt: 'finished_at', modelTurns: 'model_turns' }
     for (const [key, column] of Object.entries(map)) if (key in patch) fields.push([column, patch[key]])
     if (!fields.length) return
     fields.push(['updated_at', now()])

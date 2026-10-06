@@ -131,6 +131,7 @@ export const RunStatusSchema = z.enum([
 ])
 export const CompletionStatusSchema = z.enum(['verified', 'partial'])
 export const RunAccessModeSchema = z.enum(['approval'])
+export const RunPermissionModeSchema = z.enum(['approval', 'workspace_auto'])
 export const TaskStepStatusSchema = z.enum(['pending', 'in_progress', 'blocked', 'completed', 'failed', 'skipped'])
 
 export const RunLimitsSchema = z
@@ -149,6 +150,7 @@ export const RunSchema = z
     id: IdSchema,
     workspaceId: IdSchema,
     accessMode: RunAccessModeSchema,
+    permissionMode: RunPermissionModeSchema,
     title: z.string().min(1).max(500),
     objective: z.string().min(1),
     status: RunStatusSchema,

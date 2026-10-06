@@ -168,8 +168,8 @@ export class IpcApi {
         return { items: rows.map((row) => presentRunSummary(row, profiles.find((profile) => profile.id === row.modelProfileId) ?? this.snapshotProfile(row))) }
       },
       'runs:get': ({ id }) => this.coordinator.getDetail(id),
-      'runs:create': (input) => this.coordinator.create({ workspaceId: input.workspaceId, objective: input.objective, accessMode: input.accessMode, mode: input.mode, title: input.title, modelProfileId: input.modelProfileId, limits: input.limits, attachmentIds: input.attachmentIds, readOnly: input.mode === 'plan' }),
-      'runs:send-message': async ({ runId, content, accessMode, attachmentIds }) => { await this.coordinator.sendMessage(runId, content, accessMode, attachmentIds) },
+      'runs:create': (input) => this.coordinator.create({ workspaceId: input.workspaceId, objective: input.objective, accessMode: input.accessMode, permissionMode: input.permissionMode, mode: input.mode, title: input.title, modelProfileId: input.modelProfileId, limits: input.limits, attachmentIds: input.attachmentIds, readOnly: input.mode === 'plan' }),
+      'runs:send-message': async ({ runId, content, accessMode, permissionMode, attachmentIds }) => { await this.coordinator.sendMessage(runId, content, accessMode, attachmentIds, permissionMode) },
       'runs:pause': ({ id }) => this.coordinator.pause(id),
       'runs:resume': ({ id }) => this.coordinator.resume(id),
       'runs:cancel': ({ id }) => this.coordinator.cancel(id),

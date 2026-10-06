@@ -177,6 +177,7 @@ export function presentRun(row: any, fallbackModel: ModelProfile): Run {
     id: row.id,
     workspaceId: row.workspaceId ?? row.workspace_id ?? '',
     accessMode: 'approval',
+    permissionMode: row.permissionMode === 'workspace_auto' ? 'workspace_auto' : 'approval',
     title: row.title,
     objective: row.goal ?? row.prompt ?? row.objective,
     status,

@@ -19,7 +19,7 @@ import type {
   ApprovalScopeChoice,
   JsonRecord,
   ModelProvider,
-  RunAccessMode,
+  RunPermissionMode,
   RunDetailView,
   ViewKey,
   WorkbenchSnapshot,
@@ -123,20 +123,20 @@ function RunHeader({ detail, onPause, onResume, onCancel, onToggleInspector, ins
   )
 }
 
-function RunComposer({ runId, accessMode, disabled, onSend }: {
+function RunComposer({ runId, permissionMode, disabled, onSend }: {
   runId: string
-  accessMode: RunAccessMode
+  permissionMode: RunPermissionMode
   disabled: boolean
-  onSend: (message: string, accessMode: RunAccessMode, attachmentIds?: string[]) => void
+  onSend: (message: string, permissionMode: RunPermissionMode, attachmentIds?: string[]) => void
 }) {
   const [message, setMessage] = useState('')
-  const [draftAccessMode, setDraftAccessMode] = useState<RunAccessMode>(accessMode)
+  const [draftPermissionMode, setDraftPermissionMode] = useState<RunPermissionMode>(permissionMode)
   const [attachments, setAttachments] = useState<Array<{ id: string; name: string }>>([])
-  useEffect(() => { setDraftAccessMode(accessMode) }, [runId, accessMode])
+  useEffect(() => { setDraftPermissionMode(permissionMode) }, [runId, permissionMode])
   return (
     <SubmitForm className="run-composer" onSubmit={() => {
       if (!message.trim() || disabled) return
-      onSend(message.trim(), draftAccessMode, attachments.map((attachment) => attachment.id))
+      onSend(message.trim(), draftPermissionMode, attachments.map((attachment) => attachment.id))
       setMessage('')
       setAttachments([])
     }}>
@@ -145,17 +145,18 @@ function RunComposer({ runId, accessMode, disabled, onSend }: {
       <div className="run-composer-bottom">
         <span>
           <select
-            className="access-mode-select compact"
-            value={draftAccessMode}
-            onChange={(event) => setDraftAccessMode(event.target.value as RunAccessMode)}
-            aria-label="工作执行权限"
-            title="文件和命令只在当前工作区内执行，写入和 Shell 需要你批准"
+            className="access-mode-select permission-mode-select compact"
+            value={draftPermissionMode}
+            onChange={(event) => setDraftPermissionMode(event.target.value as RunPermissionMode)}
+            aria-label="操作确认方式"
+            title="自动处理只放行可撤销的工作区写入和验证命令；删除、敏感文件及外发仍需批准"
             disabled={disabled}
           >
-            <option value="approval">工作区 · 请求批准</option>
+            <option value="approval">请求批准</option>
+            <option value="workspace_auto">工作区内自动处理</option>
           </select>
           <button type="button" className="attachment-button compact" disabled={disabled} onClick={async () => { const imported = await bridge.importAttachments(); setAttachments((items) => [...items, ...imported.filter((next) => !items.some((item) => item.id === next.id)).map((item) => ({ id: item.id, name: item.name }))]) }}><Icon name="plus" size={13} />添加文件</button>
-          <span className="composer-context"><Icon name="lock" size={13} />'工作区内处理'</span>
+          <span className="composer-context"><Icon name="lock" size={13} />{draftPermissionMode === 'workspace_auto' ? '仅自动放行可撤销操作' : '需要确认时会暂停'}</span>
         </span>
         <button type="submit" className="send-button" aria-label="发送" disabled={disabled || !message.trim()}><Icon name="send" size={16} /></button>
       </div>
@@ -190,9 +191,9 @@ function TasksView({
   selectedWorkspace: WorkspaceItem | undefined
   inspectorOpen: boolean
   onInspector: () => void
-  onCreate: (prompt: string, mode: 'plan' | 'execute', accessMode: RunAccessMode, modelId?: string, attachmentIds?: string[]) => void
+  onCreate: (prompt: string, mode: 'plan' | 'execute', permissionMode: RunPermissionMode, modelId?: string, attachmentIds?: string[]) => void
   onSettings: () => void
-  onSend: (message: string, accessMode: RunAccessMode, attachmentIds?: string[]) => void
+  onSend: (message: string, permissionMode: RunPermissionMode, attachmentIds?: string[]) => void
   onPause: () => void
   onResume: () => void
   onCancel: () => void
@@ -206,7 +207,7 @@ function TasksView({
 }) {
   const [inspectorTab, setInspectorTab] = useState<WorkInspectorTab>('details')
   if (!detail && runLoading) return <main className="main-pane centered"><Spinner size={24} /></main>
-  if (!detail) return <main className="main-pane"><WelcomeComposer workspace={selectedWorkspace} models={snapshot.models} defaultMode={snapshot.settings.defaultExecutionMode === 'plan' ? 'plan' : 'execute'} defaultAccessMode="approval" onSubmit={onCreate} onOpenSettings={onSettings} /></main>
+  if (!detail) return <main className="main-pane"><WelcomeComposer workspace={selectedWorkspace} models={snapshot.models} defaultMode={snapshot.settings.defaultExecutionMode === 'plan' ? 'plan' : 'execute'} defaultPermissionMode="approval" onSubmit={onCreate} onOpenSettings={onSettings} /></main>
   const inputDisabled = detail.status === 'cancelled'
   const pendingApprovals = detail.approvals.filter((approval) => approval.status === undefined || approval.status === 'pending')
   const openInspector = (tab: WorkInspectorTab) => { setInspectorTab(tab); if (!inspectorOpen) onInspector() }
@@ -222,7 +223,7 @@ function TasksView({
             onOpenChanges={() => openInspector('changes')}
           />
         </div>
-        <RunComposer runId={detail.id} accessMode={detail.accessMode ?? 'approval'} disabled={inputDisabled} onSend={onSend} />
+        <RunComposer runId={detail.id} permissionMode={detail.permissionMode ?? 'approval'} disabled={inputDisabled} onSend={onSend} />
       </main>
       {inspectorOpen && <WorkInspector detail={detail} snapshot={snapshot} requestedTab={inspectorTab} onBindChrome={onBindChrome} onOpenSettings={onSettings} onRevealArtifact={onRevealArtifact} onUndoChange={onUndoChange} />}
     </div>
@@ -389,7 +390,7 @@ export default function App() {
     await perform(() => bridge.selectWorkspace(id), undefined)
   }
 
-  const createRun = async (prompt: string, mode: 'plan' | 'execute', accessMode: RunAccessMode, modelProfileId?: string, attachmentIds: string[] = []) => {
+  const createRun = async (prompt: string, mode: 'plan' | 'execute', permissionMode: RunPermissionMode, modelProfileId?: string, attachmentIds: string[] = []) => {
     if (!selectedWorkspaceId) { notify('info', '请先添加工作区'); setView('settings'); return }
     if (!modelProfileId) { notify('info', '请先配置模型'); setView('settings'); return }
     const objective = mode === 'plan' ? `仅制定可执行计划，不执行任何修改：\n\n${prompt}` : prompt
@@ -397,7 +398,8 @@ export default function App() {
       workspaceId: selectedWorkspaceId,
       objective,
       mode,
-      accessMode,
+      accessMode: 'approval',
+      permissionMode,
       title: prompt.length > 48 ? `${prompt.slice(0, 48)}…` : prompt,
       modelProfileId,
       ...(attachmentIds.length ? { attachmentIds } : {}),
@@ -409,11 +411,11 @@ export default function App() {
     }
   }
 
-  const sendMessage = async (content: string, accessMode: RunAccessMode, attachmentIds: string[] = []) => {
+  const sendMessage = async (content: string, permissionMode: RunPermissionMode, attachmentIds: string[] = []) => {
     if (!selectedRunId) return
     const runId = selectedRunId
     const optimisticEventId = workbench.appendOptimisticUserMessage(runId, content, attachmentIds)
-    await perform(() => bridge.sendMessage(runId, content, accessMode, attachmentIds))
+    await perform(() => bridge.sendMessage(runId, content, 'approval', attachmentIds, permissionMode))
     await workbench.reloadRun(runId, true)
     workbench.removeOptimisticUserMessage(runId, optimisticEventId)
   }
@@ -464,9 +466,9 @@ export default function App() {
           selectedWorkspace={selectedWorkspace}
           inspectorOpen={inspectorOpen}
           onInspector={() => setInspectorOpen((value) => !value)}
-          onCreate={(prompt, mode, accessMode, modelId, attachmentIds) => void createRun(prompt, mode, accessMode, modelId, attachmentIds)}
+          onCreate={(prompt, mode, permissionMode, modelId, attachmentIds) => void createRun(prompt, mode, permissionMode, modelId, attachmentIds)}
           onSettings={() => setView('settings')}
-          onSend={(message, accessMode, attachmentIds) => void sendMessage(message, accessMode, attachmentIds)}
+          onSend={(message, permissionMode, attachmentIds) => void sendMessage(message, permissionMode, attachmentIds)}
           onPause={() => selectedRunId && void perform(() => bridge.pauseRun(selectedRunId), '工作已暂停', { refreshRun: true })}
           onResume={() => selectedRunId && void perform(() => bridge.resumeRun(selectedRunId), '继续处理', { refreshRun: true })}
           onCancel={() => setCancelOpen(true)}

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { ApprovalGrant, ToolCall, ToolDescriptor } from '@deskforge/contracts'
 
 import {
+  applyRunPermissionMode,
   classifyToolRisk,
   evaluateToolPolicy,
   evaluateToolPolicyForMode,
@@ -40,6 +41,28 @@ function descriptor(name: string, source: ToolDescriptor['source'] = 'builtin', 
 }
 
 describe('risk policy', () => {
+  it('keeps per-run automatic permission bounded by mandatory decisions', () => {
+    const write = call('file.write', { path: 'notes.md', content: 'x' })
+    const base = evaluateToolPolicy({ call: write, descriptor: descriptor('file.write') })
+    expect(applyRunPermissionMode(base, write, 'approval').effect).toBe('require_approval')
+    expect(applyRunPermissionMode(base, write, 'workspace_auto').effect).toBe('allow')
+    for (const ruleId of ['security.sensitive-file-once', 'security.protected-credential']) {
+      expect(applyRunPermissionMode({ ...base, ruleId }, write, 'workspace_auto').effect).toBe('require_approval')
+    }
+    expect(applyRunPermissionMode({ ...base, effect: 'deny' }, write, 'workspace_auto').effect).toBe('deny')
+    expect(applyRunPermissionMode({ ...base, sendsDataOffDevice: true }, write, 'workspace_auto').effect).toBe('require_approval')
+    for (const [name, args] of [
+      ['web.search', { query: 'private query' }],
+      ['shell.command', { command: 'rm notes.md' }],
+      ['shell.command', { command: 'node scripts/upload.mjs' }],
+      ['shell.command', { command: 'pnpm test && curl example.com' }],
+    ] as const) {
+      const request = call(name, args)
+      const decision = evaluateToolPolicy({ call: request, descriptor: descriptor(name) })
+      expect(applyRunPermissionMode(decision, request, 'workspace_auto').effect).not.toBe('allow')
+    }
+  })
+
   it('allows only strict read-only shell commands', () => {
     expect(isSafeReadOnlyShellCommand('git diff -- src')).toBe(true)
     expect(isSafeReadOnlyShellCommand('rg TODO .')).toBe(true)

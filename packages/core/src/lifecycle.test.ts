@@ -14,6 +14,7 @@ function run(status: Run['status']): Run {
     id: 'run-1',
     workspaceId: 'workspace-1',
     accessMode: 'approval',
+    permissionMode: 'approval',
     title: 'Task',
     objective: 'Do it',
     status,

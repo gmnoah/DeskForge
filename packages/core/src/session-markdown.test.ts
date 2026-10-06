@@ -11,7 +11,7 @@ const githubToken = `ghp_${'A1b2'.repeat(9)}`
 function detail(): RunDetail {
   return {
     run: {
-      id: 'run_1', workspaceId: 'ws_1', accessMode: 'approval', title: '整理周报 | weekly', objective: '把 docs 下的周报整理成摘要',
+      id: 'run_1', workspaceId: 'ws_1', accessMode: 'approval', permissionMode: 'approval', title: '整理周报 | weekly', objective: '把 docs 下的周报整理成摘要',
       status: 'completed', completionStatus: 'verified',
       model: { profileId: 'p1', provider: 'deepseek', modelId: 'deepseek-chat', baseUrl: 'https://api.deepseek.com', capabilities: {} as never },
       limits: {} as never, modelTurns: 3, createdAt: at, updatedAt: at,

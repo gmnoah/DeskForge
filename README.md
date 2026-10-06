@@ -9,6 +9,7 @@ DeskForge is an independent local-first macOS work agent. It is not WorkBuddy an
 - 路线图：[docs/ROADMAP.md](docs/ROADMAP.md)
 - 参与开发：[CONTRIBUTING.md](CONTRIBUTING.md)
 - 手动验收清单：[docs/TESTING.md](docs/TESTING.md)
+- 保留全部功能的独立重建：[实施记录](docs/rebuild/STATUS.md)、[功能验收矩阵](docs/rebuild/ACCEPTANCE.md)、[新内核原型](independent/README.md)。新内核尚未接入当前桌面版。
 
 ## macOS 快速开始
 
@@ -87,6 +88,7 @@ API Key 在设置或引导里填写。macOS 上由系统钥匙串（Electron `sa
   - `external_side_effect`：会把数据发到本机以外的操作（如联网搜索的查询词、上传、发帖），需要你批准。
   - `high_risk_irreversible`：删除、支付、发送、提交等，每次都单独确认。
   - 删除类命令（`rm`、`rmdir`、`shred`、`find … -delete` 等）只要目标是主目录、磁盘根目录、工作区外的绝对路径，或用 `..` 跳出工作区，就直接拒绝，不会出现审批卡。
+- **执行确认方式**：新工作默认「请求批准」。可切换到「工作区内自动处理」，仅自动放行授权工作区内可撤销的文件写入和严格白名单中的验证命令（如 `pnpm test`）；删除、敏感文件、网络外发、MCP 调用和其它命令仍需逐次批准或直接拒绝。两种方式都受同一工作区路径边界约束；「直接处理」表示立即开始任务，不代表自动批准。
 - **审批卡里的 diff**：写入、精确编辑、提交长文草稿和移入废纸篓之前，审批卡会显示统一 diff，可以切换为并排对比。新建文件全部显示为新增行，删除全部显示为删除行；超过 400 行时截断并注明省略了多少行。`.env` 等敏感配置只显示增删行数，不显示内容。
 - **批准范围**：
   - 「仅批准本次」。

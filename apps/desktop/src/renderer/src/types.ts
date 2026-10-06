@@ -22,6 +22,7 @@ export type RunStatus =
 export type JsonRecord = Record<string, unknown>
 
 export type RunAccessMode = 'approval'
+export type RunPermissionMode = 'approval' | 'workspace_auto'
 
 export interface WorkspaceItem extends JsonRecord {
   id: string
@@ -40,6 +41,7 @@ export interface RunItem extends JsonRecord {
   workspaceId?: string
   modelProfileId?: string
   accessMode?: RunAccessMode
+  permissionMode?: RunPermissionMode
   createdAt?: string
   updatedAt?: string
 }

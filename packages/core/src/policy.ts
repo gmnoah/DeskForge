@@ -5,6 +5,7 @@ import type {
   PermissionMode,
   PolicyDecision,
   RiskLevel,
+  RunPermissionMode,
   ToolCall,
   ToolDescriptor,
 } from '@deskforge/contracts'
@@ -468,23 +469,34 @@ export function evaluateToolPolicy(input: PolicyEvaluationInput): PolicyDecision
   return { effect: 'require_approval', ...classification }
 }
 
-/**
- * Applies the user-selected convenience level after deterministic risk
- * classification. Denials, destructive actions and mutating external actions
- * are never relaxed; public search is the one explicit outbound-read exception.
- */
+/** Applies the Workbench's bounded run mode after all mandatory security checks. */
+export function applyRunPermissionMode(
+  decision: PolicyDecision,
+  call: ToolCall,
+  mode: RunPermissionMode,
+): PolicyDecision {
+  if (decision.effect !== 'require_approval' || mode !== 'workspace_auto') return decision
+
+  const command = stringArgument(call.arguments, 'command', 'cmd') ?? ''
+  const localReversible = decision.riskLevel === 'reversible_write' && !decision.sendsDataOffDevice
+  const workspaceAutomatic = localReversible && (decision.ruleId === 'filesystem.write'
+    || (decision.ruleId === 'shell.unknown-write' && isValidationShellCommand(command)))
+
+  if (workspaceAutomatic) return { ...decision, effect: 'allow', ruleId: `${decision.ruleId}.permission-workspace-auto` }
+  return decision
+}
+
+/** Legacy/global convenience policy retained for its own settings surface. */
 export function evaluateToolPolicyForMode(
   input: PolicyEvaluationInput,
   mode: PermissionMode,
 ): PolicyDecision {
   const decision = evaluateToolPolicy(input)
   if (decision.effect !== 'require_approval' || mode === 'cautious') return decision
-
   const command = stringArgument(input.call.arguments, 'command', 'cmd') ?? ''
   const balancedAutomatic = decision.ruleId === 'filesystem.write'
     || decision.ruleId === 'network.search-with-outgoing-query'
     || (decision.ruleId === 'shell.unknown-write' && isValidationShellCommand(command))
-
   if (balancedAutomatic) return { ...decision, effect: 'allow', ruleId: `${decision.ruleId}.permission-${mode}` }
   if (mode === 'autonomous' && decision.riskLevel === 'reversible_write' && !decision.sendsDataOffDevice) {
     return { ...decision, effect: 'allow', ruleId: `${decision.ruleId}.permission-autonomous` }

@@ -132,6 +132,7 @@
 .run-composer-bottom > span { display: flex; align-items: center; gap: 8px; color: var(--text-tertiary); font-size: 11px; }
 .attachment-button.compact { height: 28px; padding: 0 7px; background: transparent; border-color: transparent; }
 .access-mode-select.compact { height: 28px; padding: 0 23px 0 7px; background-color: transparent; border-color: transparent; }
+.access-mode-select.compact.permission-mode-select { max-width: 174px; }
 .access-mode-select.compact:hover { color: var(--text); background-color: var(--surface-hover); }
 .composer-context { display: inline-flex; align-items: center; gap: 4px; }
 

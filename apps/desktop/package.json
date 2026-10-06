@@ -92,6 +92,10 @@
         "to": "NOTICE"
       },
       {
+        "from": "../../licenses/OpenWorkbuddy.MIT.txt",
+        "to": "licenses/OpenWorkbuddy.MIT.txt"
+      },
+      {
         "from": "resources/skills",
         "to": "BundledSkills"
       }

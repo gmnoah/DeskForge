@@ -8,6 +8,7 @@ import {
   createFileDiff,
   evaluateCompletionGate,
   evaluateToolPolicy,
+  applyRunPermissionMode,
   findDestructiveShellOutsideWorkspace,
   matchSessionRule,
   redactSecrets,
@@ -253,12 +254,11 @@ export class ToolBroker {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     }
-    // The composer owns this run's durable authority. Ask mode uses the
-    // conservative base policy. Full-disk mode widens the filesystem root and
-    // auto-executes ordinary local work plus public reads. Destructive,
-    // publishing, uploading and other high-risk external effects still need a
-    // one-shot approval; TCC and product-level app-control denials also win.
+    // Workspace boundaries and security overrides are evaluated first.
+    // The optional convenience mode can relax only reversible workspace
+    // writes and strict validation commands; it never widens filesystem scope.
     const baseDecision = evaluateRunAccessPolicy(call, descriptor)
+    const permissionDecision = applyRunPermissionMode(baseDecision, call, rawRun.permissionMode === 'workspace_auto' ? 'workspace_auto' : 'approval')
     const memoryDisabled = tool.id === 'memory_propose' && this.database.getSetting<any>('appSettings', {}).memoryEnabled === false
     const readOnlyViolation = readOnlyRun(rawRun) && (
       tool.risk !== 'read' ||
@@ -277,7 +277,7 @@ export class ToolBroker {
         ? { ...baseDecision, effect: 'deny' as const, reason: '只读子 Agent 不允许执行该操作。', ruleId: 'run.readonly-capability' }
         : destructiveEscape
           ? { ...baseDecision, effect: 'deny' as const, riskLevel: 'high_risk_irreversible' as const, reason: `已阻止：${destructiveEscape.executable} 的${destructiveEscape.reason}（${destructiveEscape.target}）。删除类命令只能作用于授权工作区内的路径。`, ruleId: 'security.destructive-outside-workspace' }
-          : baseDecision
+          : permissionDecision
     call.idempotent = decision.idempotent
     const providerCall: ToolCall = { ...call, arguments: loggedArguments(input.toolId, input.args) }
     // Provider call ids are scoped to a provider response and are routinely
@@ -296,7 +296,8 @@ export class ToolBroker {
       this.emitTool(input.runId, receiptCall, 'succeeded', 'readonly')
       return searchShortcut.result
     }
-    this.database.audit('tool', input.toolId, `Agent 请求 ${tool.label}`, { actor: 'agent', outcome: decision.effect, riskLevel: decision.riskLevel, target: redactValue(rawTarget, 'target') as string }, input.runId)
+    const automaticModeAllowed = decision.effect === 'allow' && decision.ruleId.endsWith('.permission-workspace-auto')
+    this.database.audit('tool', input.toolId, `Agent 请求 ${tool.label}`, { actor: 'agent', outcome: decision.effect, riskLevel: decision.riskLevel, target: redactValue(rawTarget, 'target') as string, ...(automaticModeAllowed ? { permissionMode: 'workspace_auto' } : {}) }, input.runId)
 
     let args = input.args
     const onceOnly = decision.riskLevel === 'external_side_effect' || decision.riskLevel === 'high_risk_irreversible' || decision.ruleId === 'security.sensitive-file-once'

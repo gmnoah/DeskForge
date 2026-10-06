@@ -125,8 +125,10 @@ export type RunStatus =
   | 'cancelled'
 
 export type CompletionStatus = 'verified' | 'partial'
-/** Per-run filesystem authority selected from the composer. */
+/** Filesystem scope. Runs currently stay within the selected workspace. */
 export type RunAccessMode = 'approval'
+/** Controls whether narrowly scoped reversible workspace actions need a prompt. */
+export type RunPermissionMode = 'approval' | 'workspace_auto'
 export type TaskStepStatus = 'pending' | 'in_progress' | 'blocked' | 'completed' | 'failed' | 'skipped'
 export type MessageRole = 'user' | 'assistant' | 'system'
 
@@ -143,6 +145,7 @@ export interface Run {
   id: string
   workspaceId: string
   accessMode: RunAccessMode
+  permissionMode: RunPermissionMode
   title: string
   objective: string
   status: RunStatus

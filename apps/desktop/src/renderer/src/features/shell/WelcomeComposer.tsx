@@ -1,15 +1,15 @@
 import { useEffect, useState } from 'react'
 import { bridge, errorMessage } from '../../bridge'
 import { BrandMark, Icon } from '../../icons'
-import type { ModelProfileItem, RunAccessMode, WorkspaceItem } from '../../types'
+import type { ModelProfileItem, RunPermissionMode, WorkspaceItem } from '../../types'
 import { SubmitForm } from '../../ui'
 
 export interface WelcomeComposerProps {
   workspace: WorkspaceItem | undefined
   models: ModelProfileItem[]
   defaultMode: 'plan' | 'execute'
-  defaultAccessMode: RunAccessMode
-  onSubmit: (prompt: string, mode: 'plan' | 'execute', accessMode: RunAccessMode, modelId?: string, attachmentIds?: string[]) => void
+  defaultPermissionMode: RunPermissionMode
+  onSubmit: (prompt: string, mode: 'plan' | 'execute', permissionMode: RunPermissionMode, modelId?: string, attachmentIds?: string[]) => void
   onOpenSettings: () => void
 }
 
@@ -23,13 +23,13 @@ export function WelcomeComposer({
   workspace,
   models,
   defaultMode,
-  defaultAccessMode,
+  defaultPermissionMode,
   onSubmit,
   onOpenSettings,
 }: WelcomeComposerProps) {
   const [prompt, setPrompt] = useState('')
   const [mode, setMode] = useState<'plan' | 'execute'>(defaultMode)
-  const [accessMode, setAccessMode] = useState<RunAccessMode>(defaultAccessMode)
+  const [permissionMode, setPermissionMode] = useState<RunPermissionMode>(defaultPermissionMode)
   const [modelId, setModelId] = useState(models.find((model) => model.isDefault)?.id ?? models[0]?.id ?? '')
   const [attachments, setAttachments] = useState<Array<{ id: string; name: string }>>([])
   const [attachmentError, setAttachmentError] = useState<string>()
@@ -40,7 +40,7 @@ export function WelcomeComposer({
     }
   }, [modelId, models])
 
-  useEffect(() => { setAccessMode(defaultAccessMode) }, [defaultAccessMode])
+  useEffect(() => { setPermissionMode(defaultPermissionMode) }, [defaultPermissionMode])
 
   return (
     <div className="welcome-view">
@@ -57,7 +57,7 @@ export function WelcomeComposer({
         <div className="inline-notice warning"><Icon name="key" /><span>还没有可用的模型配置。</span><button type="button" onClick={onOpenSettings}>添加模型</button></div>
       )}
       <SubmitForm className="hero-composer" onSubmit={() => {
-        if (prompt.trim()) onSubmit(prompt.trim(), mode, accessMode, modelId || undefined, attachments.map((attachment) => attachment.id))
+        if (prompt.trim()) onSubmit(prompt.trim(), mode, permissionMode, modelId || undefined, attachments.map((attachment) => attachment.id))
       }}>
         <textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="描述你想完成的工作…" rows={4} />
         {attachments.length > 0 && <div className="composer-attachments">{attachments.map((attachment) => <span key={attachment.id}><Icon name="file" size={13} />{attachment.name}<button type="button" aria-label={`移除 ${attachment.name}`} onClick={() => setAttachments((items) => items.filter((item) => item.id !== attachment.id))}>×</button></span>)}</div>}
@@ -65,13 +65,14 @@ export function WelcomeComposer({
         <div className="composer-toolbar">
           <div className="composer-options">
             <select
-              className="access-mode-select"
-              value={accessMode}
-              onChange={(event) => setAccessMode(event.target.value as RunAccessMode)}
-              aria-label="工作执行权限"
-              title="只在当前工作区内执行，写入和 Shell 需要批准"
+              className="access-mode-select permission-mode-select"
+              value={permissionMode}
+              onChange={(event) => setPermissionMode(event.target.value as RunPermissionMode)}
+              aria-label="操作确认方式"
+              title="自动处理只放行可撤销的工作区写入和验证命令；删除、敏感文件及外发仍需批准"
             >
-              <option value="approval">工作区 · 请求批准</option>
+              <option value="approval">请求批准</option>
+              <option value="workspace_auto">工作区内自动处理</option>
             </select>
             <button type="button" className="attachment-button" onClick={async () => {
               try {

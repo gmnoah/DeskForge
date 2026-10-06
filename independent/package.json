@@ -1,0 +1,14 @@
+{
+  "name": "deskforge-independent-kernel",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.14.0"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "demo": "node demo.mjs",
+    "demo:files": "node file-demo.mjs"
+  }
+}

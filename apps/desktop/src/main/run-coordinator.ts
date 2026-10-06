@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import type { ModelProfile, RunAccessMode, RunDetail, RunEvent } from '@deskforge/contracts'
+import type { ModelProfile, RunAccessMode, RunDetail, RunEvent, RunPermissionMode } from '@deskforge/contracts'
 import type { AppDatabase } from './database'
 import type { ArtifactStore } from './artifact-store'
 import type { SecretStore } from './secret-store'
@@ -77,7 +77,7 @@ export class RunCoordinator {
     await this.handleAgentEvent(message.runId, message.event)
   }
 
-  async create(input: { workspaceId: string; objective: string; accessMode?: RunAccessMode; mode?: 'plan' | 'execute'; title?: string; modelProfileId?: string; limits?: any; parentRunId?: string; readOnly?: boolean; fixedModelSnapshot?: any; attachmentIds?: string[] }): Promise<RunDetail> {
+  async create(input: { workspaceId: string; objective: string; accessMode?: RunAccessMode; permissionMode?: RunPermissionMode; mode?: 'plan' | 'execute'; title?: string; modelProfileId?: string; limits?: any; parentRunId?: string; readOnly?: boolean; fixedModelSnapshot?: any; attachmentIds?: string[] }): Promise<RunDetail> {
     const profile = this.selectProfile(input.modelProfileId)
     const settings = this.database.getSetting<any>('appSettings', {})
     const limits = normalizeRunLimits({ ...(settings.defaultRunLimits ?? {}), ...(input.limits ?? {}) })
@@ -90,6 +90,7 @@ export class RunCoordinator {
       limits,
       mode: input.mode === 'plan' ? 'plan' : 'act',
       accessMode: input.accessMode ?? 'approval',
+      permissionMode: input.permissionMode ?? 'approval',
       parentRunId: input.parentRunId,
       readOnly: input.readOnly ?? (input.mode === 'plan'),
     })
@@ -200,11 +201,18 @@ export class RunCoordinator {
     }
   }
 
-  async sendMessage(runId: string, content: string, accessMode?: string, attachmentIds: string[] = []): Promise<void> {
+  async sendMessage(runId: string, content: string, accessMode?: string, attachmentIds: string[] = [], permissionMode?: RunPermissionMode): Promise<void> {
     let raw = this.database.getRun(runId)
     if (!raw) throw new Error('任务不存在')
     if (accessMode && accessMode !== 'approval') {
       throw Object.assign(new Error('DeskForge 不会把授权根扩展到磁盘根目录 /。文件和 Shell 只能在当前工作区内执行，并按请求批准策略确认。'), { code: 'FULL_DISK_DISABLED' })
+    }
+    if (permissionMode) {
+      if (raw.permissionMode !== permissionMode) {
+        this.database.updateRun(runId, { permissionMode })
+        this.database.audit('run', 'permission_mode_changed', permissionMode === 'workspace_auto' ? '当前工作改为工作区内自动处理' : '当前工作改为请求批准', { actor: 'user', outcome: 'succeeded', permissionMode }, runId)
+      }
+      raw = { ...raw, permissionMode }
     }
     if (attachmentIds.length) this.database.attachArtifactsToRun(runId, attachmentIds)
     this.database.addMessage(runId, 'user', content, attachmentIds.length ? { artifactIds: attachmentIds } : {})
@@ -294,6 +302,7 @@ export class RunCoordinator {
       fixedModelSnapshot: configuredChildProfile ? undefined : parent.modelSnapshot,
       parentRunId: input.parentRunId,
       accessMode: parent.accessMode ?? 'approval',
+      permissionMode: parent.permissionMode ?? 'approval',
       // A child can narrow authority, never widen it by selecting another role.
       readOnly: parent.readOnly || input.role !== 'general',
     })

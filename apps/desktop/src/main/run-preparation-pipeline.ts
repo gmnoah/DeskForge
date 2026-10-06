@@ -162,6 +162,7 @@ export class RunPreparationPipeline {
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         workspace: state.workspace.root_path,
         accessMode: state.run.accessMode ?? 'approval',
+        permissionMode: state.run.permissionMode ?? 'approval',
         authorizedRoot: state.workspace.root_path,
       }
     } },
