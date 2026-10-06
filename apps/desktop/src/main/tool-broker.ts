@@ -2,8 +2,21 @@ import { createHash, randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
 import { lstat, open, readFile, realpath } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, relative, resolve, sep } from 'node:path'
-import type { ApprovalRequest, ApprovalResponse, JsonValue, MemoryEntry, RunEvent, TaskStep, ToolCall, ToolDescriptor, VerificationSummary } from '@deskforge/contracts'
-import { createApprovalRequest, evaluateCompletionGate, evaluateToolPolicy, resolveApproval } from '@deskforge/core'
+import type { ApprovalDiffPreview, ApprovalRequest, ApprovalResponse, ApprovalSessionRuleOffer, JsonValue, MemoryEntry, RunEvent, TaskStep, ToolCall, ToolDescriptor, VerificationSummary } from '@deskforge/contracts'
+import {
+  createApprovalRequest,
+  createFileDiff,
+  evaluateCompletionGate,
+  evaluateToolPolicy,
+  findDestructiveShellOutsideWorkspace,
+  matchSessionRule,
+  redactSecrets,
+  resolveApproval,
+  sessionRuleEligibility,
+  type SessionRule,
+  type SessionRuleCandidate,
+  type SessionRuleSpec,
+} from '@deskforge/core'
 import type { AppDatabase } from './database'
 import type { ArtifactStore } from './artifact-store'
 import type { ChromeBridge } from './chrome-bridge'
@@ -21,11 +34,17 @@ interface PendingApproval {
   resolve: (args: Record<string, unknown>) => void
   reject: (error: Error) => void
   onceOnly: boolean
+  sessionSpec?: SessionRuleSpec
 }
+
+/** Tools whose approval card shows a diff of the pending file change. */
+const DIFF_PREVIEW_TOOLS = new Set(['file_write', 'file_replace', 'file_draft_commit', 'file_delete'])
+const APPROVAL_DIFF_MAX_LINES = 400
+const ARTIFACT_DIFF_MAX_LINES = 20_000
 
 const sourceFor = (id: string): ToolDescriptor['source'] => id.startsWith('chrome_') ? 'chrome' : id.startsWith('mcp_') ? 'mcp' : 'builtin'
 const policyName = (id: string): string => ({
-  file_list: 'file.list', file_read: 'file.read', file_search: 'file.search', attachment_open: 'attachment.open', output_register: 'output.register', file_write: 'file.write', file_draft_start: 'file.stage', file_draft_append: 'file.stage', file_draft_commit: 'file.write', file_replace: 'file.edit', file_delete: 'file.delete',
+  file_list: 'file.list', file_read: 'file.read', file_search: 'file.search', file_find: 'file.glob', attachment_open: 'attachment.open', output_register: 'output.register', file_write: 'file.write', file_draft_start: 'file.stage', file_draft_append: 'file.stage', file_draft_commit: 'file.write', file_replace: 'file.edit', file_delete: 'file.delete',
   document_render: 'document.render',
   shell_run: 'shell.command', process_start: 'shell.process', process_poll: 'process.poll', process_stop: 'process.stop', web_search: 'web.search', web_fetch: 'web.fetch', mcp_list_tools: 'mcp.list', mcp_call_tool: 'mcp.call', skill_read: 'skill.read', memory_propose: 'memory.propose',
   task_plan: 'task.plan', task_complete: 'task.complete', agent_delegate: 'agent.delegate', chrome_tabs: 'chrome.read', chrome_snapshot: 'chrome.read_dom',
@@ -232,11 +251,14 @@ export class ToolBroker {
       tool.id === 'memory_propose' ||
       (tool.id === 'agent_delegate' && input.args.role === 'general')
     )
+    const destructiveEscape = this.destructiveShellEscape(rawRun, tool, input.args)
     const decision = memoryDisabled
       ? { ...baseDecision, effect: 'deny' as const, reason: 'Memory 已在设置中关闭。', ruleId: 'memory.disabled' }
       : readOnlyViolation
         ? { ...baseDecision, effect: 'deny' as const, reason: '只读子 Agent 不允许执行该操作。', ruleId: 'run.readonly-capability' }
-        : baseDecision
+        : destructiveEscape
+          ? { ...baseDecision, effect: 'deny' as const, riskLevel: 'high_risk_irreversible' as const, reason: `已阻止：${destructiveEscape.executable} 的${destructiveEscape.reason}（${destructiveEscape.target}）。删除类命令只能作用于授权工作区内的路径。`, ruleId: 'security.destructive-outside-workspace' }
+          : baseDecision
     call.idempotent = decision.idempotent
     const providerCall: ToolCall = { ...call, arguments: loggedArguments(input.toolId, input.args) }
     // Provider call ids are scoped to a provider response and are routinely
@@ -266,7 +288,21 @@ export class ToolBroker {
       this.emitTool(input.runId, { ...receiptCall, error: { code: decision.ruleId, message: error.message, retryable: false } }, 'failed', decision.riskLevel)
       throw error
     }
-    if (decision.effect === 'require_approval' && !hasGrant) args = await this.waitForApproval(input.runId, providerCall, receiptId, tool, decision, input.args)
+    if (decision.effect === 'require_approval' && !hasGrant) {
+      const candidate = this.sessionCandidate(input.runId, tool, decision, input.args)
+      const sessionRule = matchSessionRule(this.activeSessionRules(input.runId), candidate)
+      if (sessionRule) {
+        // Auto-approved by 「本会话总是允许此类操作」; still fully audited.
+        this.database.touchSessionRule(sessionRule.id)
+        this.database.audit('approval', input.toolId, `会话规则自动批准 ${tool.label}`, {
+          actor: 'system', outcome: 'auto_approved', riskLevel: decision.riskLevel, target: redactValue(rawTarget, 'target') as string,
+          sessionRule: { id: sessionRule.id, kind: sessionRule.kind, label: sessionRule.label, ...(sessionRule.commandPrefix ? { commandPrefix: sessionRule.commandPrefix } : {}) },
+        }, input.runId)
+        this.database.appendRunEvent(input.runId, 'approval.auto_approved', `已按会话规则自动允许：${tool.label}`, { ruleId: sessionRule.id, label: sessionRule.label, toolId: input.toolId })
+      } else {
+        args = await this.waitForApproval(input.runId, providerCall, receiptId, tool, decision, input.args, candidate)
+      }
+    }
 
     this.database.updateToolCall(receiptId, 'running')
     this.emitTool(input.runId, receiptCall, 'running', decision.riskLevel)
@@ -351,14 +387,18 @@ export class ToolBroker {
     }
   }
 
-  private waitForApproval(runId: string, call: ToolCall, receiptId: string, tool: ToolDefinition, decision: ReturnType<typeof evaluateToolPolicy>, args: Record<string, unknown>): Promise<Record<string, unknown>> {
+  private async waitForApproval(runId: string, call: ToolCall, receiptId: string, tool: ToolDefinition, decision: ReturnType<typeof evaluateToolPolicy>, args: Record<string, unknown>, candidate: SessionRuleCandidate): Promise<Record<string, unknown>> {
     const id = randomUUID()
-    const approval = createApprovalRequest({
+    const created = createApprovalRequest({
       id, call, decision, title: tool.label,
       target: String(args.path ?? args.url ?? args.query ?? args.command ?? args.selector ?? tool.id),
       sendsData: decision.sendsDataOffDevice ? ['工具参数可能发送到外部系统'] : [],
       expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
     })
+    const eligibility = sessionRuleEligibility(candidate)
+    const sessionRule: ApprovalSessionRuleOffer = eligibility.eligible ? { eligible: true, label: eligibility.spec.label } : { eligible: false, reason: eligibility.reason }
+    const diff = await this.buildDiffPreview(runId, receiptId, tool, args, decision.ruleId === 'security.sensitive-file-once')
+    const approval: ApprovalRequest = { ...created, sessionRule, ...(diff ? { diff } : {}) }
     // The FK targets the durable receipt, while the public approval keeps the
     // provider id produced by the model. This separation survives reloads.
     this.database.createApproval({ id, runId, toolCallId: receiptId, reason: approval.reason, preview: { ...approval, toolCallId: call.id, arguments: loggedArguments(tool.id, args) } })
@@ -366,13 +406,115 @@ export class ToolBroker {
     this.database.transitionRun(runId, 'waiting_approval', { outcome: null, finishedAt: null })
     this.emit({ id: randomUUID(), runId, sequence: Date.now(), at: new Date().toISOString(), kind: 'approval.requested', approval })
     const onceOnly = decision.riskLevel === 'external_side_effect' || decision.riskLevel === 'high_risk_irreversible' || decision.ruleId === 'security.sensitive-file-once'
-    return new Promise((resolve, reject) => this.pendingApprovals.set(id, { approval, receiptId, tool, args, resolve, reject, onceOnly }))
+    return new Promise((resolve, reject) => this.pendingApprovals.set(id, { approval, receiptId, tool, args, resolve, reject, onceOnly, ...(eligibility.eligible ? { sessionSpec: eligibility.spec } : {}) }))
+  }
+
+  private sessionCandidate(runId: string, tool: ToolDefinition, decision: ReturnType<typeof evaluateToolPolicy>, args: Record<string, unknown>): SessionRuleCandidate {
+    return {
+      runId,
+      toolId: tool.id,
+      toolLabel: tool.label,
+      effect: decision.effect,
+      riskLevel: decision.riskLevel,
+      ruleId: decision.ruleId,
+      sendsDataOffDevice: decision.sendsDataOffDevice,
+      ...(typeof args.command === 'string' ? { command: args.command } : {}),
+    }
+  }
+
+  private activeSessionRules(runId: string): SessionRule[] {
+    return this.database.listSessionRules(runId).map((row) => ({
+      id: String(row.id),
+      runId: String(row.run_id),
+      kind: row.kind === 'shell_prefix' ? 'shell_prefix' as const : 'tool' as const,
+      toolId: String(row.tool_id),
+      riskLevel: row.risk_level,
+      label: String(row.label),
+      createdAt: String(row.created_at),
+      ...(row.command_prefix ? { commandPrefix: String(row.command_prefix) } : {}),
+    }))
+  }
+
+  revokeSessionRule(id: string): void {
+    const rule = this.database.getSessionRule(id)
+    if (!rule || rule.revoked_at) throw Object.assign(new Error('会话规则不存在或已撤销'), { code: 'SESSION_RULE_NOT_FOUND' })
+    this.database.revokeSessionRule(id, 'user')
+    this.database.audit('approval', 'session_rule_revoked', `撤销会话规则：${String(rule.label)}`, { actor: 'user', outcome: 'succeeded', sessionRule: { id, label: rule.label, kind: rule.kind } }, rule.run_id)
+  }
+
+  /** Blocks destructive shell commands aimed outside the workspace before any approval. */
+  private destructiveShellEscape(run: any, tool: ToolDefinition, args: Record<string, unknown>): ReturnType<typeof findDestructiveShellOutsideWorkspace> {
+    if ((tool.id !== 'shell_run' && tool.id !== 'process_start') || typeof args.command !== 'string') return undefined
+    const workspace = this.database.getWorkspace(run?.workspaceId ?? run?.workspace_id)
+    const root = workspace?.root_path ? String(workspace.root_path) : undefined
+    if (!root) return undefined
+    const cwd = typeof args.cwd === 'string' && args.cwd.trim() ? resolve(root, args.cwd) : root
+    return findDestructiveShellOutsideWorkspace(args.command, root, cwd)
+  }
+
+  /** Reads the current file through the confined runner and simulates the pending change. */
+  private async buildDiffPreview(runId: string, receiptId: string, tool: ToolDefinition, args: Record<string, unknown>, sensitive: boolean): Promise<ApprovalDiffPreview | undefined> {
+    if (!DIFF_PREVIEW_TOOLS.has(tool.id)) return undefined
+    const draft = tool.id === 'file_draft_commit' ? this.fileDrafts.get(String(args.draftId)) : undefined
+    const path = String(draft?.path ?? args.path ?? '')
+    if (!path) return undefined
+    const empty = (operation: ApprovalDiffPreview['operation'], note: string): ApprovalDiffPreview => ({ kind: 'file_diff', path, operation, additions: 0, deletions: 0, hunks: [], text: '', truncated: false, omittedLines: 0, binary: false, tooLarge: false, note })
+    try {
+      const run = this.database.getRun(runId)
+      const workspace = run ? this.database.getWorkspace(run.workspaceId) : undefined
+      if (!workspace?.root_path) return undefined
+      const authorizedRoot = assertWorkspaceRoot(String(workspace.root_path))
+      let before: string | null = null
+      try {
+        const current = await this.runner.execute({ runId, requestId: `${receiptId}-preview`, toolId: 'file.read', args: { path }, workspacePath: workspace.root_path, authorizedRoot })
+        before = typeof current?.content === 'string' ? current.content : null
+      } catch (error: any) {
+        if (error?.code !== 'ENOENT') return empty(tool.id === 'file_delete' ? 'delete' : 'modify', `无法读取当前文件，未生成预览：${String(redactValue(error?.message ?? error)).slice(0, 200)}`)
+      }
+      let after: string | null
+      let note: string | undefined
+      if (tool.id === 'file_delete') {
+        if (before === null) return empty('delete', '目标文件不存在')
+        after = null
+      } else if (tool.id === 'file_replace') {
+        if (before === null) return empty('modify', '目标文件不存在，替换会失败')
+        const oldText = String(args.oldText ?? '')
+        const newText = String(args.newText ?? '')
+        if (!oldText || !before.includes(oldText)) { after = before; note = '未在当前文件中找到要替换的文本，执行时会失败' } else after = args.replaceAll === true ? before.split(oldText).join(newText) : before.replace(oldText, () => newText)
+      } else {
+        after = String(draft?.content ?? args.content ?? '')
+      }
+      const diff = createFileDiff({ path, before, after, maxLines: APPROVAL_DIFF_MAX_LINES })
+      if (sensitive) {
+        return { kind: 'file_diff', path, operation: diff.operation, additions: diff.additions, deletions: diff.deletions, hunks: [], text: '', truncated: false, omittedLines: 0, binary: diff.binary, tooLarge: diff.tooLarge, note: '敏感配置文件不在审批卡中显示内容，仅显示变更行数' }
+      }
+      const redactLine = (text: string): string => redactSecrets(text)
+      return {
+        kind: 'file_diff',
+        path,
+        operation: diff.operation,
+        additions: diff.additions,
+        deletions: diff.deletions,
+        hunks: diff.hunks.map((hunk) => ({ ...hunk, lines: hunk.lines.map((line) => ({ ...line, text: redactLine(line.text) })) })),
+        text: redactSecrets(diff.text),
+        truncated: diff.truncated,
+        omittedLines: diff.omittedLines,
+        binary: diff.binary,
+        tooLarge: diff.tooLarge,
+        ...(note ?? diff.note ? { note: note ?? diff.note } : {}),
+      }
+    } catch (error: any) {
+      return empty(tool.id === 'file_delete' ? 'delete' : 'modify', `预览生成失败：${String(redactValue(error?.message ?? error)).slice(0, 200)}`)
+    }
   }
 
   respondToApproval(response: ApprovalResponse): void {
     const pending = this.pendingApprovals.get(response.requestId)
     if (!pending) throw new Error('审批不存在或已失效')
-    const effectiveResponse = pending.onceOnly && response.scope === 'run_tool' ? { ...response, scope: 'once' as const } : response
+    // Session rules require an eligible offer computed when the card was created;
+    // otherwise (or for edited arguments) the approval degrades to a one-shot.
+    const sessionSpec = response.scope === 'session' && response.decision === 'approve' && !pending.onceOnly ? pending.sessionSpec : undefined
+    const effectiveResponse = (pending.onceOnly && response.scope === 'run_tool') || (response.scope === 'session' && !sessionSpec) ? { ...response, scope: 'once' as const } : response
     const resolution = resolveApproval(pending.approval, effectiveResponse, { grantId: randomUUID() })
     if (resolution.executionArguments !== undefined) {
       // An edited approval is a second untrusted argument source. Keep the
@@ -407,7 +549,11 @@ export class ToolBroker {
       return
     }
     if (resolution.grant && resolution.grant.scope === 'run_tool') this.database.addGrant(resolution.grant.runId ?? null, resolution.grant.toolName, resolution.grant.scope, resolution.grant.approvedArguments ?? {})
-    this.database.audit('approval', pending.tool.id, `用户批准 ${pending.tool.label}`, { actor: 'user', outcome: 'approved', riskLevel: pending.approval.riskLevel }, pending.approval.runId)
+    const createdRule = sessionSpec ? this.database.addSessionRule({ runId: pending.approval.runId, ...sessionSpec, sourceApprovalId: pending.approval.id }) : undefined
+    this.database.audit('approval', pending.tool.id, `用户批准 ${pending.tool.label}${createdRule ? '，并在本会话总是允许此类操作' : ''}`, {
+      actor: 'user', outcome: 'approved', riskLevel: pending.approval.riskLevel, scope: effectiveResponse.scope ?? 'once',
+      ...(createdRule ? { sessionRule: { id: createdRule.id, kind: createdRule.kind, label: createdRule.label, ...(createdRule.command_prefix ? { commandPrefix: createdRule.command_prefix } : {}), created: true } } : {}),
+    }, pending.approval.runId)
     if (!this.database.hasPendingApprovals(pending.approval.runId)) this.database.transitionRun(pending.approval.runId, 'running')
     pending.resolve(resolution.executionArguments as Record<string, unknown>)
   }
@@ -707,7 +853,7 @@ export class ToolBroker {
         detail: `${succeeded} 成功，${failed} 失败`,
       })
     }
-    const observableReads = rows.filter((row) => ['file_list', 'file_read', 'file_search', 'attachment_open', 'web_search', 'web_fetch', 'skill_read', 'chrome_snapshot'].includes(String(row.tool_id)))
+    const observableReads = rows.filter((row) => ['file_list', 'file_read', 'file_search', 'file_find', 'attachment_open', 'web_search', 'web_fetch', 'skill_read', 'chrome_snapshot'].includes(String(row.tool_id)))
     if (observableReads.length > 0) {
       const failedReads = observableReads.filter((row) => row.state === 'failed').length
       const succeededReads = observableReads.filter((row) => row.state === 'succeeded' && row.result_json !== null).length
@@ -738,7 +884,7 @@ export class ToolBroker {
     const unresolvedFailures = rows.filter((row, index) => {
       if (row.state !== 'failed') return false
       const toolId = String(row.tool_id)
-      if (['file_list', 'file_read', 'file_search', 'attachment_open', 'web_search', 'web_fetch', 'skill_read'].includes(toolId)) return false
+      if (['file_list', 'file_read', 'file_search', 'file_find', 'attachment_open', 'web_search', 'web_fetch', 'skill_read'].includes(toolId)) return false
       const args = parseJson(row.arguments_json) as Record<string, unknown>
       if (toolId === 'shell_run' && !validationCommand(String(args?.command ?? ''))) return false
       const fingerprint = toolTargetFingerprint(row)
@@ -780,7 +926,8 @@ export class ToolBroker {
         content: before,
         metadata: { path: result.path, sha256: result.beforeSha256 ?? null, createdFile, capturedBeforeMutation: false },
       })
-      const diffText = `${createdFile ? '--- /dev/null' : `--- before/${result.path}`}\n+++ after/${result.path}\n@@\n-${before.replaceAll('\n', '\n-')}\n+${String(result.after).replaceAll('\n', '\n+')}\n`
+      const fileDiff = createFileDiff({ path: String(result.path), before: createdFile ? null : before, after: String(result.after), maxLines: ARTIFACT_DIFF_MAX_LINES })
+      const diffText = fileDiff.text
       const diff = await this.artifacts.putText({
         runId,
         name: `${String(result.path).split('/').at(-1)}.diff`,
@@ -793,8 +940,9 @@ export class ToolBroker {
           afterSha256,
           createdFile,
           accessModeAtMutation: this.database.getRun(runId)?.accessMode ?? 'approval',
-          additions: String(result.after).split('\n').length,
-          deletions: before ? before.split('\n').length : 0,
+          additions: fileDiff.additions,
+          deletions: fileDiff.deletions,
+          truncated: fileDiff.truncated,
         },
       })
       const safe = { ...result }

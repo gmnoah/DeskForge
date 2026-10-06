@@ -21,6 +21,7 @@ import type {
   SourceRef,
   ToolReceipt,
   Workspace,
+  SessionApprovalRule,
 } from '@deskforge/contracts'
 import { classifyModelError } from '@deskforge/core'
 import { defaultBaseUrl } from './model-providers'
@@ -378,12 +379,14 @@ export function presentApproval(row: any): ApprovalRequest {
     status,
     createdAt: row.created_at ?? row.createdAt,
     ...(preview.expiresAt ? { expiresAt: preview.expiresAt } : {}),
+    ...(preview.diff && typeof preview.diff === 'object' ? { diff: preview.diff } : {}),
+    ...(preview.sessionRule && typeof preview.sessionRule === 'object' ? { sessionRule: preview.sessionRule } : {}),
   }
 }
 
 export function presentApprovalHistory(row: any): ApprovalHistoryEntry {
   const approval = presentApproval(row)
-  const scope = row.scope === 'once' || row.scope === 'run_tool' ? row.scope : undefined
+  const scope = row.scope === 'once' || row.scope === 'run_tool' || row.scope === 'session' ? row.scope : undefined
   return {
     ...approval,
     ...(scope ? { scope } : {}),
@@ -525,9 +528,25 @@ export function presentChromeGrant(row: any): ChromeTabGrant {
   }
 }
 
+export function presentSessionRule(row: any): SessionApprovalRule {
+  return {
+    id: String(row.id),
+    runId: String(row.run_id),
+    ...(row.run_title ? { runTitle: String(row.run_title) } : {}),
+    kind: row.kind === 'shell_prefix' ? 'shell_prefix' : 'tool',
+    toolName: String(row.tool_id),
+    riskLevel: row.risk_level,
+    ...(row.command_prefix ? { commandPrefix: String(row.command_prefix) } : {}),
+    label: String(row.label),
+    useCount: Number(row.use_count ?? 0),
+    createdAt: String(row.created_at),
+    ...(row.last_used_at ? { lastUsedAt: String(row.last_used_at) } : {}),
+  }
+}
+
 export function presentAudit(row: any): AuditEntry {
   const payload = row.payload ?? {}
-  const outcomeMap: Record<string, AuditEntry['outcome']> = { allow: 'allowed', deny: 'blocked', approve: 'approved', reject: 'rejected', success: 'succeeded', error: 'failed' }
+  const outcomeMap: Record<string, AuditEntry['outcome']> = { allow: 'allowed', deny: 'blocked', require_approval: 'started', approve: 'approved', reject: 'rejected', success: 'succeeded', error: 'failed' }
   return {
     id: String(row.id),
     ...(row.run_id ?? row.runId ? { runId: row.run_id ?? row.runId } : {}),

@@ -258,7 +258,62 @@ export interface PolicyDecision {
 }
 
 export type ApprovalScope = 'once' | 'run_tool' | 'persistent_rule'
-export type InteractiveApprovalScope = Exclude<ApprovalScope, 'persistent_rule'>
+/** `session` = 「本会话总是允许此类操作」, stored as a run-scoped session rule. */
+export type InteractiveApprovalScope = Exclude<ApprovalScope, 'persistent_rule'> | 'session'
+
+export interface ApprovalDiffLine {
+  kind: 'context' | 'add' | 'del'
+  text: string
+  oldLine?: number
+  newLine?: number
+}
+
+export interface ApprovalDiffHunk {
+  oldStart: number
+  oldLines: number
+  newStart: number
+  newLines: number
+  lines: ApprovalDiffLine[]
+}
+
+/** File change preview shown on an approval card before the user decides. */
+export interface ApprovalDiffPreview {
+  kind: 'file_diff'
+  path: string
+  operation: 'create' | 'modify' | 'delete'
+  additions: number
+  deletions: number
+  hunks: ApprovalDiffHunk[]
+  text: string
+  truncated: boolean
+  omittedLines: number
+  binary: boolean
+  tooLarge: boolean
+  note?: string
+}
+
+/** Whether 「本会话总是允许此类操作」 is offered, and what it would cover. */
+export interface ApprovalSessionRuleOffer {
+  eligible: boolean
+  label?: string
+  reason?: string
+}
+
+export type SessionApprovalRuleKind = 'tool' | 'shell_prefix'
+
+export interface SessionApprovalRule {
+  id: string
+  runId: string
+  runTitle?: string
+  kind: SessionApprovalRuleKind
+  toolName: string
+  riskLevel: RiskLevel
+  commandPrefix?: string
+  label: string
+  useCount: number
+  createdAt: IsoDateTime
+  lastUsedAt?: IsoDateTime
+}
 export type ApprovalStatus = 'pending' | 'approved' | 'edited' | 'rejected' | 'expired'
 
 export interface ApprovalRequest {
@@ -276,6 +331,8 @@ export interface ApprovalRequest {
   status: ApprovalStatus
   createdAt: IsoDateTime
   expiresAt?: IsoDateTime
+  diff?: ApprovalDiffPreview
+  sessionRule?: ApprovalSessionRuleOffer
 }
 
 export interface ApprovalGrant {
@@ -456,7 +513,7 @@ export interface PublicError {
   details?: JsonValue
 }
 
-export type AuditOutcome = 'started' | 'allowed' | 'blocked' | 'approved' | 'rejected' | 'succeeded' | 'failed'
+export type AuditOutcome = 'started' | 'allowed' | 'blocked' | 'approved' | 'auto_approved' | 'rejected' | 'succeeded' | 'failed'
 
 export interface AuditEntry {
   id: string

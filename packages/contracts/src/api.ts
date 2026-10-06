@@ -30,6 +30,7 @@ import {
   RunSchema,
   RunStatusSchema,
   RunSummarySchema,
+  SessionApprovalRuleSchema,
   SkillManifestSchema,
   WorkspaceSchema,
 } from './schemas'
@@ -63,6 +64,7 @@ import type {
   RunEvent,
   RunLimits,
   RunSummary,
+  SessionApprovalRule,
   SkillManifest,
   Workspace,
 } from './types'
@@ -200,6 +202,64 @@ export interface AuditQuery extends PageRequest {
   since?: string
 }
 
+export interface AuditFilterInput {
+  runId?: string
+  category?: string
+  outcome?: string
+  from?: string
+  to?: string
+  text?: string
+  limit?: number
+}
+
+export interface AuditRecord {
+  id: string
+  runId?: string
+  category: string
+  action: string
+  summary: string
+  actor?: string
+  outcome?: string
+  riskLevel?: string
+  target?: string
+  /** Session rule that auto-approved this event, if any. */
+  ruleId?: string
+  ruleLabel?: string
+  payload: JsonValue
+  prevHash?: string
+  entryHash?: string
+  chain: 'ok' | 'broken' | 'unlinked' | 'legacy'
+  createdAt: string
+}
+
+export interface AuditChainStatus {
+  valid: boolean
+  checkedEntries: number
+  hashedEntries: number
+  legacyEntries: number
+  brokenIds: string[]
+  linkBreakIds: string[]
+  checkedAt: string
+}
+
+export interface AuditQueryResult {
+  items: AuditRecord[]
+  total: number
+  truncated: boolean
+  categories: string[]
+  runs: Array<{ id: string; title: string }>
+  chain: AuditChainStatus
+}
+
+export type AuditExportFormat = 'json' | 'csv' | 'markdown'
+
+export interface AuditExportResult {
+  path: string
+  format: AuditExportFormat
+  entryCount: number
+  chainValid: boolean
+}
+
 export interface DiagnosticExportResult {
   path: string
   entryCount: number
@@ -249,6 +309,8 @@ export interface DesktopApi {
     cancel(input: { id: string }): Promise<Run>
     remove(input: { id: string }): Promise<void>
     respondToApproval(input: ApprovalResponse): Promise<void>
+    listSessionRules(input?: { runId?: string }): Promise<SessionApprovalRule[]>
+    revokeSessionRule(input: { id: string }): Promise<{ revoked: true }>
   }
   models: {
     list(): Promise<ModelProfile[]>
@@ -313,6 +375,8 @@ export interface DesktopApi {
   audit: {
     list(input?: AuditQuery): Promise<Page<AuditEntry>>
     exportDiagnostics(input?: { runId?: string }): Promise<DiagnosticExportResult | null>
+    query(input?: AuditFilterInput): Promise<AuditQueryResult>
+    export(input: AuditFilterInput & { format: AuditExportFormat }): Promise<AuditExportResult | null>
   }
   artifacts: {
     getText(input: { id: string; maxBytes?: number }): Promise<ArtifactText>
@@ -346,6 +410,8 @@ export interface DesktopInvokeMap {
   'runs:cancel': { input: { id: string }; output: Run }
   'runs:remove': { input: { id: string }; output: undefined }
   'runs:respond-approval': { input: ApprovalResponse; output: undefined }
+  'approvals:list-session-rules': { input: { runId?: string } | undefined; output: SessionApprovalRule[] }
+  'approvals:revoke-session-rule': { input: { id: string }; output: { revoked: true } }
   'models:list': { input: undefined; output: ModelProfile[] }
   'models:catalog': { input: { provider: ProviderId }; output: ModelCatalogItem[] }
   'models:upsert': { input: ModelProfileInput; output: ModelProfile }
@@ -390,6 +456,8 @@ export interface DesktopInvokeMap {
   'chrome:revoke-grant': { input: { id: string }; output: undefined }
   'audit:list': { input: AuditQuery | undefined; output: Page<AuditEntry> }
   'audit:export-diagnostics': { input: { runId?: string } | undefined; output: DiagnosticExportResult | null }
+  'audit:query': { input: AuditFilterInput | undefined; output: AuditQueryResult }
+  'audit:export': { input: AuditFilterInput & { format: AuditExportFormat }; output: AuditExportResult | null }
   'artifacts:get-text': { input: { id: string; maxBytes?: number }; output: ArtifactText }
   'artifacts:reveal': { input: { id: string }; output: undefined }
   'artifacts:undo-change': { input: { id: string }; output: ArtifactRestoreResult }
@@ -403,6 +471,49 @@ export type DesktopInvoker = <C extends DesktopInvokeChannel>(
 
 const VoidSchema = z.undefined()
 const ByIdSchema = z.object({ id: IdSchema }).strict()
+const AuditFilterSchema = z.object({
+  runId: IdSchema.optional(),
+  category: z.string().min(1).max(64).optional(),
+  outcome: z.string().min(1).max(64).optional(),
+  from: z.string().datetime({ offset: true }).optional(),
+  to: z.string().datetime({ offset: true }).optional(),
+  text: z.string().max(200).optional(),
+  limit: z.number().int().positive().max(5_000).optional(),
+}).strict()
+const AuditChainStatusSchema = z.object({
+  valid: z.boolean(),
+  checkedEntries: z.number().int().nonnegative(),
+  hashedEntries: z.number().int().nonnegative(),
+  legacyEntries: z.number().int().nonnegative(),
+  brokenIds: z.array(z.string()),
+  linkBreakIds: z.array(z.string()),
+  checkedAt: IsoDateTimeSchema,
+}).strict()
+const AuditQueryResultSchema = z.object({
+  items: z.array(z.object({
+    id: z.string().min(1),
+    runId: IdSchema.optional(),
+    category: z.string(),
+    action: z.string(),
+    summary: z.string(),
+    actor: z.string().optional(),
+    outcome: z.string().optional(),
+    riskLevel: z.string().optional(),
+    target: z.string().optional(),
+    ruleId: z.string().optional(),
+    ruleLabel: z.string().optional(),
+    payload: JsonValueSchema,
+    prevHash: z.string().optional(),
+    entryHash: z.string().optional(),
+    chain: z.enum(['ok', 'broken', 'unlinked', 'legacy']),
+    createdAt: z.string(),
+  }).strict()),
+  total: z.number().int().nonnegative(),
+  truncated: z.boolean(),
+  categories: z.array(z.string()),
+  runs: z.array(z.object({ id: IdSchema, title: z.string() }).strict()),
+  chain: AuditChainStatusSchema,
+}).strict()
 const OptionalByWorkspaceSchema = z.object({ workspaceId: IdSchema.optional() }).strict().optional()
 const PageSchema = <T extends z.ZodType>(item: T) => z.object({ items: z.array(item), nextCursor: z.string().optional() }).strict()
 const InstalledCapabilityPackageSchema = z.object({
@@ -454,6 +565,8 @@ export const DesktopInvokeContracts: Record<DesktopInvokeChannel, { input: z.Zod
   'runs:cancel': { input: ByIdSchema, output: RunSchema },
   'runs:remove': { input: ByIdSchema, output: VoidSchema },
   'runs:respond-approval': { input: ApprovalResponseSchema, output: VoidSchema },
+  'approvals:list-session-rules': { input: z.object({ runId: IdSchema.optional() }).strict().optional(), output: z.array(SessionApprovalRuleSchema) },
+  'approvals:revoke-session-rule': { input: ByIdSchema, output: z.object({ revoked: z.literal(true) }).strict() },
   'models:list': { input: VoidSchema, output: z.array(ModelProfileSchema) },
   'models:catalog': {
     input: z.object({ provider: ProviderIdSchema }).strict(),
@@ -512,6 +625,8 @@ export const DesktopInvokeContracts: Record<DesktopInvokeChannel, { input: z.Zod
   'chrome:revoke-grant': { input: ByIdSchema, output: VoidSchema },
   'audit:list': { input: PageRequestSchema.extend({ runId: IdSchema.optional(), outcome: z.enum(['started', 'allowed', 'blocked', 'approved', 'rejected', 'succeeded', 'failed']).optional(), since: z.string().datetime({ offset: true }).optional() }).strict().optional(), output: PageSchema(AuditEntrySchema) },
   'audit:export-diagnostics': { input: z.object({ runId: IdSchema.optional() }).strict().optional(), output: z.object({ path: z.string(), entryCount: z.number().int().nonnegative(), redacted: z.boolean() }).strict().nullable() },
+  'audit:query': { input: AuditFilterSchema.optional(), output: AuditQueryResultSchema },
+  'audit:export': { input: AuditFilterSchema.extend({ format: z.enum(['json', 'csv', 'markdown']) }).strict(), output: z.object({ path: z.string().min(1), format: z.enum(['json', 'csv', 'markdown']), entryCount: z.number().int().nonnegative(), chainValid: z.boolean() }).strict().nullable() },
   'artifacts:get-text': { input: z.object({ id: IdSchema, maxBytes: z.number().int().positive().max(16 * 1024 * 1024).optional() }).strict(), output: z.object({ artifact: ArtifactRefSchema, text: z.string(), truncated: z.boolean() }).strict() },
   'artifacts:reveal': { input: ByIdSchema, output: VoidSchema },
   'artifacts:undo-change': { input: ByIdSchema, output: z.object({ restored: z.literal(true), path: z.string().min(1), createdFileRemoved: z.boolean() }).strict() },

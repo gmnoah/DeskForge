@@ -35,7 +35,7 @@ class FakeDatabase {
   getArtifact = (id: string) => this.artifactRows.find((artifact) => artifact.id === id)
   getSetting = <T>(key: string, fallback: T): T => (this.settings[key] ?? fallback) as T
   hasRunGrant = () => this.granted
-  audit = () => undefined
+  audit = (category: string, action: string, summary: string, payload: any = {}, runId?: string) => { this.auditEntries.push({ category, action, summary, payload, runId }) }
   appendRunEvent = (runId: string, type: string, summary: string, payload: unknown) => this.events.push({ runId, type, summary, payload })
   listArtifacts = () => this.artifactRows
   updateRun = (_id: string, patch: Record<string, unknown>) => Object.assign(this.run, patch)
@@ -47,6 +47,13 @@ class FakeDatabase {
   createApproval = (input: any) => { this.approvals.push({ ...input, status: 'pending' }); return input }
   resolveApproval = (id: string, decision: any) => { const approval = this.approvals.find((candidate) => candidate.id === id); if (approval) approval.status = decision.decision === 'reject' ? 'denied' : 'approved'; return { id, decision } }
   addGrant = () => undefined
+  sessionRules: any[] = []
+  auditEntries: any[] = []
+  listSessionRules = (runId?: string) => this.sessionRules.filter((rule) => !rule.revoked_at && (!runId || rule.run_id === runId))
+  addSessionRule = (input: any) => { const row = { id: `rule-${this.sessionRules.length + 1}`, run_id: input.runId, kind: input.kind, tool_id: input.toolId, risk_level: input.riskLevel, command_prefix: input.commandPrefix ?? null, label: input.label, use_count: 0, created_at: now, revoked_at: null }; this.sessionRules.push(row); return row }
+  touchSessionRule = (id: string) => { const rule = this.sessionRules.find((candidate) => candidate.id === id); if (rule) rule.use_count += 1 }
+  getSessionRule = (id: string) => this.sessionRules.find((candidate) => candidate.id === id)
+  revokeSessionRule = (id: string) => { const rule = this.getSessionRule(id); if (rule) rule.revoked_at = now; return Boolean(rule) }
   updateTaskStep = (runId: string, stepId: string, patch: { status: string; evidence?: string }) => {
     const step = this.run.steps.find((candidate: any) => candidate.id === stepId && candidate.runId === runId)
     if (!step) throw new Error('step not found')
@@ -413,7 +420,8 @@ describe('ToolBroker capability enforcement', () => {
       args: { path: 'inside.txt', content: 'created' },
     })
     await new Promise((resolve) => setTimeout(resolve, 0))
-    expect(runnerCalls).toHaveLength(0)
+    // Only the read-only diff preview may touch the runner before approval.
+    expect(runnerCalls.filter((call) => !(call.toolId === 'file.read' && String(call.requestId).endsWith('-preview')))).toHaveLength(0)
     expect(database.approvals).toHaveLength(1)
     fixture.broker.rejectRunApprovals('run-1', 'test cleanup')
     await expect(pending).rejects.toThrow('test cleanup')
@@ -434,7 +442,7 @@ describe('ToolBroker capability enforcement', () => {
       args: { path: 'notes.txt', content: 'created' },
     })
     await new Promise((resolve) => setTimeout(resolve, 0))
-    expect(runnerCalls).toHaveLength(0)
+    expect(runnerCalls.filter((call) => !(call.toolId === 'file.read' && String(call.requestId).endsWith('-preview')))).toHaveLength(0)
     const writeApproval = fixture.events.find((event) => event.kind === 'approval.requested')?.approval
     fixture.broker.respondToApproval({ requestId: writeApproval.id, decision: 'approve', scope: 'once' })
     await expect(writePending).resolves.toMatchObject({ path: 'notes.txt' })
@@ -600,5 +608,188 @@ describe('ToolBroker Skill resources', () => {
     } finally {
       await rm(root, { recursive: true, force: true })
     }
+  })
+})
+
+describe('M2 approval experience', () => {
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
+  const lastApproval = (events: any[]) => events.filter((event) => event.kind === 'approval.requested').at(-1)?.approval
+
+  it('attaches a unified diff to file approvals: new files are all additions, edits show hunks', async () => {
+    const database = new FakeDatabase()
+    database.granted = false
+    const files: Record<string, string> = { 'src/app.ts': 'const a = 1\nconst b = 2\nconst c = 3\n' }
+    const fixture = brokerFixture(database, async (input) => {
+      if (input.toolId === 'file.read') {
+        const content = files[input.args.path]
+        if (content === undefined) throw Object.assign(new Error('missing'), { code: 'ENOENT' })
+        return { path: input.args.path, content, sha256: 'a'.repeat(64) }
+      }
+      return { path: input.args.path, before: files[input.args.path] ?? null, after: input.args.content ?? 'x', sha256: 'b'.repeat(64), created: !(input.args.path in files) }
+    })
+
+    const create = fixture.broker.handle({ runId: 'run-1', requestId: 'r1', toolCallId: 'c1', toolId: 'file_write', args: { path: 'notes/new.md', content: '# 标题\n正文\n' } })
+    await tick()
+    const createApproval = lastApproval(fixture.events)
+    expect(createApproval.diff).toMatchObject({ kind: 'file_diff', operation: 'create', additions: 2, deletions: 0, truncated: false })
+    expect(createApproval.diff.text).toContain('--- /dev/null')
+    expect(createApproval.diff.hunks[0].lines.every((line: any) => line.kind === 'add')).toBe(true)
+    expect(database.approvals.at(-1).preview.diff.additions).toBe(2)
+    fixture.broker.respondToApproval({ requestId: createApproval.id, decision: 'reject' })
+    await expect(create).rejects.toThrow()
+
+    const edit = fixture.broker.handle({ runId: 'run-1', requestId: 'r2', toolCallId: 'c2', toolId: 'file_replace', args: { path: 'src/app.ts', oldText: 'const b = 2', newText: 'const b = 20', expectedSha256: 'a'.repeat(64) } })
+    await tick()
+    const editApproval = lastApproval(fixture.events)
+    expect(editApproval.diff).toMatchObject({ operation: 'modify', additions: 1, deletions: 1 })
+    expect(editApproval.diff.text).toContain('-const b = 2\n+const b = 20')
+    fixture.broker.respondToApproval({ requestId: editApproval.id, decision: 'reject' })
+    await expect(edit).rejects.toThrow()
+
+    const big = Array.from({ length: 2_000 }, (_, index) => `line ${index}`).join('\n')
+    const large = fixture.broker.handle({ runId: 'run-1', requestId: 'r3', toolCallId: 'c3', toolId: 'file_write', args: { path: 'big.txt', content: big } })
+    await tick()
+    const largeApproval = lastApproval(fixture.events)
+    expect(largeApproval.diff).toMatchObject({ truncated: true, additions: 2_000 })
+    expect(largeApproval.diff.note).toContain('已截断')
+    fixture.broker.respondToApproval({ requestId: largeApproval.id, decision: 'reject' })
+    await expect(large).rejects.toThrow()
+  })
+
+  it('hides sensitive file contents in the preview but keeps the change counts', async () => {
+    const database = new FakeDatabase()
+    database.granted = false
+    const fixture = brokerFixture(database, async (input) => {
+      if (input.toolId === 'file.read') return { path: '.env', content: 'TOKEN=old\n', sha256: 'a'.repeat(64) }
+      return {}
+    })
+    const pending = fixture.broker.handle({ runId: 'run-1', requestId: 'env', toolCallId: 'env', toolId: 'file_write', args: { path: '.env', content: 'TOKEN=new\n', expectedSha256: 'a'.repeat(64) } })
+    await tick()
+    const approval = lastApproval(fixture.events)
+    expect(approval.diff).toMatchObject({ additions: 1, deletions: 1, hunks: [], text: '' })
+    expect(approval.sessionRule).toMatchObject({ eligible: false })
+    fixture.broker.rejectRunApprovals('run-1', 'cleanup')
+    await expect(pending).rejects.toThrow('cleanup')
+  })
+
+  it('「本会话总是允许此类操作」 auto-approves the same tool + risk and audits the matched rule', async () => {
+    const database = new FakeDatabase()
+    database.granted = false
+    const mutations: any[] = []
+    const fixture = brokerFixture(database, async (input) => {
+      if (input.toolId === 'file.read') throw Object.assign(new Error('missing'), { code: 'ENOENT' })
+      mutations.push(input)
+      return { path: input.args.path, before: null, after: input.args.content, sha256: 'c'.repeat(64), created: true }
+    })
+    const first = fixture.broker.handle({ runId: 'run-1', requestId: 'w1', toolCallId: 'w1', toolId: 'file_write', args: { path: 'a.md', content: 'a' } })
+    await tick()
+    const approval = lastApproval(fixture.events)
+    expect(approval.sessionRule).toMatchObject({ eligible: true, label: '「写入文件」（可撤销的本地写入）' })
+    fixture.broker.respondToApproval({ requestId: approval.id, decision: 'approve', scope: 'session' })
+    await first
+    expect(database.sessionRules).toHaveLength(1)
+    expect(database.auditEntries.find((entry) => entry.category === 'approval' && entry.payload.outcome === 'approved')?.payload).toMatchObject({ scope: 'session', sessionRule: { id: 'rule-1', created: true } })
+
+    const approvalsBefore = database.approvals.length
+    await fixture.broker.handle({ runId: 'run-1', requestId: 'w2', toolCallId: 'w2', toolId: 'file_write', args: { path: 'b.md', content: 'b' } })
+    expect(database.approvals).toHaveLength(approvalsBefore)
+    expect(mutations).toHaveLength(2)
+    const auto = database.auditEntries.find((entry) => entry.payload.outcome === 'auto_approved')
+    expect(auto).toMatchObject({ category: 'approval', action: 'file_write', runId: 'run-1', payload: { riskLevel: 'reversible_write', sessionRule: { id: 'rule-1', kind: 'tool' } } })
+    expect(database.sessionRules[0].use_count).toBe(1)
+    expect(database.events.some((event) => event.type === 'approval.auto_approved')).toBe(true)
+
+    // Another run never inherits the rule.
+    database.run.id = 'run-2'
+    const otherRun = fixture.broker.handle({ runId: 'run-2', requestId: 'w3', toolCallId: 'w3', toolId: 'file_write', args: { path: 'c.md', content: 'c' } })
+    await tick()
+    expect(database.approvals.length).toBe(approvalsBefore + 1)
+    fixture.broker.rejectRunApprovals('run-2', 'cleanup')
+    await expect(otherRun).rejects.toThrow('cleanup')
+    database.run.id = 'run-1'
+
+    // Revoked rules stop matching immediately.
+    fixture.broker.revokeSessionRule('rule-1')
+    expect(database.auditEntries.some((entry) => entry.action === 'session_rule_revoked')).toBe(true)
+    const afterRevoke = fixture.broker.handle({ runId: 'run-1', requestId: 'w4', toolCallId: 'w4', toolId: 'file_write', args: { path: 'd.md', content: 'd' } })
+    await tick()
+    expect(database.approvals.length).toBe(approvalsBefore + 2)
+    fixture.broker.rejectRunApprovals('run-1', 'cleanup')
+    await expect(afterRevoke).rejects.toThrow('cleanup')
+    expect(() => fixture.broker.revokeSessionRule('rule-1')).toThrow('会话规则不存在或已撤销')
+  })
+
+  it('never turns high-risk or destructive approvals into session rules', async () => {
+    const database = new FakeDatabase()
+    database.granted = false
+    const fixture = brokerFixture(database, async (input) => {
+      if (input.toolId === 'file.read') return { path: input.args.path, content: 'keep\n', sha256: 'a'.repeat(64) }
+      return { trashed: true }
+    })
+    const del = fixture.broker.handle({ runId: 'run-1', requestId: 'd1', toolCallId: 'd1', toolId: 'file_delete', args: { path: 'old.txt' } })
+    await tick()
+    const delApproval = lastApproval(fixture.events)
+    expect(delApproval).toMatchObject({ riskLevel: 'high_risk_irreversible', sessionRule: { eligible: false } })
+    expect(delApproval.diff).toMatchObject({ operation: 'delete', deletions: 1, additions: 0 })
+    // A forged/buggy UI asking for a session rule still gets a one-shot approval.
+    fixture.broker.respondToApproval({ requestId: delApproval.id, decision: 'approve', scope: 'session' })
+    await del
+    expect(database.sessionRules).toHaveLength(0)
+
+    const del2 = fixture.broker.handle({ runId: 'run-1', requestId: 'd2', toolCallId: 'd2', toolId: 'file_delete', args: { path: 'old2.txt' } })
+    await tick()
+    expect(database.approvals).toHaveLength(2)
+    fixture.broker.rejectRunApprovals('run-1', 'cleanup')
+    await expect(del2).rejects.toThrow('cleanup')
+
+    const shellRm = fixture.broker.handle({ runId: 'run-1', requestId: 's1', toolCallId: 's1', toolId: 'shell_run', args: { command: 'rm -rf build' } })
+    await tick()
+    expect(lastApproval(fixture.events)).toMatchObject({ riskLevel: 'high_risk_irreversible', sessionRule: { eligible: false } })
+    fixture.broker.rejectRunApprovals('run-1', 'cleanup')
+    await expect(shellRm).rejects.toThrow('cleanup')
+  })
+
+  it('scopes shell session rules to the command prefix and blocks rm -rf outside the workspace outright', async () => {
+    const database = new FakeDatabase()
+    database.granted = false
+    const commands: string[] = []
+    const fixture = brokerFixture(database, async (input) => { commands.push(String(input.args.command)); return { code: 0, stdout: '' } })
+    const first = fixture.broker.handle({ runId: 'run-1', requestId: 'n1', toolCallId: 'n1', toolId: 'shell_run', args: { command: 'npm test -- --run' } })
+    await tick()
+    const approval = lastApproval(fixture.events)
+    expect(approval.sessionRule).toMatchObject({ eligible: true, label: '以「npm test」开头的命令' })
+    fixture.broker.respondToApproval({ requestId: approval.id, decision: 'approve', scope: 'session' })
+    await first
+    await fixture.broker.handle({ runId: 'run-1', requestId: 'n2', toolCallId: 'n2', toolId: 'shell_run', args: { command: 'npm test src/a.test.ts' } })
+    expect(commands).toEqual(['npm test -- --run', 'npm test src/a.test.ts'])
+
+    const different = fixture.broker.handle({ runId: 'run-1', requestId: 'n3', toolCallId: 'n3', toolId: 'shell_run', args: { command: 'npm install left-pad' } })
+    await tick()
+    expect(database.approvals).toHaveLength(2)
+    fixture.broker.rejectRunApprovals('run-1', 'cleanup')
+    await expect(different).rejects.toThrow('cleanup')
+
+    const chained = fixture.broker.handle({ runId: 'run-1', requestId: 'n4', toolCallId: 'n4', toolId: 'shell_run', args: { command: 'npm test && npm publish' } })
+    await tick()
+    expect(database.approvals).toHaveLength(3)
+    fixture.broker.rejectRunApprovals('run-1', 'cleanup')
+    await expect(chained).rejects.toThrow('cleanup')
+
+    for (const command of ['rm -rf ~', 'rm -rf /', 'rm -rf ../sibling', 'sudo rm -rf /etc']) {
+      await expect(fixture.broker.handle({ runId: 'run-1', requestId: `x-${command}`, toolCallId: `x-${command}`, toolId: 'shell_run', args: { command } })).rejects.toMatchObject({ code: 'security.destructive-outside-workspace' })
+    }
+    expect(database.approvals).toHaveLength(3)
+  })
+
+  it('runs file_find and file_search as read-only tools without approval', async () => {
+    const database = new FakeDatabase()
+    database.granted = false
+    const calls: any[] = []
+    const fixture = brokerFixture(database, async (input) => { calls.push(input); return { matches: [], matchCount: 0 } })
+    await fixture.broker.handle({ runId: 'run-1', requestId: 'f1', toolCallId: 'f1', toolId: 'file_find', args: { pattern: '*.ts' } })
+    await fixture.broker.handle({ runId: 'run-1', requestId: 'f2', toolCallId: 'f2', toolId: 'file_search', args: { query: 'TODO', glob: '*.md', regex: false } })
+    expect(calls.map((call) => call.toolId)).toEqual(['file.find', 'file.search'])
+    expect(database.approvals).toHaveLength(0)
+    await expect(fixture.broker.handle({ runId: 'run-1', requestId: 'f3', toolCallId: 'f3', toolId: 'file_find', args: { pattern: '*.ts', extra: true } })).rejects.toThrow()
   })
 })
