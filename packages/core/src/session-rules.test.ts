@@ -62,6 +62,8 @@ describe('session approval rules', () => {
       expect(sessionRuleEligibility(shell(command)).eligible, command).toBe(false)
     }
     expect(shellCommandPrefix('python3 scripts/build.py --fast')).toEqual({ prefix: ['python3', 'scripts/build.py'] })
+    expect(shellCommandPrefix('cd "subdir" && pandoc input.md -o output.docx')).toEqual({ prefix: ['pandoc', 'input.md'] })
+    expect(shellCommandPrefix('cd /workspace && npm test')).toEqual({ prefix: ['npm', 'test'] })
     expect(shellCommandPrefix('git commit -m "msg"')).toEqual({ prefix: ['git', 'commit'] })
     expect(shellCommandPrefix('pytest -q tests')).toEqual({ prefix: ['pytest'] })
     expect(shellCommandPrefix('npm run build -- --watch')).toEqual({ prefix: ['npm', 'run', 'build'] })

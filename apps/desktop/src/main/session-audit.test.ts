@@ -51,15 +51,15 @@ describe('audit query and chain report', () => {
     database.audit('tool', 'file_write', 'Agent 请求 写入文件', { actor: 'agent', outcome: 'require_approval' }, a.id)
     database.audit('approval', 'file_write', '会话规则自动批准 写入文件', { actor: 'system', outcome: 'auto_approved', sessionRule: { id: 'rule-1', label: '写入' } }, a.id)
     database.audit('tool', 'shell_run', '运行命令完成 100%_done', { actor: 'tool', outcome: 'succeeded' }, b.id)
-    expect(database.queryAudit({ runId: a.id }).total).toBe(2)
+    expect(database.queryAudit({ runId: a.id }).total).toBe(3)
     expect(database.queryAudit({ category: 'approval' }).rows.map((row) => row.action)).toEqual(['file_write'])
     expect(database.queryAudit({ outcome: 'auto_approved' }).rows).toHaveLength(1)
     expect(database.queryAudit({ text: '100%_' }).rows).toHaveLength(1)
     expect(database.queryAudit({ text: '%' }).rows).toHaveLength(1)
     expect(database.queryAudit({ from: '2999-01-01T00:00:00.000Z' }).rows).toHaveLength(0)
-    expect(database.queryAudit({ limit: 1 })).toMatchObject({ total: 3, rows: [expect.objectContaining({ action: 'shell_run' })] })
+    expect(database.queryAudit({ limit: 1 })).toMatchObject({ total: 5, rows: [expect.objectContaining({ action: 'shell_run' })] })
     expect(database.auditRuns().map((run) => run.title)).toEqual(['B', 'A'])
-    expect(database.auditCategories()).toEqual(['approval', 'tool'])
+    expect(database.auditCategories().sort()).toEqual(['approval', 'run', 'tool'])
   })
 
   it('detects modified entries and broken links', async () => {

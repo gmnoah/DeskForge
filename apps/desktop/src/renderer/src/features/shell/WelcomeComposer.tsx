@@ -42,6 +42,19 @@ export function WelcomeComposer({
 
   useEffect(() => { setPermissionMode(defaultPermissionMode) }, [defaultPermissionMode])
 
+  const submit = () => {
+    if (prompt.trim() && workspace && models.length > 0) {
+      onSubmit(prompt.trim(), mode, permissionMode, modelId || undefined, attachments.map((attachment) => attachment.id))
+    }
+  }
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+      event.preventDefault()
+      submit()
+    }
+  }
+
   return (
     <div className="welcome-view">
       <div className="welcome-hero">
@@ -56,10 +69,14 @@ export function WelcomeComposer({
       {models.length === 0 && (
         <div className="inline-notice warning"><Icon name="key" /><span>还没有可用的模型配置。</span><button type="button" onClick={onOpenSettings}>添加模型</button></div>
       )}
-      <SubmitForm className="hero-composer" onSubmit={() => {
-        if (prompt.trim()) onSubmit(prompt.trim(), mode, permissionMode, modelId || undefined, attachments.map((attachment) => attachment.id))
-      }}>
-        <textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="描述你想完成的工作…" rows={4} />
+      <SubmitForm className="hero-composer" onSubmit={submit}>
+        <textarea
+          value={prompt}
+          onChange={(event) => setPrompt(event.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="描述你想完成的工作（Enter 发送，Shift+Enter 换行）…"
+          rows={4}
+        />
         {attachments.length > 0 && <div className="composer-attachments">{attachments.map((attachment) => <span key={attachment.id}><Icon name="file" size={13} />{attachment.name}<button type="button" aria-label={`移除 ${attachment.name}`} onClick={() => setAttachments((items) => items.filter((item) => item.id !== attachment.id))}>×</button></span>)}</div>}
         {attachmentError && <small className="composer-error">{attachmentError}</small>}
         <div className="composer-toolbar">

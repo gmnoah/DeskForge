@@ -244,6 +244,26 @@ export function isValidationShellCommand(command: string): boolean {
   return /^(?:(?:corepack\s+)?(?:pnpm|npm|yarn|bun)\s+(?:(?:run|exec)\s+)?(?:test|lint|typecheck|check|build)\b|(?:vitest|jest|pytest|eslint|xcodebuild|tsc\s+--noEmit|cargo\s+(?:test|check|build)|go\s+test|swift\s+test|git\s+diff\s+--check)\b)/i.test(trimmed)
 }
 
+/**
+ * Common workspace document generation, build, utility and inspection commands
+ * that are safe to run automatically within the workspace under `workspace_auto`.
+ */
+export function isSafeWorkspaceShellCommand(command: string): boolean {
+  const trimmed = command.trim()
+  if (!trimmed || isForbiddenMacAutomationCommand(trimmed)) return false
+  const lower = trimmed.toLowerCase()
+
+  // Destructive operations always require approval
+  if (/\b(?:rm|rmdir|unlink|sudo|dd\s+if=|mkfs|diskutil|shutdown|reboot)\b/.test(lower)) return false
+
+  // Outbound network communications and publishing commands always need approval
+  if (/\b(?:curl|wget|ssh|scp|rsync|git\s+push|npm\s+publish|pnpm\s+publish|upload|deploy|release)\b/.test(lower)) return false
+
+  // Safe tools: document processors, local scripts/interpreters, directory creation, inspection
+  return /(?:^|[;&|()\n]\s*)(?:which|where|whereis|mkdir|touch|cp|mv|cat|head|tail|echo|ls|pwd|find|stat|diff|file|wc|grep|awk|sed|pandoc|textutil|typst|libreoffice|soffice|pdflatex|python[0-9.]*|node|bun|tsx|deno|zip|unzip|tar|gzip|gunzip)\b/i.test(lower)
+}
+
+
 /** Classifies a tool request without considering user grants. */
 export function classifyToolRisk(call: ToolCall, descriptor: ToolDescriptor): RiskClassification {
   const name = call.toolName.toLowerCase()
@@ -480,7 +500,7 @@ export function applyRunPermissionMode(
   const command = stringArgument(call.arguments, 'command', 'cmd') ?? ''
   const localReversible = decision.riskLevel === 'reversible_write' && !decision.sendsDataOffDevice
   const workspaceAutomatic = localReversible && (decision.ruleId === 'filesystem.write'
-    || (decision.ruleId === 'shell.unknown-write' && isValidationShellCommand(command)))
+    || (decision.ruleId === 'shell.unknown-write' && (isValidationShellCommand(command) || isSafeWorkspaceShellCommand(command))))
 
   if (workspaceAutomatic) return { ...decision, effect: 'allow', ruleId: `${decision.ruleId}.permission-workspace-auto` }
   return decision

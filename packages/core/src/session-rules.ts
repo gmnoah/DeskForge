@@ -71,9 +71,15 @@ export function tokenizeSimpleCommand(command: string): string[] | undefined {
   return tokens
 }
 
+function stripDirectoryChangePrefix(command: string): string {
+  const match = command.match(/^\s*cd\s+(?:"[^"]+"|\'[^\']+\'|\S+)\s*(?:&&|;)\s*/i)
+  return match ? command.slice(match[0].length).trim() : command.trim()
+}
+
 /** Returns the command prefix a session rule would cover, or a refusal reason. */
 export function shellCommandPrefix(command: string): { prefix: string[] } | { reason: string } {
-  const tokens = tokenizeSimpleCommand(command)
+  const normalized = stripDirectoryChangePrefix(command)
+  const tokens = tokenizeSimpleCommand(normalized)
   if (!tokens) return { reason: '命令包含管道、重定向、变量或多条命令，不能设为会话规则' }
   const [executable, second] = tokens
   if (!executable || /['"=]/.test(executable) || executable.includes('/') && !/^\.\/[\w.-]+$/.test(executable)) {

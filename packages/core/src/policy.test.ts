@@ -10,6 +10,7 @@ import {
   fingerprintArguments,
   isForbiddenMacAutomationCommand,
   isSafeReadOnlyShellCommand,
+  isSafeWorkspaceShellCommand,
   isValidationShellCommand,
 } from './policy'
 
@@ -61,7 +62,32 @@ describe('risk policy', () => {
       const decision = evaluateToolPolicy({ call: request, descriptor: descriptor(name) })
       expect(applyRunPermissionMode(decision, request, 'workspace_auto').effect).not.toBe('allow')
     }
+
+    for (const command of [
+      'which pandoc textutil',
+      'mkdir -p "docs" && ls -ld "docs"',
+      'pandoc "notes.md" -o "notes.docx"',
+      'python3 gen_doc.py',
+      'cd "docs" && python3 -c "import docx"',
+    ]) {
+      const request = call('shell.command', { command })
+      const decision = evaluateToolPolicy({ call: request, descriptor: descriptor('shell.command') })
+      expect(applyRunPermissionMode(decision, request, 'workspace_auto').effect).toBe('allow')
+    }
   })
+
+  it('correctly classifies safe workspace shell commands', () => {
+    expect(isSafeWorkspaceShellCommand('which pandoc textutil')).toBe(true)
+    expect(isSafeWorkspaceShellCommand('mkdir -p "build" && ls -la "build"')).toBe(true)
+    expect(isSafeWorkspaceShellCommand('pandoc input.md -o output.docx')).toBe(true)
+    expect(isSafeWorkspaceShellCommand('python3 build.py')).toBe(true)
+    expect(isSafeWorkspaceShellCommand('node script.js')).toBe(true)
+    expect(isSafeWorkspaceShellCommand('rm -rf build')).toBe(false)
+    expect(isSafeWorkspaceShellCommand('curl https://example.com')).toBe(false)
+    expect(isSafeWorkspaceShellCommand('node scripts/upload.mjs')).toBe(false)
+    expect(isSafeWorkspaceShellCommand('git push origin main')).toBe(false)
+  })
+
 
   it('allows only strict read-only shell commands', () => {
     expect(isSafeReadOnlyShellCommand('git diff -- src')).toBe(true)

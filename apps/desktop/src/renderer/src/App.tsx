@@ -133,14 +133,31 @@ function RunComposer({ runId, permissionMode, disabled, onSend }: {
   const [draftPermissionMode, setDraftPermissionMode] = useState<RunPermissionMode>(permissionMode)
   const [attachments, setAttachments] = useState<Array<{ id: string; name: string }>>([])
   useEffect(() => { setDraftPermissionMode(permissionMode) }, [runId, permissionMode])
+
+  const submit = () => {
+    if (!message.trim() || disabled) return
+    onSend(message.trim(), draftPermissionMode, attachments.map((attachment) => attachment.id))
+    setMessage('')
+    setAttachments([])
+  }
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+      event.preventDefault()
+      submit()
+    }
+  }
+
   return (
-    <SubmitForm className="run-composer" onSubmit={() => {
-      if (!message.trim() || disabled) return
-      onSend(message.trim(), draftPermissionMode, attachments.map((attachment) => attachment.id))
-      setMessage('')
-      setAttachments([])
-    }}>
-      <textarea value={message} onChange={(event) => setMessage(event.target.value)} rows={1} placeholder={disabled ? '这项工作已停止' : '继续补充、调整方向或交代下一步…'} disabled={disabled} />
+    <SubmitForm className="run-composer" onSubmit={submit}>
+      <textarea
+        value={message}
+        onChange={(event) => setMessage(event.target.value)}
+        onKeyDown={handleKeyDown}
+        rows={1}
+        placeholder={disabled ? '这项工作已停止' : '继续补充、调整方向（Enter 发送，Shift+Enter 换行）…'}
+        disabled={disabled}
+      />
       {attachments.length > 0 && <div className="composer-attachments compact">{attachments.map((attachment) => <span key={attachment.id}><Icon name="file" size={12} />{attachment.name}<button type="button" aria-label={`移除 ${attachment.name}`} onClick={() => setAttachments((items) => items.filter((item) => item.id !== attachment.id))}>×</button></span>)}</div>}
       <div className="run-composer-bottom">
         <span>
