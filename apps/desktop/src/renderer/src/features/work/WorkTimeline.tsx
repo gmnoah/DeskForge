@@ -5,6 +5,7 @@ import { BrandMark, Icon } from '../../icons'
 import type { JsonRecord, RunDetailView } from '../../types'
 import { buildWorkTurns, type ResultEvidence } from '../../work-turn'
 import { ProcessDisclosure } from './ProcessDisclosure'
+import { failureMessage, failureTechnicalDetail, readTokenUsage, tokenUsageSummary } from './run-insights'
 
 interface WorkTimelineProps {
   detail: RunDetailView
@@ -74,21 +75,12 @@ function ResultSummary({ result, onOpenDetails, onOpenChanges }: { result: Resul
   )
 }
 
-function safeFailureMessage(detail: RunDetailView): string {
-  const raw = typeof detail.lastError === 'object' && detail.lastError
-    ? String((detail.lastError as JsonRecord).message ?? '')
-    : ''
-  if (!raw || /constraint|sqlite|stack|tool_calls|\bid\b/i.test(raw)) {
-    return '这次操作没有完成。你可以重试，或打开右侧诊断查看技术信息。'
-  }
-  return raw.length > 180 ? `${raw.slice(0, 179)}…` : raw
-}
-
 export function WorkTimeline({ detail, approvals, onOpenDetails, onOpenChanges }: WorkTimelineProps) {
   const tailRef = useRef<HTMLDivElement>(null)
   const followTailRef = useRef(true)
   const [openProcessTurnId, setOpenProcessTurnId] = useState<string>()
   const turns = useMemo(() => buildWorkTurns(detail), [detail])
+  const tokenUsage = readTokenUsage(detail.tokenUsage)
 
   useEffect(() => {
     const scroller = tailRef.current?.closest('.run-scroll')
@@ -136,8 +128,20 @@ export function WorkTimeline({ detail, approvals, onOpenDetails, onOpenChanges }
           </section>
         )
       })}
-      {detail.status === 'failed' && <div className="inline-notice error"><Icon name="warning" /><span>{safeFailureMessage(detail)}</span></div>}
+      {detail.status === 'failed' && <FailureNotice lastError={detail.lastError} />}
+      {tokenUsage && <div className="run-token-usage" title="服务商返回的用量合计（含工具调用回合）">{tokenUsageSummary(tokenUsage)}</div>}
       <div ref={tailRef} className="timeline-tail" aria-hidden="true" />
     </div>
   )
+}
+
+function FailureNotice({ lastError }: { lastError: unknown }) {
+  const technical = failureTechnicalDetail(lastError)
+  return <div className="inline-notice error run-failure">
+    <Icon name="warning" />
+    <span>
+      {failureMessage(lastError)}
+      {technical && <details className="run-failure-detail"><summary>技术信息</summary><code>{technical}</code></details>}
+    </span>
+  </div>
 }

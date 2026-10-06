@@ -172,7 +172,7 @@ export function classifyModelError(error: unknown, secrets: readonly string[] = 
   if (/provider finish_reason|stream ended without finish_reason|network_error/.test(text)) {
     return out('MODEL_OUTPUT_INTERRUPTED', `${name}的输出意外中断。`, true, '可以直接重试；若反复出现，可缩短任务或换用其他模型。')
   }
-  if (status === 408 || status === 504 || /timed? ?out|timeout|etimedout|und_err_(?:connect_|headers_|body_)?timeout|超时/.test(text)) {
+  if (status === 408 || status === 504 || /timed? ?out|timeout|etimedout|und_err_(?:connect_|headers_|body_)?timeout|连接.*超时|请求超时/.test(text)) {
     return out('MODEL_TIMEOUT', `连接${name}超时。`, true, '检查网络或代理设置后重试；如在海外网络，确认服务地址可访问。')
   }
   if (/enotfound|eai_again|getaddrinfo/.test(text)) {

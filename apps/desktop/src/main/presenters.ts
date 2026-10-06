@@ -12,6 +12,7 @@ import type {
   ModelProfile,
   ModelSelectionSnapshot,
   ProviderId,
+  PublicError,
   Run,
   RunDetail,
   RunLimits,
@@ -21,6 +22,7 @@ import type {
   ToolReceipt,
   Workspace,
 } from '@deskforge/contracts'
+import { classifyModelError } from '@deskforge/core'
 import { defaultBaseUrl } from './model-providers'
 
 export const DEFAULT_LIMITS: RunLimits = {
@@ -185,8 +187,25 @@ export function presentRun(row: any, fallbackModel: ModelProfile): Run {
     ...(row.finishedAt ?? row.finished_at ? { completedAt: row.finishedAt ?? row.finished_at } : {}),
     createdAt: row.createdAt ?? row.created_at,
     updatedAt: row.updatedAt ?? row.updated_at,
-    ...(row.error ? { lastError: { code: 'RUN_ERROR', message: row.error, retryable: true } } : {}),
+    ...(row.tokenUsage ? { tokenUsage: row.tokenUsage } : {}),
+    ...(row.error ? { lastError: presentRunError(String(row.error), snapshot) } : {}),
   } as Run
+}
+
+/**
+ * Model failures get a stable code and Chinese guidance; anything the classifier
+ * does not recognise keeps its original text (it is usually already Chinese).
+ */
+export function presentRunError(message: string, model: { provider?: string; modelId?: string; baseUrl?: string }): PublicError {
+  const classified = classifyModelError(message, [], {
+    ...(model.provider ? { provider: model.provider } : {}),
+    ...(model.modelId ? { modelId: model.modelId } : {}),
+    ...(model.baseUrl ? { baseUrl: model.baseUrl } : {}),
+  })
+  if (classified.code === 'MODEL_CONNECTION_FAILED' || classified.code === 'MODEL_REQUEST_ABORTED') {
+    return { code: 'RUN_ERROR', message, retryable: true }
+  }
+  return classified
 }
 
 export function presentArtifact(row: any): ArtifactRef {

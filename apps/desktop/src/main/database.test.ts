@@ -115,6 +115,29 @@ describe('AppDatabase persistence boundary', () => {
     }
   })
 
+  it('sums provider-reported token usage per run from model completion audits', async () => {
+    const { database } = await temporaryDatabase()
+    const profileId = database.saveModelProfile({ name: 'DeepSeek', provider: 'deepseek', modelId: 'deepseek-flash', isDefault: true, capabilities: {} })
+    const workspaceId = database.addWorkspace('/tmp/usage-workspace', 'Usage')
+    const run = database.createRun({
+      title: 'Usage', prompt: 'hi', workspaceId, modelProfileId: profileId,
+      modelSnapshot: { profileId, provider: 'deepseek', modelId: 'deepseek-flash', baseUrl: 'https://api.deepseek.com/v1', capabilities: {} },
+      limits: {}, readOnly: false, accessMode: 'approval',
+    })
+    expect(database.getRunTokenUsage(run.id)).toBeUndefined()
+    expect(database.getRun(run.id)).not.toHaveProperty('tokenUsage')
+
+    database.audit('model', 'completion', '模型回合完成', { usage: { input: 20, output: 30, cacheRead: 100, cacheWrite: 0, reasoning: 12, totalTokens: 150 } }, run.id)
+    database.audit('model', 'completion', '模型回合完成', { usage: { input: 5, output: 7, cacheRead: 0, cacheWrite: 0, totalTokens: 12 } }, run.id)
+    database.audit('model', 'completion', '模型回合完成', { note: 'no usage' }, run.id)
+    database.audit('model', 'completion', '其它任务', { usage: { input: 999, output: 999, totalTokens: 1998 } }, 'other-run')
+
+    const expected = { inputTokens: 25, outputTokens: 37, cacheReadTokens: 100, reasoningTokens: 12, totalTokens: 162, modelCalls: 2 }
+    expect(database.getRunTokenUsage(run.id)).toEqual(expected)
+    expect(database.getRun(run.id).tokenUsage).toEqual(expected)
+    database.close()
+  })
+
   it('uses WAL and restores durable task state after reopening', async () => {
     const { path, database } = await temporaryDatabase()
     expect(database.db.pragma('journal_mode', { simple: true })).toBe('wal')
