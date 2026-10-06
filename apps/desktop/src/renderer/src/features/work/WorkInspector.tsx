@@ -5,6 +5,7 @@ import type { JsonRecord, RunDetailView, SourceItem, TraceSpanItem, WorkbenchSna
 import { EmptyState, Modal, Tabs } from '../../ui'
 import { PanelResizer, usePersistentPanelWidth } from '../shell/panel-resizer'
 import { readTokenUsage, tokenUsageLines } from './run-insights'
+import { SessionRulesList } from './SessionRules'
 
 export type WorkInspectorTab = 'details' | 'changes' | 'activity'
 
@@ -120,6 +121,8 @@ function DetailsPanel({ detail, snapshot, onBindChrome, onOpenSettings }: Pick<W
     {sources.length > 0 && <Section title="来源" icon="globe"><div className="source-list">{sources.map((source, index) => <a href={source.url} target="_blank" rel="noreferrer noopener" key={source.url}><span>{index + 1}</span><span><strong>{source.title || sourceHost(source.url)}</strong><small>{source.publisher || sourceHost(source.url)} · {source.status === 'verified' ? '已核验' : source.status === 'fetched' ? '已读取' : source.status === 'failed' ? '读取失败' : '搜索发现'}</small></span><Icon name="external" size={14} /></a>)}</div></Section>}
 
     <Section title="当前目标" icon="tasks"><p className="inspector-goal">{detail.goal ?? detail.prompt ?? detail.title}</p></Section>
+
+    <SessionRulesList runId={detail.id} refreshKey={`${detail.updatedAt ?? ''}:${detail.approvalHistory.length}:${detail.events.length}`} hideWhenEmpty wrap={(children) => <Section title="本会话自动允许" icon="shield">{children}</Section>} />
 
     {tokenUsage && <Section title="Token 用量" icon="layers"><div className="token-usage-list">{tokenUsageLines(tokenUsage).map((line) => <div key={line.label}><span>{line.label}</span><strong>{line.value}</strong></div>)}</div><p className="token-usage-note">数据来自模型服务返回的 usage，仅统计本次工作。</p></Section>}
 

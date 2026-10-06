@@ -189,7 +189,7 @@ export function SettingsPage({ snapshot, selectedWorkspaceId, perform, onWorkspa
       </SettingsSection>
 
       <SettingsSection icon="shield" title="隐私与记录" description="操作、确认、错误和检查结果只保存在本机，不记录隐藏思维链或原始密钥。">
-        <SettingRow title="本地活动记录" detail="查看最近操作，或导出经过脱敏的诊断包。"><button type="button" className="button secondary small" onClick={onOpenAudit}>查看活动记录</button></SettingRow>
+        <SettingRow title="本地活动记录" detail="按工作、类别和时间筛选审计事件，校验哈希链，导出 JSON / CSV / Markdown 或脱敏诊断包；也可在这里撤销会话规则。"><button type="button" className="button secondary small" onClick={onOpenAudit}>查看活动记录</button></SettingRow>
       </SettingsSection>
 
       <SettingsSection icon="settings" title="高级运行限制" description="限制只影响新工作，正在进行的工作继续使用创建时的设置。">
