@@ -59,6 +59,7 @@ const EXCLUDED_SUBCOMMANDS = new Set([
   'push', 'reset', 'clean', 'rebase', 'checkout', 'restore', 'rm', 'filter-branch', 'filter-repo', 'gc', 'prune', 'reflog', 'stash', 'branch', 'tag', 'remote', 'config', 'submodule', 'worktree', 'update-ref', 'switch',
   'dlx', 'exec', 'x', 'eval', 'shell',
 ])
+const RUN_SUBCOMMANDS = new Set(['run', 'run-script'])
 const SUBCOMMAND = /^[a-z][a-z0-9:._-]*$/i
 const SCRIPT_PATH = /^(?:\.{0,2}\/)?[\w@.-]+(?:\/[\w@.-]+)*\.(?:py|js|mjs|cjs|ts|mts|rb|pl|php)$/i
 
@@ -86,7 +87,18 @@ export function shellCommandPrefix(command: string): { prefix: string[] } | { re
   }
   if (second && SUBCOMMAND.test(second) && !/['"]/.test(second)) {
     if (EXCLUDED_SUBCOMMANDS.has(second.toLowerCase())) return { reason: `「${executable} ${second}」可能发布、改写历史或删除内容，每次都需要确认` }
+    if (RUN_SUBCOMMANDS.has(second.toLowerCase())) {
+      // `npm run` alone would cover every script, so the script name is part of the prefix.
+      const script = tokens[2]
+      if (!script || !SUBCOMMAND.test(script)) return { reason: `「${executable} ${second}」需要写明脚本名才能设为会话规则` }
+      if (EXCLUDED_SUBCOMMANDS.has(script.toLowerCase())) return { reason: `「${executable} ${second} ${script}」可能发布或删除内容，每次都需要确认` }
+      return { prefix: [executable, second, script] }
+    }
     return { prefix: [executable, second] }
+  }
+  // A bare-executable prefix would also match flags followed by a risky subcommand.
+  if (tokens.slice(1).some((token) => EXCLUDED_SUBCOMMANDS.has(token.replace(/^['"]|['"]$/g, '').toLowerCase()))) {
+    return { reason: '命令参数中包含发布、改写历史或删除类子命令，每次都需要确认' }
   }
   return { prefix: [executable] }
 }

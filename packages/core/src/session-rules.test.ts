@@ -57,13 +57,17 @@ describe('session approval rules', () => {
   })
 
   it('refuses shell prefixes that hide or escalate what runs', () => {
-    for (const command of ['sudo make', 'bash -c "make"', 'rm -rf build', 'curl https://x', 'FOO=1 npm test', 'npm test | tee log', 'echo $(whoami)', 'git push origin main', 'git reset --hard', 'npm publish', 'pnpm dlx some-pkg', 'python -c "print(1)"', 'node ../outside.js', 'env npm test', 'xargs rm', '/bin/rm -rf x', 'osascript -e x', 'docker run x']) {
+    for (const command of ['sudo make', 'bash -c "make"', 'rm -rf build', 'curl https://x', 'FOO=1 npm test', 'npm test | tee log', 'echo $(whoami)', 'git push origin main', 'git reset --hard', 'npm publish', 'pnpm dlx some-pkg', 'python -c "print(1)"', 'node ../outside.js', 'env npm test', 'xargs rm', '/bin/rm -rf x', 'osascript -e x', 'docker run x', 'pnpm --filter app publish', 'npm run', 'npm run deploy', 'yarn -s push']) {
       expect(shellCommandPrefix(command), command).toHaveProperty('reason')
       expect(sessionRuleEligibility(shell(command)).eligible, command).toBe(false)
     }
     expect(shellCommandPrefix('python3 scripts/build.py --fast')).toEqual({ prefix: ['python3', 'scripts/build.py'] })
     expect(shellCommandPrefix('git commit -m "msg"')).toEqual({ prefix: ['git', 'commit'] })
     expect(shellCommandPrefix('pytest -q tests')).toEqual({ prefix: ['pytest'] })
+    expect(shellCommandPrefix('npm run build -- --watch')).toEqual({ prefix: ['npm', 'run', 'build'] })
+    const runBuild = ruleFrom(shell('npm run build'))
+    expect(matchSessionRule([runBuild], shell('npm run build'))).toBe(runBuild)
+    expect(matchSessionRule([runBuild], shell('npm run lint'))).toBeUndefined()
   })
 })
 
