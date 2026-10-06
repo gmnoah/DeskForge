@@ -21,6 +21,7 @@ import {
   writeFileSafely,
   writeBinaryFileSafely,
 } from './runner-security'
+import { findFiles, resolveSearchScope, searchContents } from './workspace-search'
 
 type Command = ToolRunnerCommand
 
@@ -52,43 +53,6 @@ const MAX_PROCESS_OUTPUT_BYTES = 128 * 1024
 const MAX_BINARY_BYTES = 50 * 1024 * 1024
 const MAX_MANAGED_PROCESS_OUTPUT_BYTES = 25 * 1024 * 1024
 const MAX_MANAGED_PROCESS_POLL_BYTES = 128 * 1024
-const SEARCH_EXCLUDED_DIRECTORIES = new Set(['.git', 'node_modules', 'dist', 'build', 'out', 'outputs', 'target'])
-
-export async function searchFilesFallback(root: string, query: string, limit = 500): Promise<Record<string, unknown>> {
-  let matcher: RegExp
-  try { matcher = new RegExp(query, 'giu') } catch { matcher = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'giu') }
-  const matches: Array<{ path: string; line: number; column: number; text: string }> = []
-  let scannedFiles = 0
-  const visit = async (directory: string): Promise<void> => {
-    if (matches.length >= limit || scannedFiles >= 20_000) return
-    const entries = await readdir(directory, { withFileTypes: true })
-    for (const entry of entries) {
-      if (matches.length >= limit || scannedFiles >= 20_000) break
-      if (entry.isSymbolicLink()) continue
-      const path = join(directory, entry.name)
-      if (entry.isDirectory()) {
-        if (!SEARCH_EXCLUDED_DIRECTORIES.has(entry.name)) await visit(path)
-        continue
-      }
-      if (!entry.isFile()) continue
-      scannedFiles += 1
-      const info = await stat(path)
-      if (info.size > MAX_TEXT) continue
-      const data = await readFile(path)
-      if (data.includes(0)) continue
-      const lines = data.toString('utf8').split(/\r?\n/)
-      for (let lineIndex = 0; lineIndex < lines.length && matches.length < limit; lineIndex += 1) {
-        const line = lines[lineIndex] ?? ''
-        matcher.lastIndex = 0
-        const match = matcher.exec(line)
-        if (!match) continue
-        matches.push({ path: relative(root, path) || entry.name, line: lineIndex + 1, column: match.index + 1, text: line.slice(0, 1_000) })
-      }
-    }
-  }
-  await visit(root)
-  return { engine: 'builtin', query, root, matches, matchCount: matches.length, scannedFiles, truncated: matches.length >= limit || scannedFiles >= 20_000 }
-}
 
 const send = (message: Record<string, unknown>): void => {
   if (!parent) throw new Error('Tool Runner IPC 不可用')
@@ -231,15 +195,24 @@ async function execute(command: Extract<Command, { type: 'execute' }>): Promise<
       const data = await readFile(target)
       return { path: target, data: data.toString('base64'), sha256: hash(data), mtimeMs: info.mtimeMs, size: info.size }
     }
+    case 'file.find': {
+      const { root, target, relativeBase } = await resolveAuthorizedPath(authorizationRoot, args.path ?? '.', false, workspacePath)
+      const scope = await resolveSearchScope(root, target, relativeBase)
+      return findFiles(scope, { pattern: String(args.pattern ?? ''), type: args.type === 'directory' || args.type === 'any' ? args.type : 'file', maxResults: args.maxResults })
+    }
     case 'file.search': {
-      const { target } = await resolveAuthorizedPath(authorizationRoot, args.path ?? '.', false, workspacePath)
-      const rgArgs = ['--json', '--hidden', '--glob', '!.git/**', '--glob', '!node_modules/**', String(args.query), target]
-      try {
-        return await runProcess(command.requestId, 'rg', rgArgs, target, 60_000)
-      } catch (error: any) {
-        if (error?.code !== 'ENOENT') throw error
-        return searchFilesFallback(target, String(args.query))
-      }
+      const { root, target, relativeBase } = await resolveAuthorizedPath(authorizationRoot, args.path ?? '.', false, workspacePath)
+      const scope = await resolveSearchScope(root, target, relativeBase)
+      return searchContents(scope, {
+        query: String(args.query ?? ''),
+        regex: args.regex === true,
+        caseSensitive: args.caseSensitive === true,
+        ...(typeof args.glob === 'string' && args.glob.trim() ? { glob: args.glob.trim() } : {}),
+        maxResults: args.maxResults,
+        maxFileBytes: args.maxFileBytes,
+        env: sanitizeEnv(),
+        onChild: (child) => { processes.set(command.requestId, child); return () => { processes.delete(command.requestId) } },
+      })
     }
     case 'file.write': {
       return writeFileSafely(authorizationRoot, String(args.path), String(args.content), args.expectedSha256, workspacePath)
