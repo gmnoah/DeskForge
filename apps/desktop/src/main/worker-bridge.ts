@@ -81,7 +81,7 @@ export class AgentHostBridge {
   async testProvider(input: { provider: string; modelId: string; baseUrl: string; apiKey: string }): Promise<any> {
     const requestId = randomUUID()
     const promise = new Promise((resolve, reject) => {
-      const timer = setTimeout(() => { this.tests.delete(requestId); reject(new Error('连接测试超时')) }, 45_000)
+      const timer = setTimeout(() => { this.tests.delete(requestId); reject(new Error('连接测试超时')) }, 30_000)
       this.tests.set(requestId, { resolve, reject, timer })
     })
     this.worker.send({ protocolVersion: WORKER_PROTOCOL_VERSION, type: 'test-provider', requestId, ...input })

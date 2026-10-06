@@ -27,7 +27,7 @@ const api: DesktopApi = {
   },
   models: {
     list: noInput('models:list'), catalog: (input) => invoke('models:catalog', input), upsert: (input) => invoke('models:upsert', input), remove: (input) => invoke('models:remove', input),
-    setSecret: (input) => invoke('models:set-secret', input), deleteSecret: (input) => invoke('models:delete-secret', input), test: (input) => invoke('models:test', input),
+    setSecret: (input) => invoke('models:set-secret', input), deleteSecret: (input) => invoke('models:delete-secret', input), test: (input) => invoke('models:test', input), testDraft: (input) => invoke('models:test-draft', input),
     setDefaults: (input) => invoke('models:set-defaults', input),
   },
   settings: { get: noInput('settings:get'), update: (input) => invoke('settings:update', input) },
