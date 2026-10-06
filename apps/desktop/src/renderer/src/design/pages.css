@@ -145,3 +145,13 @@
   .limit-grid { grid-template-columns: repeat(2, 1fr); }
   .model-row { align-items: flex-start; flex-wrap: wrap; padding: 10px 0; }
 }
+
+/* Model connection test */
+.inline-notice.success { color: var(--success); background: var(--success-soft); }
+.connection-test-result > span { display: grid; gap: 3px; line-height: 1.5; }
+.connection-test-result small { color: var(--text-secondary); font-size: 12px; }
+.connection-test-result .connection-test-notice { color: var(--warning); }
+.connection-test-result details summary { cursor: pointer; color: var(--text-secondary); font-size: 11px; }
+.connection-test-result code { display: block; margin-top: 4px; padding: 6px 8px; color: var(--text-secondary); background: var(--surface); border-radius: var(--radius-control); font-size: 11px; white-space: pre-wrap; word-break: break-all; max-height: 120px; overflow: auto; }
+.setup-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 20px; }
+.setup-actions .setup-next { flex: 1; width: auto; margin-top: 0; }

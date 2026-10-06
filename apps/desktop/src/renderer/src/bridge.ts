@@ -766,6 +766,9 @@ export const bridge = {
     { path: 'models.test', args: [input] },
     { path: 'testModelProfile', args: [input] },
   ]),
+  testModelDraft: (input: JsonRecord) => call<unknown>([
+    { path: 'models.testDraft', args: [input] },
+  ]),
   setDefaultModel: (id: string) => call<unknown>([
     { path: 'models.setDefaults', args: [{ defaultModelProfileId: id }] },
     { path: 'setDefaultModelProfile', args: [id] },
