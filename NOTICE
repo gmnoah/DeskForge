@@ -1,0 +1,17 @@
+DeskForge
+Copyright (c) 2026 Noah (gmnoah)
+
+This product includes code adapted from OpenWorkbuddy
+(https://github.com/chenin0931/OpenWorkbuddy), which is licensed under the MIT License.
+Copyright (c) 2026 OpenWorkbuddy contributors.
+
+DeskForge is an independent project. It is not WorkBuddy and it is not a Tencent product.
+
+The adapted desktop app also depends on third-party software, including:
+
+- Electron (https://www.electronjs.org/), MIT License, Copyright (c) Electron contributors
+- @earendil-works/pi-agent-core and @earendil-works/pi-ai, used for the local agent loop
+- React, better-sqlite3, and the other packages listed in the workspace lockfile
+
+Those packages remain under their own licenses. This NOTICE does not change the MIT
+license of DeskForge itself.
