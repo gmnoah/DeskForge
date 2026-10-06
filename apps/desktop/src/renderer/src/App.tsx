@@ -52,6 +52,20 @@ function formatDate(value?: string, includeDate = false) {
     : { hour: '2-digit', minute: '2-digit' }).format(date)
 }
 
+function translateApprovalReason(text?: string): string {
+  if (!text) return 'DeskForge 需要得到允许后才能继续。'
+  const map: Record<string, string> = {
+    'The tool declares this operation destructive.': '操作包含删除或不可逆破坏性改动（如 rm），系统无法自动放行。',
+    'Command may irreversibly delete data or modify the operating system.': '命令包含删除文件或修改系统操作，属于不可逆高风险操作。',
+    'Command communicates with an external system or publishes data.': '命令将与外部系统通信或对外发布数据。',
+    'Command is not proven read-only and may modify the workspace.': '命令可能会对工作区文件产生写入修改。',
+    'Filesystem deletion is not assumed recoverable.': '删除文件操作无法保证完全恢复。',
+    'Target is outside the authorized workspace roots.': '操作目标超出了已授权的工作区目录。',
+    'Shell-based macOS GUI and application automation is outside this product boundary.': '系统禁止通过 Shell 脚本接管 macOS 桌面 GUI 或自动化。',
+  }
+  return map[text] ?? text
+}
+
 function ApprovalCard({ approval, onRespond }: { approval: ApprovalItem; onRespond: (approval: ApprovalItem, decision: 'approve' | 'edit' | 'reject', scope?: ApprovalScopeChoice, editedArguments?: JsonRecord) => void }) {
   const [scope, setScope] = useState<ApprovalScopeChoice>('once')
   const [editing, setEditing] = useState(false)
@@ -62,6 +76,7 @@ function ApprovalCard({ approval, onRespond }: { approval: ApprovalItem; onRespo
   const scopeOptions = canApproveForTask || sessionOffer
   const effectiveScope: ApprovalScopeChoice = scope === 'session' && !sessionOffer ? 'once' : scope === 'run_tool' && !canApproveForTask ? 'once' : scope
   const actionLabel = approval.risk === 'irreversible' ? '允许高风险操作' : approval.risk === 'external_effect' ? '允许这次外部操作' : effectiveScope === 'session' ? '允许并记住' : '允许这一次'
+  const command = typeof approval.arguments?.command === 'string' ? approval.arguments.command : undefined
   return (
     <section className={`approval-card risk-${approval.risk}`}>
       <div className="approval-icon"><Icon name={approval.risk === 'irreversible' ? 'warning' : 'shield'} /></div>
@@ -70,9 +85,14 @@ function ApprovalCard({ approval, onRespond }: { approval: ApprovalItem; onRespo
           <div><span>需要你的确认</span><h3>{approval.title}</h3></div>
           <span className="risk-label">{approval.risk === 'reversible_write' ? '可以撤销' : approval.risk === 'external_effect' ? '会影响外部系统' : '可能无法撤销'}</span>
         </div>
-        <p>{approval.summary || 'DeskForge 需要得到允许后才能继续。'}</p>
+        <p>{translateApprovalReason(approval.summary)}</p>
+        {command && !editing && (
+          <div className="approval-command-preview" title="待执行命令">
+            <code>{command.length > 240 ? `${command.slice(0, 240)}…` : command}</code>
+          </div>
+        )}
         {approval.diff && !editing && <ApprovalDiff diff={approval.diff} />}
-        {approval.arguments && !editing && <details className="approval-details"><summary>查看操作参数</summary><pre>{JSON.stringify(approval.arguments, null, 2)}</pre></details>}
+        {approval.arguments && !editing && <details className="approval-details"><summary>查看完整操作参数</summary><pre>{JSON.stringify(approval.arguments, null, 2)}</pre></details>}
         {editing && <div className="approval-editor"><textarea aria-label="修改操作参数" className="mono" rows={6} value={editedText} onChange={(event) => { setEditedText(event.target.value); setEditError(undefined) }} />{editError && <span>{editError}</span>}</div>}
         <div className="approval-facts">
           <span><Icon name={approval.reversible ? 'check' : 'warning'} size={14} />{approval.reversible ? '可回滚' : '可能无法撤销'}</span>
