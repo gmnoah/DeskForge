@@ -16,6 +16,8 @@ import type {
   EventItem,
   JsonRecord,
   McpServerItem,
+  McpTestResult,
+  McpToolItem,
   MemoryItem,
   ModelProvider,
   ModelProfileItem,
@@ -28,7 +30,10 @@ import type {
   RunStatus,
   SourceItem,
   SettingsView,
+  SkillImportFileItem,
+  SkillImportPreviewItem,
   SkillItem,
+  SkillOrigin,
   ToolActivityItem,
   RunTraceItem,
   TraceSpanItem,
@@ -222,7 +227,33 @@ function normalizeMemory(value: unknown, index: number): MemoryItem {
   return item
 }
 
-function normalizeMcp(value: unknown, index: number): McpServerItem {
+function stringList(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : []
+}
+
+function stringRecord(value: unknown): Record<string, string> {
+  return Object.fromEntries(Object.entries(record(value)).filter((entry): entry is [string, string] => typeof entry[1] === 'string'))
+}
+
+function connectedVia(value: unknown): McpServerItem['connectedVia'] {
+  return value === 'stdio' || value === 'streamable_http' || value === 'sse' ? value : undefined
+}
+
+export function normalizeMcpTool(value: unknown): McpToolItem | undefined {
+  const source = record(value)
+  const name = textValue(source, ['name'])
+  if (!name) return undefined
+  const tool: McpToolItem = { name, enabled: booleanValue(source, ['enabled'], true) }
+  const title = textValue(source, ['title'])
+  const description = textValue(source, ['description'])
+  if (title) tool.title = title
+  if (description) tool.description = description
+  if (source.readOnlyHint === true) tool.readOnlyHint = true
+  if (source.destructiveHint === true) tool.destructiveHint = true
+  return tool
+}
+
+export function normalizeMcp(value: unknown, index: number): McpServerItem {
   const source = record(value)
   const transportSource = record(source.transport)
   const rawTransport = textValue(source, ['type']) || textValue(transportSource, ['type'], 'stdio')
@@ -231,23 +262,87 @@ function normalizeMcp(value: unknown, index: number): McpServerItem {
     id: idValue(source, 'mcp', index),
     name: textValue(source, ['name', 'label'], 'MCP Server'),
     transport: rawTransport === 'http' || rawTransport === 'streamable-http' || rawTransport === 'streamable_http' ? 'http' : 'stdio',
+    enabled: booleanValue(source, ['enabled'], true),
   }
   const command = textValue(source, ['command']) || textValue(transportSource, ['command'])
   const url = textValue(source, ['url', 'endpoint']) || textValue(transportSource, ['url'])
   const health = textValue(source, ['health'])
   const status = textValue(source, ['status']) || (health === 'healthy' ? 'connected' : health === 'unhealthy' ? 'error' : 'stopped')
-  const toolCount = numberValue(source, ['toolCount', 'toolsCount'])
+  const tools = arrayValue(source.tools).map(normalizeMcpTool).filter((tool): tool is McpToolItem => Boolean(tool))
+  const toolCount = numberValue(source, ['toolCount', 'toolsCount']) ?? (Array.isArray(source.tools) ? tools.length : undefined)
   const auth = textValue(transportSource, ['auth'])
+  const namespace = textValue(source, ['toolNamespace'])
+  const cwdMode = textValue(transportSource, ['cwdMode'])
+  const cwd = textValue(transportSource, ['cwd'])
+  const via = connectedVia(source.connectedVia)
+  const lastError = textValue(record(source.lastError), ['message']) || textValue(source, ['lastError'])
+  const serverVersion = textValue(source, ['serverVersion'])
+  const lastCheckedAt = textValue(source, ['lastCheckedAt'])
+  if (namespace) item.toolNamespace = namespace
   if (command) item.command = command
   if (url) item.url = url
   if (status === 'connected' || status === 'stopped' || status === 'error' || status === 'testing') item.status = status
   if (toolCount !== undefined) item.toolCount = toolCount
+  if (Array.isArray(source.tools)) item.tools = tools
   if (auth === 'none' || auth === 'bearer' || auth === 'headers' || auth === 'oauth') item.auth = auth
+  if (item.transport === 'stdio') {
+    item.args = stringList(transportSource.args)
+    item.env = stringRecord(transportSource.env)
+    item.envKeys = stringList(transportSource.envKeys)
+    item.cwdMode = cwdMode === 'workspace' || cwdMode === 'custom' ? cwdMode : 'isolated'
+    if (cwd) item.cwd = cwd
+  } else {
+    item.headers = stringRecord(transportSource.headers)
+    item.secretHeaderKeys = stringList(transportSource.secretHeaderKeys)
+    item.sseFallback = booleanValue(transportSource, ['sseFallback'], true)
+  }
+  if (via) item.connectedVia = via
+  if (lastError) item.lastError = lastError
+  if (serverVersion) item.serverVersion = serverVersion
+  if (lastCheckedAt) item.lastCheckedAt = lastCheckedAt
   item.secretConfigured = booleanValue(transportSource, ['secretConfigured'])
   return item
 }
 
-function normalizeSkill(value: unknown, index: number): SkillItem {
+export function normalizeMcpTest(value: unknown): McpTestResult {
+  const source = record(value)
+  const result: McpTestResult = {
+    ok: source.ok === true,
+    tools: arrayValue(source.tools).map(normalizeMcpTool).filter((tool): tool is McpToolItem => Boolean(tool)),
+  }
+  const latency = numberValue(source, ['latencyMs'])
+  const toolCount = numberValue(source, ['toolCount'])
+  const via = connectedVia(source.connectedVia)
+  const version = textValue(source, ['serverVersion'])
+  const error = textValue(record(source.error), ['message']) || textValue(source, ['error'])
+  if (latency !== undefined) result.latencyMs = latency
+  if (toolCount !== undefined) result.toolCount = toolCount
+  if (via) result.connectedVia = via
+  if (version) result.serverVersion = version
+  if (!result.ok) result.error = error || 'MCP 连接测试失败'
+  return result
+}
+
+function normalizeSkillOrigin(value: unknown): SkillOrigin | undefined {
+  const source = record(value)
+  const kind = source.kind
+  if (kind !== 'bundled' && kind !== 'folder' && kind !== 'git') return undefined
+  const origin: SkillOrigin = { kind }
+  for (const key of ['path', 'url', 'ref', 'subpath', 'commit', 'importedAt'] as const) {
+    const text = textValue(source, [key])
+    if (text) origin[key] = text
+  }
+  return origin
+}
+
+function permissionLabels(value: unknown): string[] {
+  return arrayValue(value).map((entry) => {
+    if (typeof entry === 'string') return entry
+    return textValue(record(entry), ['capability', 'detail'])
+  }).filter(Boolean)
+}
+
+export function normalizeSkill(value: unknown, index: number): SkillItem {
   const source = record(value)
   const item: SkillItem = {
     ...source,
@@ -256,17 +351,48 @@ function normalizeSkill(value: unknown, index: number): SkillItem {
     description: textValue(source, ['description', 'summary'], '暂无描述'),
     enabled: booleanValue(source, ['enabled', 'isEnabled'], true),
   }
-  const origin = textValue(source, ['source', 'path', 'directory'])
+  const origin = normalizeSkillOrigin(source.source)
+  const location = textValue(source, ['source', 'path', 'directory'])
   const version = textValue(source, ['version'])
-  if (origin) item.source = origin
+  if (origin) item.origin = origin
+  else delete item.origin
+  if (location) item.source = location
+  else delete item.source
   if (version) item.version = version
-  if (Array.isArray(source.permissions)) {
-    item.permissions = source.permissions.map((entry) => {
-      if (typeof entry === 'string') return entry
-      return textValue(record(entry), ['capability', 'detail'])
-    }).filter(Boolean)
-  }
+  if (Array.isArray(source.permissions)) item.permissions = permissionLabels(source.permissions)
   return item
+}
+
+export function normalizeSkillPreview(value: unknown): SkillImportPreviewItem | undefined {
+  const source = record(value)
+  const selectionId = textValue(source, ['selectionId'])
+  if (!selectionId) return undefined
+  const files = arrayValue(source.files).map((entry): SkillImportFileItem | undefined => {
+    const file = record(entry)
+    const path = textValue(file, ['path'])
+    if (!path) return undefined
+    const kind = file.kind === 'entry' || file.kind === 'script' || file.kind === 'reference' ? file.kind : 'asset'
+    return { path, size: numberValue(file, ['size']) ?? 0, kind }
+  }).filter((file): file is SkillImportFileItem => Boolean(file))
+  const replaces = record(source.replaces)
+  const preview: SkillImportPreviewItem = {
+    selectionId,
+    origin: normalizeSkillOrigin(source.source) ?? { kind: 'folder' },
+    name: textValue(source, ['name'], '未命名 Skill'),
+    description: textValue(source, ['description']),
+    version: textValue(source, ['version'], '0.0.0'),
+    permissions: permissionLabels(source.permissions),
+    instructionsPreview: textValue(source, ['instructionsPreview']),
+    files,
+    fileCount: numberValue(source, ['fileCount']) ?? files.length,
+    totalBytes: numberValue(source, ['totalBytes']) ?? 0,
+    scriptFiles: stringList(source.scriptFiles),
+    warnings: stringList(source.warnings),
+  }
+  const expiresAt = textValue(source, ['expiresAt'])
+  if (expiresAt) preview.expiresAt = expiresAt
+  if (textValue(replaces, ['id'])) preview.replaces = { id: textValue(replaces, ['id']), version: textValue(replaces, ['version']), enabled: booleanValue(replaces, ['enabled'], true) }
+  return preview
 }
 
 function normalizeAutomation(value: unknown, index: number): AutomationItem {
@@ -931,10 +1057,20 @@ export const bridge = {
     { path: 'mcp.upsert', args: [input] },
     { path: 'saveMcpServer', args: [input] },
   ]),
-  testMcp: (input: JsonRecord) => call<unknown>([
+  testMcp: async (input: { id: string; workspaceId?: string }) => normalizeMcpTest(await call<unknown>([
     { path: 'mcp.test', args: [input] },
     { path: 'testMcpServer', args: [input] },
+  ])),
+  setMcpEnabled: (id: string, enabled: boolean) => call<unknown>([
+    { path: 'mcp.setEnabled', args: [{ id, enabled }] },
   ]),
+  setMcpToolEnabled: (id: string, toolName: string, enabled: boolean) => call<unknown>([
+    { path: 'mcp.setToolEnabled', args: [{ id, toolName, enabled }] },
+  ]),
+  chooseMcpCwd: async () => {
+    const result = await call<unknown>([{ path: 'mcp.chooseCwd' }])
+    return typeof result === 'string' && result ? result : undefined
+  },
   removeMcp: (id: string) => call<unknown>([
     { path: 'mcp.remove', args: [{ id }] },
     { path: 'removeMcpServer', args: [id] },
@@ -943,14 +1079,19 @@ export const bridge = {
     { path: 'mcp.startOAuth', args: [{ id }] },
     { path: 'startMcpOAuth', args: [id] },
   ]),
-  importSkill: async () => {
-    const directory = await bridge.chooseWorkspace()
-    if (!directory) return undefined
-    return await call<unknown>([
-      { path: 'skills.import', args: [{ directory }] },
-      { path: 'installSkill', args: [directory] },
-    ])
-  },
+  previewSkillFolder: async () => normalizeSkillPreview(await call<unknown>([{ path: 'skills.previewFolder' }])),
+  previewSkillGit: async (input: { url: string; ref?: string; subpath?: string }) => normalizeSkillPreview(await call<unknown>([
+    { path: 'skills.previewGit', args: [input] },
+  ])),
+  previewSkillUpdate: async (id: string) => normalizeSkillPreview(await call<unknown>([
+    { path: 'skills.previewUpdate', args: [{ id }] },
+  ])),
+  confirmSkillImport: (selectionId: string) => call<unknown>([
+    { path: 'skills.confirmImport', args: [{ selectionId }] },
+  ]),
+  cancelSkillImport: (selectionId: string) => call<unknown>([
+    { path: 'skills.cancelImport', args: [{ selectionId }] },
+  ]),
   toggleSkill: (id: string, enabled: boolean) => call<unknown>([
     { path: 'skills.setEnabled', args: [{ id, enabled }] },
     { path: 'toggleSkill', args: [id, enabled] },
