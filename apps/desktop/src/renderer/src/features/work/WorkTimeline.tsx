@@ -12,6 +12,8 @@ interface WorkTimelineProps {
   approvals?: ReactNode
   onOpenDetails: () => void
   onOpenChanges: () => void
+  onOpenArtifact?: ((id: string) => void) | undefined
+  onOpenPath?: ((path: string) => void) | undefined
 }
 
 function formatTime(value?: unknown): string {
@@ -32,7 +34,7 @@ function safeHref(value: unknown): string | undefined {
   }
 }
 
-function Markdown({ children }: { children: string }) {
+function Markdown({ children, onOpenPath }: { children: string; onOpenPath?: ((path: string) => void) | undefined }) {
   return (
     <div className="markdown-content">
       <ReactMarkdown
@@ -40,6 +42,23 @@ function Markdown({ children }: { children: string }) {
         skipHtml
         components={{
           a: ({ href, children: linkChildren, ...props }) => {
+            if (href && onOpenPath && (href.startsWith('file://') || href.startsWith('/') || /^[a-zA-Z0-9_\u4e00-\u9fa5\s/.-]+\.(docx|doc|pdf|xlsx|xls|csv|png|jpg|jpeg|md|html|txt|json|zip)$/i.test(href))) {
+              const cleanPath = href.startsWith('file://') ? decodeURIComponent(href.replace('file://', '')) : href
+              return (
+                <button
+                  type="button"
+                  className="inline-file-link"
+                  title={`点击使用默认程序打开：${cleanPath}`}
+                  onClick={(e) => {
+                    e.preventDefault()
+                    onOpenPath(cleanPath)
+                  }}
+                >
+                  <Icon name="file" size={12} />
+                  {linkChildren}
+                </button>
+              )
+            }
             const target = safeHref(href)
             return target
               ? <a {...props} href={target} target="_blank" rel="noreferrer noopener">{linkChildren}</a>
@@ -53,29 +72,53 @@ function Markdown({ children }: { children: string }) {
   )
 }
 
-function ResultSummary({ result, onOpenDetails, onOpenChanges }: { result: ResultEvidence; onOpenDetails: () => void; onOpenChanges: () => void }) {
+function ResultSummary({ result, onOpenDetails, onOpenChanges, onOpenArtifact }: {
+  result: ResultEvidence
+  onOpenDetails: () => void
+  onOpenChanges: () => void
+  onOpenArtifact?: ((id: string) => void) | undefined
+}) {
   const changes = result.changes?.length ?? 0
-  const outputs = result.outputs?.filter((item) => item.kind !== 'diff').length ?? 0
+  const outputs = result.outputs?.filter((item) => item.kind !== 'diff') ?? []
   const checks = result.checks?.length ?? 0
   const sources = result.sources?.length ?? 0
-  if (!changes && !outputs && !checks && !sources) return null
+  if (!changes && !outputs.length && !checks && !sources) return null
   return (
     <div className="result-summary">
-      <div className="result-summary-items">
-        {changes > 0 && <span><Icon name="edit" size={15} />修改了 {changes} 个文件</span>}
-        {checks > 0 && <span><Icon name={result.status === 'partial' ? 'warning' : 'check'} size={15} />{result.status === 'partial' ? `还有内容未检查` : `${checks} 项检查通过`}</span>}
-        {sources > 0 && <span><Icon name="globe" size={15} />{sources} 条来源</span>}
-        {outputs > 0 && <span><Icon name="file" size={15} />{outputs} 个输出</span>}
+      <div className="result-summary-header">
+        <div className="result-summary-items">
+          {changes > 0 && <span><Icon name="edit" size={15} />修改了 {changes} 个文件</span>}
+          {checks > 0 && <span><Icon name={result.status === 'partial' ? 'warning' : 'check'} size={15} />{result.status === 'partial' ? `还有内容未检查` : `${checks} 项检查通过`}</span>}
+          {sources > 0 && <span><Icon name="globe" size={15} />{sources} 条来源</span>}
+          {outputs.length > 0 && <span><Icon name="file" size={15} />{outputs.length} 个输出</span>}
+        </div>
+        <div className="result-summary-actions">
+          {changes > 0 || outputs.length > 0 ? <button type="button" onClick={onOpenChanges}>查看变更</button> : null}
+          {checks > 0 || sources > 0 ? <button type="button" onClick={onOpenDetails}>查看依据</button> : null}
+        </div>
       </div>
-      <div className="result-summary-actions">
-        {changes > 0 || outputs > 0 ? <button type="button" onClick={onOpenChanges}>查看变更</button> : null}
-        {checks > 0 || sources > 0 ? <button type="button" onClick={onOpenDetails}>查看依据</button> : null}
-      </div>
+      {outputs.length > 0 && onOpenArtifact && (
+        <div className="result-summary-artifacts">
+          {outputs.map((artifact) => (
+            <button
+              type="button"
+              key={artifact.id}
+              className="result-artifact-chip"
+              title={`点击直接使用默认程序打开《${artifact.name}》`}
+              onClick={() => onOpenArtifact(artifact.id)}
+            >
+              <Icon name="file" size={13} />
+              <span className="result-artifact-name">{artifact.name}</span>
+              <span className="result-artifact-action">打开</span>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
 
-export function WorkTimeline({ detail, approvals, onOpenDetails, onOpenChanges }: WorkTimelineProps) {
+export function WorkTimeline({ detail, approvals, onOpenDetails, onOpenChanges, onOpenArtifact, onOpenPath }: WorkTimelineProps) {
   const tailRef = useRef<HTMLDivElement>(null)
   const followTailRef = useRef(true)
   const [openProcessTurnId, setOpenProcessTurnId] = useState<string>()
@@ -105,7 +148,7 @@ export function WorkTimeline({ detail, approvals, onOpenDetails, onOpenChanges }
         return (
           <section key={turn.id} className="work-turn">
             <article className={`message user-message${optimistic ? ' is-optimistic' : ''}`}>
-              <div className="message-content"><div className="message-meta"><strong>你</strong><span>{formatTime(turn.prompt.createdAt)}</span></div><Markdown>{turn.prompt.content}</Markdown></div>
+              <div className="message-content"><div className="message-meta"><strong>你</strong><span>{formatTime(turn.prompt.createdAt)}</span></div><Markdown onOpenPath={onOpenPath}>{turn.prompt.content}</Markdown></div>
             </article>
             <article className="message agent-message agent-turn">
               <div className="message-avatar agent"><BrandMark size={17} /></div>
@@ -119,8 +162,8 @@ export function WorkTimeline({ detail, approvals, onOpenDetails, onOpenChanges }
                       onToggle={() => setOpenProcessTurnId((current) => current === turn.id ? undefined : turn.id)}
                     />
                   )}
-                  {turn.response.content && <div className="agent-turn-text"><Markdown>{turn.response.content}</Markdown></div>}
-                  {turn.result && <ResultSummary result={turn.result} onOpenDetails={onOpenDetails} onOpenChanges={onOpenChanges} />}
+                  {turn.response.content && <div className="agent-turn-text"><Markdown onOpenPath={onOpenPath}>{turn.response.content}</Markdown></div>}
+                  {turn.result && <ResultSummary result={turn.result} onOpenDetails={onOpenDetails} onOpenChanges={onOpenChanges} onOpenArtifact={onOpenArtifact} />}
                 </div>
               </div>
             </article>

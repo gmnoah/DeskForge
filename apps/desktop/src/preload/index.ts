@@ -15,6 +15,7 @@ const api: DesktopApi = {
     chooseFiles: noInput('app:choose-files'),
     importAttachments: noInput('app:import-attachments'),
     revealPath: (input) => invoke('app:reveal-path', input),
+    openPath: (input) => invoke('app:open-path', input),
   },
   workspaces: {
     list: noInput('workspaces:list'), create: (input) => invoke('workspaces:create', input), update: (input) => invoke('workspaces:update', input),
@@ -75,7 +76,7 @@ const api: DesktopApi = {
     list: (input) => invoke('audit:list', input), exportDiagnostics: (input) => invoke('audit:export-diagnostics', input),
     query: (input) => invoke('audit:query', input), export: (input) => invoke('audit:export', input),
   },
-  artifacts: { getText: (input) => invoke('artifacts:get-text', input), reveal: (input) => invoke('artifacts:reveal', input), undoChange: (input) => invoke('artifacts:undo-change', input) },
+  artifacts: { getText: (input) => invoke('artifacts:get-text', input), reveal: (input) => invoke('artifacts:reveal', input), open: (input) => invoke('artifacts:open', input), undoChange: (input) => invoke('artifacts:undo-change', input) },
   events: {
     subscribe(listener) {
       const handler = (_event: Electron.IpcRendererEvent, value: RunEvent) => listener(value)

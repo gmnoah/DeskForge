@@ -468,6 +468,7 @@ export interface DesktopApi {
     chooseFiles(): Promise<string[]>
     importAttachments(): Promise<ArtifactRef[]>
     revealPath(input: { path: string }): Promise<void>
+    openPath(input: { path: string }): Promise<{ success: boolean; error?: string }>
   }
   workspaces: {
     list(): Promise<Workspace[]>
@@ -578,6 +579,7 @@ export interface DesktopApi {
   artifacts: {
     getText(input: { id: string; maxBytes?: number }): Promise<ArtifactText>
     reveal(input: { id: string }): Promise<void>
+    open(input: { id: string }): Promise<{ success: boolean; error?: string }>
     undoChange(input: { id: string }): Promise<ArtifactRestoreResult>
   }
   events: {
@@ -593,6 +595,7 @@ export interface DesktopInvokeMap {
   'app:choose-files': { input: undefined; output: string[] }
   'app:import-attachments': { input: undefined; output: ArtifactRef[] }
   'app:reveal-path': { input: { path: string }; output: undefined }
+  'app:open-path': { input: { path: string }; output: { success: boolean; error?: string } }
   'workspaces:list': { input: undefined; output: Workspace[] }
   'workspaces:create': { input: CreateWorkspaceInput; output: Workspace }
   'workspaces:update': { input: UpdateWorkspaceInput; output: Workspace }
@@ -675,6 +678,7 @@ export interface DesktopInvokeMap {
   'audit:export': { input: AuditFilterInput & { format: AuditExportFormat }; output: AuditExportResult | null }
   'artifacts:get-text': { input: { id: string; maxBytes?: number }; output: ArtifactText }
   'artifacts:reveal': { input: { id: string }; output: undefined }
+  'artifacts:open': { input: { id: string }; output: { success: boolean; error?: string } }
   'artifacts:undo-change': { input: { id: string }; output: ArtifactRestoreResult }
 }
 
@@ -859,6 +863,7 @@ export const DesktopInvokeContracts: Record<DesktopInvokeChannel, { input: z.Zod
   'app:choose-files': { input: VoidSchema, output: z.array(z.string()) },
   'app:import-attachments': { input: VoidSchema, output: z.array(ArtifactRefSchema) },
   'app:reveal-path': { input: z.object({ path: z.string().min(1) }).strict(), output: VoidSchema },
+  'app:open-path': { input: z.object({ path: z.string().min(1) }).strict(), output: z.object({ success: z.boolean(), error: z.string().optional() }).strict() },
   'workspaces:list': { input: VoidSchema, output: z.array(WorkspaceSchema) },
   'workspaces:create': { input: z.object({ path: z.string().min(1), name: z.string().min(1).optional() }).strict(), output: WorkspaceSchema },
   'workspaces:update': { input: z.object({ id: IdSchema, name: z.string().min(1).optional(), rules: z.string().optional() }).strict(), output: WorkspaceSchema },
@@ -970,6 +975,7 @@ export const DesktopInvokeContracts: Record<DesktopInvokeChannel, { input: z.Zod
   'audit:export': { input: AuditFilterSchema.extend({ format: z.enum(['json', 'csv', 'markdown']) }).strict(), output: z.object({ path: z.string().min(1), format: z.enum(['json', 'csv', 'markdown']), entryCount: z.number().int().nonnegative(), chainValid: z.boolean() }).strict().nullable() },
   'artifacts:get-text': { input: z.object({ id: IdSchema, maxBytes: z.number().int().positive().max(16 * 1024 * 1024).optional() }).strict(), output: z.object({ artifact: ArtifactRefSchema, text: z.string(), truncated: z.boolean() }).strict() },
   'artifacts:reveal': { input: ByIdSchema, output: VoidSchema },
+  'artifacts:open': { input: ByIdSchema, output: z.object({ success: z.boolean(), error: z.string().optional() }).strict() },
   'artifacts:undo-change': { input: ByIdSchema, output: z.object({ restored: z.literal(true), path: z.string().min(1), createdFileRemoved: z.boolean() }).strict() },
 }
 

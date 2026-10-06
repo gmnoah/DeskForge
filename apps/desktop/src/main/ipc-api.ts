@@ -139,6 +139,11 @@ export class IpcApi {
         return rows
       },
       'app:reveal-path': async ({ path }) => { shell.showItemInFolder(path) },
+      'app:open-path': async ({ path }) => {
+        const errorMessage = await shell.openPath(path)
+        if (errorMessage) return { success: false, error: errorMessage }
+        return { success: true }
+      },
 
       'workspaces:list': () => { const selected = this.database.getSetting<string | undefined>('selectedWorkspaceId', undefined); return this.database.listWorkspaces().map((row) => presentWorkspace(row, selected)) },
       'workspaces:create': async ({ path, name }) => {
@@ -463,6 +468,13 @@ export class IpcApi {
         return { artifact: presentArtifact(row), text: buffer.subarray(0, limit).toString('utf8'), truncated: buffer.length > limit }
       },
       'artifacts:reveal': ({ id }) => { const row = this.database.getArtifact(id); if (!row) throw new Error('产物不存在'); shell.showItemInFolder(row.path) },
+      'artifacts:open': async ({ id }) => {
+        const row = this.database.getArtifact(id)
+        if (!row) throw new Error('产物不存在')
+        const errorMessage = await shell.openPath(row.path)
+        if (errorMessage) return { success: false, error: errorMessage }
+        return { success: true }
+      },
       'artifacts:undo-change': async ({ id }) => {
         const diff = this.database.getArtifact(id)
         if (!diff || diff.kind !== 'diff') throw new Error('只能撤销文件 Diff 产物')

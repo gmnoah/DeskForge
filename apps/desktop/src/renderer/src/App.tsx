@@ -200,6 +200,8 @@ function TasksView({
   onApproval,
   onBindChrome,
   onRevealArtifact,
+  onOpenArtifact,
+  onOpenPath,
   onUndoChange,
 }: {
   snapshot: WorkbenchSnapshot
@@ -220,6 +222,8 @@ function TasksView({
   onApproval: (approval: ApprovalItem, decision: 'approve' | 'edit' | 'reject', scope?: ApprovalScopeChoice, editedArguments?: JsonRecord) => void
   onBindChrome: () => void
   onRevealArtifact: (id: string) => void
+  onOpenArtifact: (id: string) => void
+  onOpenPath: (path: string) => void
   onUndoChange: (id: string) => void
 }) {
   const [inspectorTab, setInspectorTab] = useState<WorkInspectorTab>('details')
@@ -238,11 +242,13 @@ function TasksView({
             approvals={pendingApprovals.map((approval) => <ApprovalCard key={approval.id} approval={approval} onRespond={onApproval} />)}
             onOpenDetails={() => openInspector('details')}
             onOpenChanges={() => openInspector('changes')}
+            onOpenArtifact={onOpenArtifact}
+            onOpenPath={onOpenPath}
           />
         </div>
         <RunComposer runId={detail.id} permissionMode={detail.permissionMode ?? 'approval'} disabled={inputDisabled} onSend={onSend} />
       </main>
-      {inspectorOpen && <WorkInspector detail={detail} snapshot={snapshot} requestedTab={inspectorTab} onBindChrome={onBindChrome} onOpenSettings={onSettings} onRevealArtifact={onRevealArtifact} onUndoChange={onUndoChange} />}
+      {inspectorOpen && <WorkInspector detail={detail} snapshot={snapshot} requestedTab={inspectorTab} onBindChrome={onBindChrome} onOpenSettings={onSettings} onRevealArtifact={onRevealArtifact} onOpenArtifact={onOpenArtifact} onOpenPath={onOpenPath} onUndoChange={onUndoChange} />}
     </div>
   )
 }
@@ -499,6 +505,14 @@ export default function App() {
           onApproval={(approval, decision, scope, editedArguments) => void respondApproval(approval, decision, scope, editedArguments)}
           onBindChrome={() => selectedRunId && void perform(() => bridge.requestChromeBinding(selectedRunId), '已向 Chrome 发出绑定请求')}
           onRevealArtifact={(id) => void perform(() => bridge.revealArtifact(id), undefined, { refresh: false })}
+          onOpenArtifact={(id) => void perform(async () => {
+            const result = await bridge.openArtifact(id) as { success?: boolean; error?: string } | undefined
+            if (result && result.success === false && result.error) notify('error', '打开文件失败', result.error)
+          }, undefined, { refresh: false })}
+          onOpenPath={(path) => void perform(async () => {
+            const result = await bridge.openPath(path) as { success?: boolean; error?: string } | undefined
+            if (result && result.success === false && result.error) notify('error', '打开文件失败', result.error)
+          }, undefined, { refresh: false })}
           onUndoChange={(id) => void perform(() => bridge.undoChange(id), '文件变更已撤销', { refreshRun: true })}
         />}
         {(['memory', 'mcp', 'skills'] as ViewKey[]).includes(view) && <LibraryPage view={view as LibraryView} snapshot={snapshot} workspaceId={selectedWorkspaceId} perform={perform} onView={setView} />}

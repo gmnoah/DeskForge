@@ -1270,6 +1270,18 @@ export const bridge = {
     { path: 'artifacts.reveal', args: [{ id }] },
     { path: 'revealArtifact', args: [id] },
   ]),
+  openArtifact: (id: string) => call<{ success: boolean; error?: string }>([
+    { path: 'artifacts.open', args: [{ id }] },
+    { path: 'openArtifact', args: [id] },
+  ]),
+  revealPath: (path: string) => call<unknown>([
+    { path: 'app.revealPath', args: [{ path }] },
+    { path: 'revealPath', args: [path] },
+  ]),
+  openPath: (path: string) => call<{ success: boolean; error?: string }>([
+    { path: 'app.openPath', args: [{ path }] },
+    { path: 'openPath', args: [path] },
+  ]),
   getArtifactText: (id: string, maxBytes = 2 * 1024 * 1024) => call<unknown>([
     { path: 'artifacts.getText', args: [{ id, maxBytes }] },
     { path: 'getArtifactText', args: [id, maxBytes] },
