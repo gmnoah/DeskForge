@@ -8,6 +8,7 @@ DeskForge is an independent local-first macOS work agent. It is not WorkBuddy an
 
 - 路线图：[docs/ROADMAP.md](docs/ROADMAP.md)
 - 参与开发：[CONTRIBUTING.md](CONTRIBUTING.md)
+- 手动验收清单：[docs/TESTING.md](docs/TESTING.md)
 
 ## macOS 快速开始
 
@@ -158,12 +159,42 @@ API Key 在设置或引导里填写。macOS 上由系统钥匙串（Electron `sa
 - **更新**：从文件夹或 Git 导入的 Skill 可以「更新」，即按记录的来源重新导入。名称必须不变，启用状态保持不变。内置 Skill 随应用更新。
 - **移除**：移除只删除 DeskForge 里的副本，不影响原文件夹或仓库。移除的内置 Skill 不会在下次启动时自动装回。
 
+## 会话管理
+
+- **搜索**：侧栏搜索框同时检索会话标题和对话正文（用户和助手消息），中英文都可以。底层是 SQLite FTS5 的 `trigram` 分词：三个字符以上的词走全文索引，「周报」这类两个字的词自动改用 LIKE 匹配。结果显示命中片段，并只列出当前工作区的会话。多个词需要同时出现在同一条标题或消息里。
+- **重命名**：会话标题栏的「重命名」按钮，新名称同步到侧栏和搜索。
+- **删除**：已结束的会话可以删除，需二次确认；审计日志不受影响。
+- **导出 Markdown**：标题栏「导出为 Markdown」打开保存对话框，导出内容包括元信息、计划步骤、对话、工具调用摘要表（时间、工具、风险、状态、参数摘要、结果）、审批记录（结果、范围、外发数据）、引用来源、产物和验证结果，不含工具的完整输出。导出前会脱敏：已配置的模型 Key、MCP 密钥 / OAuth 令牌和向量接口 Key 按原值替换为 `[REDACTED]`，另外按形态识别 `sk-…`、`Bearer …`、GitHub / AWS / Slack 令牌、JWT、私钥块、URL 中的密码、`password=` 等。
+
+## 本地知识库
+
+「设置 → 本地知识库」为每个授权工作区建立本地全文索引，供你和 Agent 检索。
+
+- **建立 / 增量更新 / 重建 / 清除**：第一次点「建立索引」；之后「增量更新」只处理变化的文件（先比较大小和修改时间，再比较 SHA-256），并移除已删除或新加入 `.gitignore` 的文件；「完全重建」清空后重来；「清除」只删除索引文件。
+- **存储位置**：应用数据目录下的 `knowledge/<工作区 ID>.sqlite3`，不会在工作区里写任何文件。移除工作区授权时一并删除。
+- **索引范围**：沿用 `file_search` 的规则——遵守各级 `.gitignore`，跳过 `.git`、`node_modules`，不跟随符号链接（读取前再校验真实路径仍在工作区内），跳过二进制和超过 1 MB 的文本，单个工作区最多 5000 个文件。`.env`、`*.pem`、`*.key`、`id_rsa`、`.npmrc`、`credentials.json` 等敏感文件永远不索引。支持 Markdown、纯文本、常见代码和配置文件，以及 `.docx`（内置轻量解析）；PDF 暂不支持。
+- **Agent 工具 `knowledge_search`**：只读、无需审批，默认对 Agent 可用。返回按相关度排序的片段，附 `路径:起始行-结束行` 引用，可按路径前缀过滤（如 `docs/`）。设置页也有检索框，可以直接试。
+
+## 向量检索（可选）
+
+「设置 → 向量检索」可以配置 OpenAI 兼容的 Embeddings 接口，让知识库用「关键词 + 向量」混合排序（RRF 融合）。不配置时知识库照常工作。
+
+| 预设 | 接口地址 | 模型 |
+| --- | --- | --- |
+| 通义 DashScope（推荐） | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `text-embedding-v4`（默认 1024 维）/ `text-embedding-v3` |
+| OpenAI | `https://api.openai.com/v1` | `text-embedding-3-small` |
+| 自定义 | 任意 OpenAI 兼容地址（必须 HTTPS，本机回环地址除外） | 自填 |
+
+- **默认关闭**。启用时会弹窗确认：建立或更新索引时，**工作区文档片段（含相对路径）会发送到所配置的服务**；每次检索（包括 Agent 调用 `knowledge_search`）的**检索词**也会发送。每次发送都会写入审计日志。关闭后立即停止发送。
+- **API Key** 用 `safeStorage` 加密保存，只在主进程使用，不会传给渲染进程或 Agent worker。「测试连接」只发送一句固定文本。
+- 向量以 Float32 BLOB 存在同一个索引文件中，检索时暴力计算余弦相似度。更换模型或维度后，下次更新索引会重新生成向量；接口出错时自动回退为关键词检索并给出提示。
+
 ## 项目结构
 
 ```
 DeskForge/
 ├── apps/desktop/               Electron 应用
-│   ├── src/main/               主进程：IPC、SQLite、策略与审批、任务调度、密钥加密、MCP 与 Skill 导入
+│   ├── src/main/               主进程：IPC、SQLite、策略与审批、任务调度、密钥加密、MCP 与 Skill 导入、本地知识库
 │   ├── resources/skills/       内置 Skill
 │   ├── src/preload/            受限的 renderer ↔ main 桥（只暴露白名单通道）
 │   ├── src/renderer/           React 界面（引导、对话、设置、检查面板）
@@ -171,9 +202,10 @@ DeskForge/
 │       ├── provider-compat.ts  各服务商 OpenAI 兼容差异（思考模式、tool_choice、采样参数、旧模型映射）
 │       └── agent-host-runtime.ts  pi-ai 运行时、请求守卫、连接测试
 ├── packages/contracts/         zod schema 与类型：IPC、worker 协议、公共数据结构
-├── packages/core/              纯逻辑：路径守卫、风险策略、diff、会话规则、状态机、脱敏、模型错误分类、MCP 配置校验
+├── packages/core/              纯逻辑：路径守卫、风险策略、diff、会话规则、状态机、脱敏、模型错误分类、MCP 配置校验、FTS 查询与混合排序、会话导出
 ├── skills/examples/            示例 Skill（与内置 Skill 相同，可作为编写模板）
 ├── docs/ROADMAP.md             路线图
+├── docs/TESTING.md             M1–M4 手动验收清单（macOS）
 └── .github/workflows/ci.yml    CI：push / PR 时运行安装、typecheck 和测试
 ```
 
