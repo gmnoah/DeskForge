@@ -16,7 +16,7 @@ pnpm test         # pretest 会把 better-sqlite3 重建为 Node 版本
 
 ## 提交前
 
-1. `pnpm typecheck` 和 `pnpm test` 必须通过。CI 会在 Ubuntu 和 macOS 上再跑一遍。
+1. `pnpm typecheck` 和 `pnpm test` 必须通过，CI 会在 push / PR 时再跑一遍。
 2. 改到模型请求时，在 `apps/desktop/src/workers/provider-streaming.test.ts` 补夹具测试。测试请按服务商文档构造响应，**不要使用真实 Key**。
 3. 新增的用户可见文案用中文，并且要说清楚用户下一步该做什么。错误分类集中在 `packages/core/src/model-errors.ts`。
 4. 代码注释简短。沿用所在文件的语言（现有代码注释以英文为主）。

@@ -98,7 +98,7 @@ DeskForge/
 ├── packages/core/              纯逻辑：路径守卫、风险策略、状态机、脱敏、模型错误分类
 ├── skills/examples/            随应用安装的示例 Skill
 ├── docs/ROADMAP.md             路线图
-└── .github/workflows/ci.yml    CI：Ubuntu 和 macOS 上运行 typecheck 和测试
+└── .github/workflows/ci.yml    CI：push / PR 时运行安装、typecheck 和测试
 ```
 
 ## 开发检查

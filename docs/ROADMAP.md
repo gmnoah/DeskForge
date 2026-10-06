@@ -8,7 +8,7 @@ DeskForge 是本地优先的 macOS 桌面工作 Agent。这份路线图只列出
 
 目标：第一次打开就能连上国产模型，出错时用户知道该怎么办。
 
-- **CI**：GitHub Actions 在 push 和 pull request 时，于 Ubuntu 与 macOS 上执行安装、typecheck 和测试。
+- **CI**：GitHub Actions 在 push 和 pull request 时执行安装、typecheck 和测试（Ubuntu 已启用；macOS 矩阵需要有 workflow 权限的维护者推送）。
 - **国产模型兼容**：按 DeepSeek、Kimi、通义（DashScope compatible-mode）的官方文档，核对流式输出与工具调用，并处理以下差异：
   - `reasoning_content` 的回传
   - 思考模式下 `tool_choice` 的限制
