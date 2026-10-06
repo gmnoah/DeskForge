@@ -17,6 +17,7 @@ describe('FTS query planning (trigram + LIKE fallback)', () => {
     expect(plan.terms.filter((term) => term.toLowerCase() === 'foo')).toHaveLength(1)
     expect(planFtsQuery('   ').terms).toEqual([])
     expect(planFtsQuery('，。！').match).toBeUndefined()
+    expect(planFtsQuery('file-policy src/main:42').match).toBe('"file-policy" AND "src/main:42"')
   })
 
   it('escapes LIKE wildcards and builds excerpts around the first hit', () => {

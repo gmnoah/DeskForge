@@ -121,11 +121,11 @@ function ignoredBy(layers: IgnoreLayer[], absolutePath: string, isDirectory: boo
   return ignored
 }
 
-interface WalkEntry { absolute: string; /** Relative to the search base, used for glob matching. */ relative: string; display: string; isDirectory: boolean }
-interface WalkStats { scanned: number; ignored: number; symlinksSkipped: number; limitReason?: LimitReason }
+export interface WalkEntry { absolute: string; /** Relative to the search base, used for glob matching. */ relative: string; display: string; isDirectory: boolean }
+export interface WalkStats { scanned: number; ignored: number; symlinksSkipped: number; limitReason?: LimitReason }
 
 /** Breadth-first walk that never follows symlinks and stops at the configured caps. */
-async function walk(scope: SearchScope, options: { maxEntries: number; deadline: number }, visit: (entry: WalkEntry) => boolean | Promise<boolean>): Promise<WalkStats> {
+export async function walkWorkspace(scope: SearchScope, options: { maxEntries: number; deadline: number }, visit: (entry: WalkEntry) => boolean | Promise<boolean>): Promise<WalkStats> {
   assertScope(scope)
   const stats: WalkStats = { scanned: 0, ignored: 0, symlinksSkipped: 0 }
   // Parent .gitignore files between the root and the search base still apply.
@@ -170,7 +170,7 @@ export async function findFiles(scope: SearchScope, options: FindFilesOptions): 
   const type = options.type ?? 'file'
   const matches = compileNameMatcher(options.pattern)
   const results: Array<{ path: string; type: 'file' | 'directory' }> = []
-  const stats = await walk(scope, {
+  const stats = await walkWorkspace(scope, {
     maxEntries: clamp(options.maxEntries, SEARCH_LIMITS.maxEntriesScanned, SEARCH_LIMITS.maxEntriesScanned),
     deadline: Date.now() + clamp(options.timeBudgetMs, SEARCH_LIMITS.timeBudgetMs, SEARCH_LIMITS.timeBudgetMs),
   }, (entry) => {
@@ -205,7 +205,7 @@ export function compileContentMatcher(options: Pick<SearchContentOptions, 'query
 
 const clipLine = (line: string): string => line.length > SEARCH_LIMITS.maxLineChars ? `${line.slice(0, SEARCH_LIMITS.maxLineChars)}…` : line
 
-async function sniffBinary(path: string): Promise<boolean> {
+export async function sniffBinary(path: string): Promise<boolean> {
   const handle = await open(path, 'r')
   try {
     const buffer = Buffer.alloc(SEARCH_LIMITS.binarySniffBytes)
@@ -223,7 +223,7 @@ async function searchBuiltin(scope: SearchScope, options: SearchContentOptions):
   const files = new Set<string>()
   let binary = 0
   let tooLarge = 0
-  const stats = await walk(scope, {
+  const stats = await walkWorkspace(scope, {
     maxEntries: clamp(options.maxEntries, SEARCH_LIMITS.maxEntriesScanned, SEARCH_LIMITS.maxEntriesScanned),
     deadline: Date.now() + clamp(options.timeBudgetMs, SEARCH_LIMITS.timeBudgetMs, SEARCH_LIMITS.timeBudgetMs),
   }, async (entry) => {

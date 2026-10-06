@@ -25,6 +25,12 @@ const api: DesktopApi = {
     sendMessage: (input) => invoke('runs:send-message', input), pause: (input) => invoke('runs:pause', input), resume: (input) => invoke('runs:resume', input),
     cancel: (input) => invoke('runs:cancel', input), remove: (input) => invoke('runs:remove', input), respondToApproval: (input) => invoke('runs:respond-approval', input),
     listSessionRules: (input) => invoke('approvals:list-session-rules', input), revokeSessionRule: (input) => invoke('approvals:revoke-session-rule', input),
+    search: (input) => invoke('runs:search', input), rename: (input) => invoke('runs:rename', input), exportMarkdown: (input) => invoke('runs:export-markdown', input),
+  },
+  knowledge: {
+    listStatus: noInput('knowledge:list-status'), rebuild: (input) => invoke('knowledge:rebuild', input), clear: (input) => invoke('knowledge:clear', input),
+    search: (input) => invoke('knowledge:search', input), getEmbeddings: noInput('knowledge:get-embeddings'),
+    setEmbeddings: (input) => invoke('knowledge:set-embeddings', input), testEmbeddings: noInput('knowledge:test-embeddings'),
   },
   models: {
     list: noInput('models:list'), catalog: (input) => invoke('models:catalog', input), upsert: (input) => invoke('models:upsert', input), remove: (input) => invoke('models:remove', input),

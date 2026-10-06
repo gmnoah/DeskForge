@@ -337,6 +337,124 @@ export interface ArtifactRestoreResult {
  * Public renderer bridge. It intentionally exposes individual methods rather
  * than a generic IPC primitive, and never exposes an API key read method.
  */
+export interface SessionSearchHit {
+  runId: string
+  title: string
+  workspaceId: string
+  status: Run['status']
+  updatedAt: string
+  matchedIn: 'title' | 'message'
+  messageId?: string
+  snippet: string
+}
+
+export interface SessionExportResult {
+  path: string
+  bytes: number
+  redacted: true
+}
+
+export type KnowledgeIndexState = 'empty' | 'indexing' | 'ready' | 'error'
+
+export interface KnowledgeIndexSkipped {
+  ignored: number
+  symlinks: number
+  unsupported: number
+  sensitive: number
+  tooLarge: number
+  binary: number
+  unreadable: number
+}
+
+export interface KnowledgeIndexStatus {
+  workspaceId: string
+  workspaceName: string
+  rootPath: string
+  state: KnowledgeIndexState
+  fileCount: number
+  chunkCount: number
+  indexedBytes: number
+  storageBytes: number
+  indexedAt?: string
+  lastDurationMs?: number
+  lastRun?: { added: number; updated: number; unchanged: number; removed: number }
+  skipped: KnowledgeIndexSkipped
+  truncated: boolean
+  limitReason?: string
+  error?: string
+  embeddings: { enabled: boolean; model?: string; embeddedChunks: number; error?: string }
+}
+
+export interface KnowledgeSearchHit {
+  path: string
+  /** Line range of the snippet (1-based, inclusive). */
+  startLine: number
+  endLine: number
+  /** Line range of the whole indexed chunk. */
+  chunkStartLine: number
+  chunkEndLine: number
+  snippet: string
+  score: number
+  matchedBy: 'keyword' | 'semantic' | 'hybrid'
+}
+
+export interface KnowledgeSearchResult {
+  query: string
+  state: KnowledgeIndexState
+  mode: 'keyword' | 'hybrid'
+  results: KnowledgeSearchHit[]
+  indexedAt?: string
+  fileCount: number
+  note?: string
+}
+
+export type EmbeddingsPresetId = 'dashscope-v4' | 'dashscope-v3' | 'openai-3-small' | 'custom'
+
+export interface EmbeddingsPreset {
+  id: EmbeddingsPresetId
+  label: string
+  baseUrl: string
+  model: string
+  dimensions?: number
+}
+
+export const EMBEDDINGS_PRESETS: readonly EmbeddingsPreset[] = [
+  { id: 'dashscope-v4', label: '通义 DashScope · text-embedding-v4', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'text-embedding-v4', dimensions: 1024 },
+  { id: 'dashscope-v3', label: '通义 DashScope · text-embedding-v3', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'text-embedding-v3', dimensions: 1024 },
+  { id: 'openai-3-small', label: 'OpenAI · text-embedding-3-small', baseUrl: 'https://api.openai.com/v1', model: 'text-embedding-3-small' },
+  { id: 'custom', label: '自定义 OpenAI 兼容接口', baseUrl: '', model: '' },
+]
+
+export interface EmbeddingsSettings {
+  enabled: boolean
+  preset: EmbeddingsPresetId
+  baseUrl: string
+  model: string
+  dimensions?: number
+  hasKey: boolean
+  /** Set when the user acknowledged that document chunks leave the device. */
+  acknowledgedAt?: string
+  secureStorage: boolean
+}
+
+export interface EmbeddingsSettingsInput {
+  enabled: boolean
+  preset: EmbeddingsPresetId
+  baseUrl: string
+  model: string
+  dimensions?: number
+  apiKey?: string
+  clearKey?: boolean
+  acknowledgeEgress?: boolean
+}
+
+export interface EmbeddingsTestResult {
+  ok: boolean
+  latencyMs: number
+  dimensions?: number
+  error?: string
+}
+
 export interface DesktopApi {
   readonly apiVersion: typeof DESKTOP_API_VERSION
   bootstrap(): Promise<BootstrapSnapshot>
@@ -366,6 +484,18 @@ export interface DesktopApi {
     respondToApproval(input: ApprovalResponse): Promise<void>
     listSessionRules(input?: { runId?: string }): Promise<SessionApprovalRule[]>
     revokeSessionRule(input: { id: string }): Promise<{ revoked: true }>
+    search(input: { query: string; workspaceId?: string; limit?: number }): Promise<SessionSearchHit[]>
+    rename(input: { id: string; title: string }): Promise<Run>
+    exportMarkdown(input: { id: string }): Promise<SessionExportResult | null>
+  }
+  knowledge: {
+    listStatus(): Promise<KnowledgeIndexStatus[]>
+    rebuild(input: { workspaceId: string; mode: 'incremental' | 'full' }): Promise<KnowledgeIndexStatus>
+    clear(input: { workspaceId: string }): Promise<KnowledgeIndexStatus>
+    search(input: { workspaceId: string; query: string; limit?: number }): Promise<KnowledgeSearchResult>
+    getEmbeddings(): Promise<EmbeddingsSettings>
+    setEmbeddings(input: EmbeddingsSettingsInput): Promise<EmbeddingsSettings>
+    testEmbeddings(): Promise<EmbeddingsTestResult>
   }
   models: {
     list(): Promise<ModelProfile[]>
@@ -475,6 +605,16 @@ export interface DesktopInvokeMap {
   'runs:respond-approval': { input: ApprovalResponse; output: undefined }
   'approvals:list-session-rules': { input: { runId?: string } | undefined; output: SessionApprovalRule[] }
   'approvals:revoke-session-rule': { input: { id: string }; output: { revoked: true } }
+  'runs:search': { input: { query: string; workspaceId?: string; limit?: number }; output: SessionSearchHit[] }
+  'runs:rename': { input: { id: string; title: string }; output: Run }
+  'runs:export-markdown': { input: { id: string }; output: SessionExportResult | null }
+  'knowledge:list-status': { input: undefined; output: KnowledgeIndexStatus[] }
+  'knowledge:rebuild': { input: { workspaceId: string; mode: 'incremental' | 'full' }; output: KnowledgeIndexStatus }
+  'knowledge:clear': { input: { workspaceId: string }; output: KnowledgeIndexStatus }
+  'knowledge:search': { input: { workspaceId: string; query: string; limit?: number }; output: KnowledgeSearchResult }
+  'knowledge:get-embeddings': { input: undefined; output: EmbeddingsSettings }
+  'knowledge:set-embeddings': { input: EmbeddingsSettingsInput; output: EmbeddingsSettings }
+  'knowledge:test-embeddings': { input: undefined; output: EmbeddingsTestResult }
   'models:list': { input: undefined; output: ModelProfile[] }
   'models:catalog': { input: { provider: ProviderId }; output: ModelCatalogItem[] }
   'models:upsert': { input: ModelProfileInput; output: ModelProfile }
@@ -649,6 +789,65 @@ const CapabilityPackagePreviewSchema = z.object({
 }).strict()
 
 /** Runtime validators for every renderer-to-main invocation and response. */
+const KnowledgeStateSchema = z.enum(['empty', 'indexing', 'ready', 'error'])
+const KnowledgeIndexStatusSchema = z.object({
+  workspaceId: IdSchema,
+  workspaceName: z.string(),
+  rootPath: z.string(),
+  state: KnowledgeStateSchema,
+  fileCount: z.number().int().nonnegative(),
+  chunkCount: z.number().int().nonnegative(),
+  indexedBytes: z.number().int().nonnegative(),
+  storageBytes: z.number().int().nonnegative(),
+  indexedAt: IsoDateTimeSchema.optional(),
+  lastDurationMs: z.number().int().nonnegative().optional(),
+  lastRun: z.object({ added: z.number().int().nonnegative(), updated: z.number().int().nonnegative(), unchanged: z.number().int().nonnegative(), removed: z.number().int().nonnegative() }).strict().optional(),
+  skipped: z.object({ ignored: z.number().int().nonnegative(), symlinks: z.number().int().nonnegative(), unsupported: z.number().int().nonnegative(), sensitive: z.number().int().nonnegative(), tooLarge: z.number().int().nonnegative(), binary: z.number().int().nonnegative(), unreadable: z.number().int().nonnegative() }).strict(),
+  truncated: z.boolean(),
+  limitReason: z.string().optional(),
+  error: z.string().optional(),
+  embeddings: z.object({ enabled: z.boolean(), model: z.string().optional(), embeddedChunks: z.number().int().nonnegative(), error: z.string().optional() }).strict(),
+}).strict()
+const KnowledgeSearchResultSchema = z.object({
+  query: z.string(),
+  state: KnowledgeStateSchema,
+  mode: z.enum(['keyword', 'hybrid']),
+  results: z.array(z.object({
+    path: z.string(),
+    startLine: z.number().int().positive(),
+    endLine: z.number().int().positive(),
+    chunkStartLine: z.number().int().positive(),
+    chunkEndLine: z.number().int().positive(),
+    snippet: z.string(),
+    score: z.number().finite(),
+    matchedBy: z.enum(['keyword', 'semantic', 'hybrid']),
+  }).strict()),
+  indexedAt: IsoDateTimeSchema.optional(),
+  fileCount: z.number().int().nonnegative(),
+  note: z.string().optional(),
+}).strict()
+const EmbeddingsPresetIdSchema = z.enum(['dashscope-v4', 'dashscope-v3', 'openai-3-small', 'custom'])
+const EmbeddingsSettingsSchema = z.object({
+  enabled: z.boolean(),
+  preset: EmbeddingsPresetIdSchema,
+  baseUrl: z.string().max(2048),
+  model: z.string().max(256),
+  dimensions: z.number().int().min(16).max(8192).optional(),
+  hasKey: z.boolean(),
+  acknowledgedAt: IsoDateTimeSchema.optional(),
+  secureStorage: z.boolean(),
+}).strict()
+const SessionSearchHitSchema = z.object({
+  runId: IdSchema,
+  title: z.string(),
+  workspaceId: z.string(),
+  status: RunStatusSchema,
+  updatedAt: IsoDateTimeSchema,
+  matchedIn: z.enum(['title', 'message']),
+  messageId: IdSchema.optional(),
+  snippet: z.string(),
+}).strict()
+
 export const DesktopInvokeContracts: Record<DesktopInvokeChannel, { input: z.ZodType; output: z.ZodType }> = {
   bootstrap: { input: VoidSchema, output: BootstrapSnapshotSchema },
   'app:get-info': { input: VoidSchema, output: z.object({ name: z.string(), version: z.string(), platform: z.string(), arch: z.string(), locale: z.string() }).strict() },
@@ -675,6 +874,28 @@ export const DesktopInvokeContracts: Record<DesktopInvokeChannel, { input: z.Zod
   'runs:respond-approval': { input: ApprovalResponseSchema, output: VoidSchema },
   'approvals:list-session-rules': { input: z.object({ runId: IdSchema.optional() }).strict().optional(), output: z.array(SessionApprovalRuleSchema) },
   'approvals:revoke-session-rule': { input: ByIdSchema, output: z.object({ revoked: z.literal(true) }).strict() },
+  'runs:search': { input: z.object({ query: z.string().max(500), workspaceId: IdSchema.optional(), limit: z.number().int().min(1).max(100).optional() }).strict(), output: z.array(SessionSearchHitSchema) },
+  'runs:rename': { input: z.object({ id: IdSchema, title: z.string().trim().min(1).max(500) }).strict(), output: RunSchema },
+  'runs:export-markdown': { input: ByIdSchema, output: z.object({ path: z.string().min(1), bytes: z.number().int().nonnegative(), redacted: z.literal(true) }).strict().nullable() },
+  'knowledge:list-status': { input: VoidSchema, output: z.array(KnowledgeIndexStatusSchema) },
+  'knowledge:rebuild': { input: z.object({ workspaceId: IdSchema, mode: z.enum(['incremental', 'full']) }).strict(), output: KnowledgeIndexStatusSchema },
+  'knowledge:clear': { input: z.object({ workspaceId: IdSchema }).strict(), output: KnowledgeIndexStatusSchema },
+  'knowledge:search': { input: z.object({ workspaceId: IdSchema, query: z.string().min(1).max(500), limit: z.number().int().min(1).max(50).optional() }).strict(), output: KnowledgeSearchResultSchema },
+  'knowledge:get-embeddings': { input: VoidSchema, output: EmbeddingsSettingsSchema },
+  'knowledge:set-embeddings': {
+    input: z.object({
+      enabled: z.boolean(),
+      preset: EmbeddingsPresetIdSchema,
+      baseUrl: z.string().max(2048),
+      model: z.string().max(256),
+      dimensions: z.number().int().min(16).max(8192).optional(),
+      apiKey: z.string().min(1).max(20_000).optional(),
+      clearKey: z.boolean().optional(),
+      acknowledgeEgress: z.boolean().optional(),
+    }).strict(),
+    output: EmbeddingsSettingsSchema,
+  },
+  'knowledge:test-embeddings': { input: VoidSchema, output: z.object({ ok: z.boolean(), latencyMs: z.number().int().nonnegative(), dimensions: z.number().int().positive().optional(), error: z.string().optional() }).strict() },
   'models:list': { input: VoidSchema, output: z.array(ModelProfileSchema) },
   'models:catalog': {
     input: z.object({ provider: ProviderIdSchema }).strict(),

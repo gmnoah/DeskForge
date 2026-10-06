@@ -282,6 +282,17 @@ export function classifyToolRisk(call: ToolCall, descriptor: ToolDescriptor): Ri
     }
   }
 
+  if (name === 'knowledge.search') {
+    return {
+      riskLevel: 'readonly',
+      reason: 'Searches the local knowledge index of the run workspace.',
+      ruleId: 'knowledge.local-index',
+      reversible: true,
+      idempotent: true,
+      sendsDataOffDevice: false,
+    }
+  }
+
   if (descriptor.source === 'chrome' || name.startsWith('browser.') || name.startsWith('chrome.')) {
     if (READONLY_BROWSER_ACTIONS.has(action)) {
       return {

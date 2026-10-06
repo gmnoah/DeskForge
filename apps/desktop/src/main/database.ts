@@ -3,7 +3,7 @@ import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import Database from 'better-sqlite3'
 import type { RunStatus, RunTokenUsage, TaskStepStatus } from '@deskforge/contracts'
-import { assertRunTransition, assertStepTransition, isTerminalRunStatus } from '@deskforge/core'
+import { assertRunTransition, assertStepTransition, excerptAround, isTerminalRunStatus, likePattern, planFtsQuery, termHits } from '@deskforge/core'
 import { defaultBaseUrl } from './model-providers'
 
 type Json = Record<string, unknown> | unknown[] | string | number | boolean | null
@@ -380,6 +380,101 @@ export class AppDatabase {
     const auditColumns = this.db.pragma('table_info(audit_events)') as Array<{ name: string }>
     if (!auditColumns.some((column) => column.name === 'prev_hash')) this.db.exec('ALTER TABLE audit_events ADD COLUMN prev_hash TEXT')
     if (!auditColumns.some((column) => column.name === 'entry_hash')) this.db.exec('ALTER TABLE audit_events ADD COLUMN entry_hash TEXT')
+    this.db.exec(`CREATE TABLE IF NOT EXISTS app_secrets (
+      key TEXT PRIMARY KEY,
+      encrypted BLOB NOT NULL,
+      updated_at TEXT NOT NULL
+    )`)
+    this.migrateRunSearch()
+  }
+
+  /**
+   * Session search index (M4). FTS5 with the trigram tokenizer matches any
+   * substring of 3+ characters, so Chinese titles and messages are searchable
+   * without a segmenter; shorter terms fall back to LIKE on the same rows.
+   */
+  private migrateRunSearch(): void {
+    const exists = this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='run_search'").get()
+    this.db.exec(`
+      CREATE VIRTUAL TABLE IF NOT EXISTS run_search USING fts5(body, run_id UNINDEXED, source UNINDEXED, ref_id UNINDEXED, tokenize='trigram');
+      CREATE TRIGGER IF NOT EXISTS run_search_runs_ai AFTER INSERT ON runs BEGIN
+        INSERT INTO run_search(body, run_id, source, ref_id) VALUES (new.title, new.id, 'title', new.id);
+      END;
+      CREATE TRIGGER IF NOT EXISTS run_search_runs_au AFTER UPDATE OF title ON runs BEGIN
+        DELETE FROM run_search WHERE source = 'title' AND ref_id = old.id;
+        INSERT INTO run_search(body, run_id, source, ref_id) VALUES (new.title, new.id, 'title', new.id);
+      END;
+      CREATE TRIGGER IF NOT EXISTS run_search_runs_ad AFTER DELETE ON runs BEGIN
+        DELETE FROM run_search WHERE run_id = old.id;
+      END;
+      CREATE TRIGGER IF NOT EXISTS run_search_messages_ai AFTER INSERT ON messages WHEN new.role IN ('user', 'assistant') BEGIN
+        INSERT INTO run_search(body, run_id, source, ref_id) VALUES (new.content, new.run_id, 'message', new.id);
+      END;
+      CREATE TRIGGER IF NOT EXISTS run_search_messages_au AFTER UPDATE OF content ON messages WHEN new.role IN ('user', 'assistant') BEGIN
+        DELETE FROM run_search WHERE source = 'message' AND ref_id = old.id;
+        INSERT INTO run_search(body, run_id, source, ref_id) VALUES (new.content, new.run_id, 'message', new.id);
+      END;
+      CREATE TRIGGER IF NOT EXISTS run_search_messages_ad AFTER DELETE ON messages BEGIN
+        DELETE FROM run_search WHERE source = 'message' AND ref_id = old.id;
+      END;
+    `)
+    if (!exists) {
+      this.db.transaction(() => {
+        this.db.exec(`INSERT INTO run_search(body, run_id, source, ref_id) SELECT title, id, 'title', id FROM runs`)
+        this.db.exec(`INSERT INTO run_search(body, run_id, source, ref_id) SELECT content, run_id, 'message', id FROM messages WHERE role IN ('user', 'assistant')`)
+      })()
+    }
+  }
+
+  /** Search top-level sessions by title and user/assistant message content. */
+  searchRuns(query: string, options: { workspaceId?: string; limit?: number } = {}): Array<{ runId: string; matchedIn: 'title' | 'message'; messageId?: string; snippet: string; score: number }> {
+    const plan = planFtsQuery(query)
+    if (!plan.terms.length) return []
+    const limit = Math.min(Math.max(options.limit ?? 30, 1), 100)
+    const where: string[] = ['r.parent_run_id IS NULL']
+    const params: unknown[] = []
+    if (plan.match) { where.push('s.rowid IN (SELECT rowid FROM run_search WHERE run_search MATCH ?)'); params.push(plan.match) }
+    for (const term of plan.likeTerms) { where.push("s.body LIKE ? ESCAPE '\\'"); params.push(likePattern(term)) }
+    if (options.workspaceId) { where.push('r.workspace_id = ?'); params.push(options.workspaceId) }
+    const rows = this.db.prepare(`SELECT s.run_id AS runId, s.source AS source, s.ref_id AS refId, s.body AS body, r.updated_at AS updatedAt
+      FROM run_search s JOIN runs r ON r.id = s.run_id
+      WHERE ${where.join(' AND ')}
+      LIMIT 2000`).all(...params) as Array<{ runId: string; source: 'title' | 'message'; refId: string; body: string; updatedAt: string }>
+    const best = new Map<string, { runId: string; matchedIn: 'title' | 'message'; messageId?: string; snippet: string; score: number; updatedAt: string }>()
+    for (const row of rows) {
+      // Title hits outrank message hits; more occurrences rank higher within a source.
+      const score = (row.source === 'title' ? 1_000 : 0) + Math.min(termHits(row.body, plan.terms), 50)
+      const current = best.get(row.runId)
+      if (current && current.score >= score) continue
+      best.set(row.runId, {
+        runId: row.runId,
+        matchedIn: row.source,
+        ...(row.source === 'message' ? { messageId: row.refId } : {}),
+        snippet: excerptAround(row.body, plan.terms),
+        score,
+        updatedAt: row.updatedAt,
+      })
+    }
+    return [...best.values()]
+      .sort((left, right) => right.score - left.score || right.updatedAt.localeCompare(left.updatedAt))
+      .slice(0, limit)
+      .map(({ updatedAt: _updatedAt, ...hit }) => hit)
+  }
+
+  renameRun(id: string, title: string): void {
+    const result = this.db.prepare('UPDATE runs SET title=? WHERE id=?').run(title, id)
+    if (!result.changes) throw new Error('会话不存在')
+  }
+
+  getAppSecret(key: string): Buffer | undefined {
+    const row = this.db.prepare('SELECT encrypted FROM app_secrets WHERE key=?').get(key) as { encrypted?: Buffer } | undefined
+    return row?.encrypted ? Buffer.from(row.encrypted) : undefined
+  }
+
+  setAppSecret(key: string, encrypted: Buffer | null): void {
+    if (!encrypted) { this.db.prepare('DELETE FROM app_secrets WHERE key=?').run(key); return }
+    this.db.prepare(`INSERT INTO app_secrets(key,encrypted,updated_at) VALUES(?,?,?)
+      ON CONFLICT(key) DO UPDATE SET encrypted=excluded.encrypted,updated_at=excluded.updated_at`).run(key, encrypted, now())
   }
 
   private migrateModelProfileProviderConstraint(): void {

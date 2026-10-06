@@ -26,7 +26,8 @@ export function charLength(value: string): number {
 export function planFtsQuery(input: string): FtsQueryPlan {
   const normalized = input.normalize('NFKC').replace(/[\u0000-\u001f\u007f]/g, ' ')
   // Split on whitespace and FTS / punctuation characters; keep CJK runs intact.
-  const raw = normalized.split(/[\s"'`()[\]{}*^:+\-,，。、；;！!？?|<>《》「」『』“”‘’]+/u)
+  // Hyphens and colons are kept: every term is quoted, so they are literal.
+  const raw = normalized.split(/[\s"'`()[\]{}*^,，。、；;！!？?|<>《》「」『』“”‘’]+/u)
   const terms: string[] = []
   const seen = new Set<string>()
   for (const part of raw) {
