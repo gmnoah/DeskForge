@@ -1,13 +1,13 @@
 import { randomUUID } from 'node:crypto'
 import process from 'node:process'
 import { Agent, type AgentEvent, type AgentMessage, type AgentTool } from '@earendil-works/pi-agent-core'
-import { createModels, InMemoryCredentialStore, type ImageContent, type Message, type Model } from '@earendil-works/pi-ai'
+import type { ImageContent, Message } from '@earendil-works/pi-ai'
 import { parsePiAgentHostCommand, WORKER_PROTOCOL_VERSION, type PiAgentHostCommand } from '@deskforge/contracts'
 import {
-  normalizeRuntimeModel,
+  createRuntime,
   prepareRuntimeStreamOptions,
-  resolveRuntimeProvider,
   resolveRuntimeThinkingLevel,
+  runConnectionTest,
   toPublicProviderError,
   type RuntimeProviderName,
 } from './agent-host-runtime'
@@ -104,18 +104,6 @@ class ConcurrencyLimiter {
 
 const send = (message: Record<string, unknown>): void => parent.postMessage({ protocolVersion: WORKER_PROTOCOL_VERSION, ...message })
 
-async function createRuntime(providerInput: string, modelId: string, apiKey: string, baseUrl: string): Promise<{ models: ReturnType<typeof createModels>; model: Model<any>; provider: ProviderName }> {
-  const provider = resolveRuntimeProvider(providerInput)
-  const model = normalizeRuntimeModel(provider, modelId, baseUrl)
-  const credentials = new InMemoryCredentialStore()
-  await credentials.modify(provider, async () => ({ type: 'api_key', key: apiKey }))
-  const models = createModels({
-    credentials,
-    authContext: { env: async () => undefined, fileExists: async () => false },
-  })
-  return { models, model, provider }
-}
-
 function toLlm(messages: AgentMessage[]): Message[] {
   return messages.filter((message): message is Message => ['user', 'assistant', 'toolResult'].includes((message as any).role))
 }
@@ -165,8 +153,16 @@ function makeTool(runId: string, descriptor: ToolDescriptor, readLimiter: Concur
 
 async function startRun(command: StartCommand): Promise<void> {
   if (agents.has(command.runId)) throw new Error('任务已在运行')
-  const { models, model, provider } = await createRuntime(command.provider, command.modelId, command.apiKey, command.baseUrl)
-  const thinkingLevel = resolveRuntimeThinkingLevel(provider, model.id, command.thinkingLevel)
+  const { models, model, provider, spec } = await createRuntime(command.provider, command.modelId, command.apiKey, command.baseUrl)
+  const thinkingLevel = resolveRuntimeThinkingLevel(provider, command.modelId, command.thinkingLevel, command.baseUrl)
+  const reportedAdjustments = new Set<string>()
+  const reportProviderAdjustments = (adjustments: string[]): void => {
+    const fresh = adjustments.filter((item) => !reportedAdjustments.has(item))
+    if (!fresh.length) return
+    for (const item of fresh) reportedAdjustments.add(item)
+    send({ type: 'agent.event', runId: command.runId, event: { type: 'agent.request_integrity', removed: 0, repaired: 0, blocked: 0, providerAdjustments: fresh.length, diagnostics: fresh.map((item) => `provider:${item}`).slice(0, 100) } })
+  }
+  if (spec.notice) reportProviderAdjustments([`model_alias:${command.modelId}->${spec.requestModelId}`])
   const readLimiter = new ConcurrencyLimiter(command.maxParallelReadTools ?? 4)
   const initialToolIds = new Set(['task_plan', 'task_step_update', 'task_complete', 'file_list', 'file_read', 'file_search', 'attachment_open', 'output_register', 'web_search', 'web_fetch', 'skill_read', 'agent_delegate'])
   const descriptorById = new Map(command.tools.map((descriptor) => [descriptor.id, descriptor]))
@@ -288,7 +284,7 @@ async function startRun(command: StartCommand): Promise<void> {
     streamFn: (selectedModel, context, options) => models.streamSimple(
       selectedModel,
       context,
-      prepareRuntimeStreamOptions(provider, selectedModel.id, { ...options, maxRetries: 2, maxRetryDelayMs: 30_000 }, command.runId),
+      prepareRuntimeStreamOptions(provider, selectedModel.id, { ...options, maxRetries: 2, maxRetryDelayMs: 30_000 }, command.runId, { baseUrl: command.baseUrl, onAdjust: reportProviderAdjustments }),
     ),
     sessionId: command.runId,
     steeringMode: 'one-at-a-time',
@@ -440,13 +436,9 @@ async function startRun(command: StartCommand): Promise<void> {
 
 async function testProvider(command: Extract<HostCommand, { type: 'test-provider' }>): Promise<void> {
   try {
-    const { models, model, provider } = await createRuntime(command.provider, command.modelId, command.apiKey, command.baseUrl)
-    const result = await models.completeSimple(model, {
-      systemPrompt: 'Reply with exactly OK.',
-      messages: [{ role: 'user', content: 'Connection test', timestamp: Date.now() }],
-    }, prepareRuntimeStreamOptions(provider, model.id, { maxTokens: 8, maxRetries: 0 }))
-    if (result.stopReason === 'error') throw new Error(result.errorMessage ?? '模型连接测试失败')
-    send({ type: 'test-provider.result', requestId: command.requestId, ok: true, model: model.id })
+    const outcome = await runConnectionTest(command)
+    if (!outcome.ok) throw new Error(outcome.error ?? '模型连接测试失败')
+    send({ type: 'test-provider.result', requestId: command.requestId, ok: true, model: outcome.model, ...(outcome.notice ? { notice: outcome.notice } : {}) })
   } catch (error) {
     const publicError = toPublicProviderError(error, [command.apiKey])
     send({ type: 'test-provider.result', requestId: command.requestId, ok: false, error: publicError.message })

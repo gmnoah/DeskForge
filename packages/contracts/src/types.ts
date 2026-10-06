@@ -53,6 +53,27 @@ export interface ModelConnectionTest {
   modelId: string
   latencyMs: number
   error?: PublicError
+  /** Non-fatal hint, e.g. a retired model alias that was rewritten. */
+  notice?: string
+}
+
+/** Test an unsaved (or edited) model configuration. An empty apiKey reuses the saved key of profileId. */
+export interface ModelConnectionDraft {
+  provider: ProviderId
+  modelId: string
+  baseUrl: string
+  apiKey?: string
+  profileId?: string
+}
+
+/** Token usage summed over every model call of a run, when the provider reports usage. */
+export interface RunTokenUsage {
+  inputTokens: number
+  outputTokens: number
+  cacheReadTokens: number
+  reasoningTokens: number
+  totalTokens: number
+  modelCalls: number
 }
 
 export interface ModelUsage {
@@ -129,6 +150,7 @@ export interface Run {
   model: ModelSelectionSnapshot
   limits: RunLimits
   modelTurns: number
+  tokenUsage?: RunTokenUsage
   startedAt?: IsoDateTime
   completedAt?: IsoDateTime
   createdAt: IsoDateTime

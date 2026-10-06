@@ -155,7 +155,7 @@ export type PiAgentHostEvent =
   | (WorkerMessageBase & { type: 'agent.event'; runId: string; event: PiAgentEventPayload })
   | (WorkerMessageBase & { type: 'tool.request'; runId: string; requestId: string; toolCallId: string; toolId: string; args: JsonValue })
   | (WorkerMessageBase & { type: 'tool.cancel'; runId: string; requestId: string })
-  | (WorkerMessageBase & { type: 'test-provider.result'; requestId: string; ok: true; model: string })
+  | (WorkerMessageBase & { type: 'test-provider.result'; requestId: string; ok: true; model: string; notice?: string })
   | (WorkerMessageBase & { type: 'test-provider.result'; requestId: string; ok: false; error: string })
 
 export type ToolRunnerCommand =
@@ -321,7 +321,7 @@ export const PiAgentHostEventSchema = z.union([
   z.object({ protocolVersion: ProtocolSchema, type: z.literal('agent.event'), runId: IdSchema, event: PiAgentEventPayloadSchema }).strict(),
   z.object({ protocolVersion: ProtocolSchema, type: z.literal('tool.request'), runId: IdSchema, requestId: IdSchema, toolCallId: IdSchema, toolId: IdSchema, args: JsonValueSchema }).strict(),
   z.object({ protocolVersion: ProtocolSchema, type: z.literal('tool.cancel'), runId: IdSchema, requestId: IdSchema }).strict(),
-  z.object({ protocolVersion: ProtocolSchema, type: z.literal('test-provider.result'), requestId: IdSchema, ok: z.literal(true), model: z.string().min(1) }).strict(),
+  z.object({ protocolVersion: ProtocolSchema, type: z.literal('test-provider.result'), requestId: IdSchema, ok: z.literal(true), model: z.string().min(1), notice: z.string().max(500).optional() }).strict(),
   z.object({ protocolVersion: ProtocolSchema, type: z.literal('test-provider.result'), requestId: IdSchema, ok: z.literal(false), error: z.string() }).strict(),
 ])
 

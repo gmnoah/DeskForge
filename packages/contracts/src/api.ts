@@ -18,6 +18,7 @@ import {
   McpTransportSchema,
   MemoryEntrySchema,
   ModelConnectionTestSchema,
+  ModelConnectionDraftSchema,
   ProviderIdSchema,
   ModelProfileInputSchema,
   ModelProfileSchema,
@@ -50,6 +51,7 @@ import type {
   MemoryScope,
   MemoryType,
   ModelConnectionTest,
+  ModelConnectionDraft,
   ProviderId,
   ModelProfile,
   ModelProfileInput,
@@ -256,6 +258,7 @@ export interface DesktopApi {
     setSecret(input: { profileId: string; apiKey: string }): Promise<void>
     deleteSecret(input: { profileId: string }): Promise<void>
     test(input: { profileId: string }): Promise<ModelConnectionTest>
+    testDraft(input: ModelConnectionDraft): Promise<ModelConnectionTest>
     setDefaults(input: ModelDefaultsInput): Promise<void>
   }
   settings: {
@@ -350,6 +353,7 @@ export interface DesktopInvokeMap {
   'models:set-secret': { input: { profileId: string; apiKey: string }; output: undefined }
   'models:delete-secret': { input: { profileId: string }; output: undefined }
   'models:test': { input: { profileId: string }; output: ModelConnectionTest }
+  'models:test-draft': { input: ModelConnectionDraft; output: ModelConnectionTest }
   'models:set-defaults': { input: ModelDefaultsInput; output: undefined }
   'settings:get': { input: undefined; output: AppSettings }
   'settings:update': { input: Partial<AppSettings>; output: AppSettings }
@@ -460,6 +464,7 @@ export const DesktopInvokeContracts: Record<DesktopInvokeChannel, { input: z.Zod
   'models:set-secret': { input: z.object({ profileId: IdSchema, apiKey: z.string().min(1).max(20_000) }).strict(), output: VoidSchema },
   'models:delete-secret': { input: z.object({ profileId: IdSchema }).strict(), output: VoidSchema },
   'models:test': { input: z.object({ profileId: IdSchema }).strict(), output: ModelConnectionTestSchema },
+  'models:test-draft': { input: ModelConnectionDraftSchema, output: ModelConnectionTestSchema },
   'models:set-defaults': { input: z.object({ defaultModelProfileId: IdSchema, subagentModelProfileId: IdSchema.optional() }).strict(), output: VoidSchema },
   'settings:get': { input: VoidSchema, output: AppSettingsSchema },
   'settings:update': { input: AppSettingsSchema.partial().strict(), output: AppSettingsSchema },

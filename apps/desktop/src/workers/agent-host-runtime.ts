@@ -1,4 +1,12 @@
-import type { Model, ModelThinkingLevel, SimpleStreamOptions } from '@earendil-works/pi-ai'
+import { createModels, createProvider, envApiKeyAuth, InMemoryCredentialStore, type Model, type ModelThinkingLevel, type ProviderStreams, type SimpleStreamOptions } from '@earendil-works/pi-ai'
+import { stream as openAICompletionsStream, streamSimple as openAICompletionsStreamSimple } from '@earendil-works/pi-ai/api/openai-completions'
+import {
+  applyPinnedThinking,
+  guardProviderPayload,
+  isKimiK27Code as isKimiK27CodeId,
+  resolveModelSpec,
+  type RuntimeModelSpec,
+} from './provider-compat'
 
 export const RUNTIME_PROVIDER_IDS = ['deepseek', 'kimi', 'tongyi', 'custom'] as const
 export type RuntimeProviderName = (typeof RUNTIME_PROVIDER_IDS)[number]
@@ -35,7 +43,7 @@ export function resolveRuntimeProvider(provider: unknown): RuntimeProviderName {
 }
 
 export function isKimiK27Code(provider: RuntimeProviderName, modelId: string): boolean {
-  return provider === 'kimi' && modelId.toLowerCase() === KIMI_K27_CODE_MODEL_ID
+  return provider === 'kimi' && isKimiK27CodeId(modelId)
 }
 
 export function resolveRuntimeBaseUrl(provider: RuntimeProviderName, baseUrl: string | undefined): string {
@@ -47,28 +55,34 @@ export function resolveRuntimeBaseUrl(provider: RuntimeProviderName, baseUrl: st
   return trimmed || PRESET_BASE_URLS[provider]
 }
 
+export function runtimeModelSpec(provider: RuntimeProviderName, modelId: string, baseUrl?: string): RuntimeModelSpec {
+  return resolveModelSpec(provider, modelId, resolveRuntimeBaseUrl(provider, baseUrl))
+}
+
 export function fallbackRuntimeModel(provider: RuntimeProviderName, id: string, baseUrl?: string): Model<any> {
   const resolvedBaseUrl = resolveRuntimeBaseUrl(provider, baseUrl)
-  const kimiCode = isKimiK27Code(provider, id)
+  const spec = resolveModelSpec(provider, id, resolvedBaseUrl)
   return {
-    id,
-    name: id,
+    id: spec.requestModelId,
+    name: spec.requestModelId,
     api: 'openai-completions',
     provider,
     baseUrl: resolvedBaseUrl,
-    reasoning: kimiCode || /reason|thinking|k2\.[567]|deepseek-reasoner/i.test(id),
+    reasoning: spec.reasoning,
     input: ['text'],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: kimiCode ? KIMI_K27_CONTEXT_WINDOW : provider === 'tongyi' ? 131_072 : 128_000,
-    maxTokens: kimiCode ? KIMI_K27_MAX_OUTPUT_TOKENS : 8_192,
-    ...(kimiCode ? { thinkingLevelMap: { off: null } } : {}),
+    contextWindow: spec.contextWindow,
+    maxTokens: spec.maxTokens,
+    ...(spec.thinkingLevelMap ? { thinkingLevelMap: spec.thinkingLevelMap } : {}),
     compat: {
       supportsStore: false,
       supportsDeveloperRole: false,
-      supportsReasoningEffort: false,
+      supportsReasoningEffort: spec.supportsReasoningEffort,
+      supportsUsageInStreaming: true,
       maxTokensField: 'max_tokens',
       supportsStrictMode: false,
-      thinkingFormat: provider === 'deepseek' || kimiCode ? 'deepseek' : 'openai',
+      requiresReasoningContentOnAssistantMessages: spec.requiresReasoningContentOnAssistantMessages,
+      thinkingFormat: spec.thinkingFormat,
     },
   }
 }
@@ -86,8 +100,12 @@ export function resolveRuntimeThinkingLevel(
   provider: RuntimeProviderName,
   modelId: string,
   requested: ModelThinkingLevel | undefined,
+  baseUrl?: string,
 ): ModelThinkingLevel {
-  if (!isKimiK27Code(provider, modelId)) return requested ?? 'off'
+  if (!isKimiK27Code(provider, modelId)) {
+    const level = requested ?? 'off'
+    return provider === 'custom' && !baseUrl ? level : applyPinnedThinking(runtimeModelSpec(provider, modelId, baseUrl), level)
+  }
   if (requested === 'off') throw new Error(`${KIMI_K27_CODE_MODEL_ID} 仅支持思考模式，不能关闭思考`)
   return requested ?? 'high'
 }
@@ -122,6 +140,8 @@ function guardKimiPayload(payload: unknown, promptCacheKey?: string): unknown {
   if (isRecord(thinking) && thinking.type !== undefined && thinking.type !== 'enabled') {
     throw new Error('Moonshot K2.7 Code 仅支持 enabled thinking')
   }
+  // Thinking is always on. An explicit value must be {type:'enabled',keep:'all'}, so omit it.
+  delete guarded.thinking
 
   const requestedMax = typeof guarded.max_tokens === 'number' && Number.isFinite(guarded.max_tokens)
     ? Math.floor(guarded.max_tokens)
@@ -134,17 +154,44 @@ function guardKimiPayload(payload: unknown, promptCacheKey?: string): unknown {
   return guarded
 }
 
+export interface RuntimeStreamContext {
+  baseUrl?: string
+  /** Receives provider payload adjustments (diagnostic codes, never payload content). */
+  onAdjust?: (adjustments: string[]) => void
+}
+
+function withProviderGuard(
+  options: RuntimeStreamOptions,
+  spec: RuntimeModelSpec | undefined,
+  context: RuntimeStreamContext,
+): RuntimeStreamOptions {
+  if (!spec) return options
+  const upstreamOnPayload = options.onPayload
+  return {
+    ...options,
+    onPayload: async (payload, model) => {
+      const transformed = await upstreamOnPayload?.(payload, model)
+      const guarded = guardProviderPayload(spec, transformed ?? payload)
+      if (guarded.adjustments.length) context.onAdjust?.(guarded.adjustments)
+      return guarded.payload
+    },
+  }
+}
+
 /**
  * Apply provider-specific request safety after any upstream onPayload hook so
- * no later transform can re-introduce incompatible Moonshot fields.
+ * no later transform can re-introduce incompatible provider fields.
  */
 export function prepareRuntimeStreamOptions(
   provider: RuntimeProviderName,
   modelId: string,
   options: RuntimeStreamOptions,
   promptCacheKey?: string,
+  context: RuntimeStreamContext = {},
 ): RuntimeStreamOptions {
-  if (!isKimiK27Code(provider, modelId)) return options
+  let spec: RuntimeModelSpec | undefined
+  try { spec = runtimeModelSpec(provider, modelId, context.baseUrl) } catch { spec = undefined }
+  if (!isKimiK27Code(provider, modelId)) return withProviderGuard(options, spec, context)
   if (options.toolChoice !== undefined && options.toolChoice !== null && options.toolChoice !== 'auto' && options.toolChoice !== 'none') {
     throw new Error('Moonshot K2.7 Code 不支持 required 或指定函数形式的 tool_choice')
   }
@@ -153,7 +200,7 @@ export function prepareRuntimeStreamOptions(
   const safeOptions: RuntimeStreamOptions = { ...options }
   delete safeOptions.temperature
   delete safeOptions.toolChoice
-  return {
+  return withProviderGuard({
     ...safeOptions,
     ...(options.toolChoice === 'auto' || options.toolChoice === 'none' ? { toolChoice: options.toolChoice } : {}),
     maxTokens: Math.max(1, Math.min(options.maxTokens ?? KIMI_K27_MAX_OUTPUT_TOKENS, KIMI_K27_MAX_OUTPUT_TOKENS)),
@@ -163,7 +210,70 @@ export function prepareRuntimeStreamOptions(
       const transformed = await upstreamOnPayload?.(payload, model)
       return guardKimiPayload(transformed ?? payload, promptCacheKey)
     },
+  }, spec, context)
+}
+
+export interface RuntimeHandle {
+  models: ReturnType<typeof createModels>
+  model: Model<any>
+  provider: RuntimeProviderName
+  spec: RuntimeModelSpec
+}
+
+/** Create an isolated pi-ai runtime whose only credential is the supplied key. */
+export async function createRuntime(providerInput: string, modelId: string, apiKey: string, baseUrl: string): Promise<RuntimeHandle> {
+  const provider = resolveRuntimeProvider(providerInput)
+  const model = normalizeRuntimeModel(provider, modelId, baseUrl)
+  const spec = runtimeModelSpec(provider, modelId, baseUrl)
+  const credentials = new InMemoryCredentialStore()
+  await credentials.modify(provider, async () => ({ type: 'api_key', key: apiKey }))
+  const models = createModels({
+    credentials,
+    authContext: { env: async () => undefined, fileExists: async () => false },
+  })
+  // createModels starts empty: register a single-model provider bound to the saved baseUrl.
+  // No env var names are passed, so only the in-memory credential can authenticate.
+  models.setProvider(createProvider({
+    id: provider,
+    name: provider,
+    baseUrl: model.baseUrl,
+    auth: { apiKey: envApiKeyAuth(`${provider} API key`, []) },
+    models: [model],
+    api: { stream: openAICompletionsStream, streamSimple: openAICompletionsStreamSimple } as unknown as ProviderStreams,
+  }))
+  return { models, model, provider, spec }
+}
+
+export interface ConnectionTestOutcome {
+  ok: boolean
+  model: string
+  error?: string
+  notice?: string
+}
+
+/**
+ * Cheapest possible probe: one short streamed completion without tools.
+ * Thinking stays off where the provider allows it so the probe costs a few tokens.
+ */
+export async function runConnectionTest(input: { provider: string; modelId: string; baseUrl: string; apiKey: string; timeoutMs?: number }): Promise<ConnectionTestOutcome> {
+  const { models, model, provider, spec } = await createRuntime(input.provider, input.modelId, input.apiKey, input.baseUrl)
+  // K2.7 Code cannot turn thinking off; everything else probes without thinking.
+  const reasoningLevel = resolveRuntimeThinkingLevel(provider, input.modelId, isKimiK27Code(provider, input.modelId) ? undefined : 'off', input.baseUrl)
+  const result = await models.completeSimple(model, {
+    systemPrompt: 'Reply with exactly OK.',
+    messages: [{ role: 'user', content: 'Connection test', timestamp: Date.now() }],
+  }, prepareRuntimeStreamOptions(provider, input.modelId, {
+    maxTokens: 16,
+    maxRetries: 0,
+    timeoutMs: input.timeoutMs ?? 20_000,
+    ...(reasoningLevel !== 'off' ? { reasoning: reasoningLevel } : {}),
+  }, undefined, { baseUrl: input.baseUrl }))
+  const notice = spec.notice
+  // "length" is fine here: the probe only proves auth, routing and model id.
+  if (result.stopReason === 'error' || result.stopReason === 'aborted') {
+    return { ok: false, model: model.id, error: result.errorMessage ?? '模型连接测试失败', ...(notice ? { notice } : {}) }
   }
+  return { ok: true, model: model.id, ...(notice ? { notice } : {}) }
 }
 
 function rawErrorMessage(error: unknown): string {
