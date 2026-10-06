@@ -14,7 +14,8 @@ import type { SkillService } from './skill-service'
 import type { AutomationService } from './automation-service'
 import type { McpOAuthService } from './mcp-oauth'
 import type { ArtifactStore } from './artifact-store'
-import { DEFAULT_SETTINGS, normalizeRunLimits, presentArtifact, presentAudit, presentChromeGrant, presentMcp, presentMemory, presentModel, presentRunSummary, presentWorkspace } from './presenters'
+import { DEFAULT_SETTINGS, normalizeRunLimits, presentArtifact, presentAudit, presentChromeGrant, presentMcp, presentMemory, presentModel, presentRunSummary, presentSessionRule, presentWorkspace } from './presenters'
+import { auditExportFileName, presentAuditRecord, renderAuditExport } from './audit-export'
 import { CapabilityPackageService, type ParsedCapabilityPackage } from './capability-package-service'
 import { getModelCatalog } from './model-providers'
 
@@ -22,6 +23,20 @@ type Handler = (input: any) => Promise<any> | any
 
 export class IpcApi {
   readonly handlers: Record<DesktopInvokeChannel, Handler>
+  private queryAudit(filters: { runId?: string; category?: string; outcome?: string; from?: string; to?: string; text?: string; limit?: number }) {
+    const { rows, total } = this.database.queryAudit(filters)
+    const report = this.database.auditChainReport()
+    const runs = this.database.auditRuns()
+    return {
+      items: rows.map((row) => presentAuditRecord(row, report.status.get(Number(row.id)) ?? 'legacy')),
+      total,
+      truncated: total > rows.length,
+      categories: this.database.auditCategories(),
+      runs,
+      chain: report.summary,
+    }
+  }
+
   private oauthServerByState = new Map<string, string>()
   private pendingWorkspaceSelections = new Map<string, number>()
   private capabilitySelections = new Map<string, { parsed: ParsedCapabilityPackage; fingerprint: string; expiresAt: number }>()
@@ -150,6 +165,8 @@ export class IpcApi {
       'runs:cancel': ({ id }) => this.coordinator.cancel(id),
       'runs:remove': ({ id }) => { this.coordinator.delete(id) },
       'runs:respond-approval': (input) => { this.broker.respondToApproval(input) },
+      'approvals:list-session-rules': (input) => this.database.listSessionRules(input?.runId).map(presentSessionRule),
+      'approvals:revoke-session-rule': ({ id }) => { this.broker.revokeSessionRule(id); return { revoked: true as const } },
 
       'models:list': () => this.modelProfiles(),
       'models:catalog': ({ provider }) => getModelCatalog(provider),
@@ -354,6 +371,21 @@ export class IpcApi {
           .replace(/("(?:api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|cookie|credential|secret|password)"\s*:\s*")[^"]+/gi, '$1REDACTED')
         await writeFile(result.filePath, redacted, { mode: 0o600 })
         return { path: result.filePath, entryCount: entries.length, redacted: true }
+      },
+      'audit:query': (input) => this.queryAudit(input ?? {}),
+      'audit:export': async ({ format, ...filters }) => {
+        const result = this.queryAudit({ ...filters, limit: filters.limit ?? 5_000 })
+        const extension = format === 'markdown' ? 'md' : format
+        const target = await dialog.showSaveDialog({
+          title: '导出审计日志',
+          defaultPath: auditExportFileName(format),
+          filters: [{ name: format === 'csv' ? 'CSV' : format === 'markdown' ? 'Markdown' : 'JSON', extensions: [extension] }],
+        })
+        if (target.canceled || !target.filePath) return null
+        const body = renderAuditExport(format, result.items, { exportedAt: new Date().toISOString(), filters, chain: result.chain, total: result.total })
+        await writeFile(target.filePath, body, { mode: 0o600 })
+        this.database.audit('audit', 'export', `导出审计日志（${format.toUpperCase()}，${result.items.length} 条）`, { actor: 'user', outcome: 'succeeded', format, entryCount: result.items.length, chainValid: result.chain.valid })
+        return { path: target.filePath, format, entryCount: result.items.length, chainValid: result.chain.valid }
       },
       'artifacts:get-text': async ({ id, maxBytes }) => {
         const row = this.database.getArtifact(id); if (!row) throw new Error('产物不存在')

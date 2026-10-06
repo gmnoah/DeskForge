@@ -12,9 +12,11 @@ import { ConnectionTestNotice } from './features/settings/ConnectionTestNotice'
 import { ShellSidebar } from './features/shell/ShellSidebar'
 import { WelcomeComposer } from './features/shell/WelcomeComposer'
 import { WorkTimeline } from './features/work/WorkTimeline'
+import { ApprovalDiff } from './features/work/ApprovalDiff'
 import { isUserVisibleArtifact, WorkInspector, type WorkInspectorTab } from './features/work/WorkInspector'
 import type {
   ApprovalItem,
+  ApprovalScopeChoice,
   JsonRecord,
   ModelProvider,
   RunAccessMode,
@@ -49,13 +51,16 @@ function formatDate(value?: string, includeDate = false) {
     : { hour: '2-digit', minute: '2-digit' }).format(date)
 }
 
-function ApprovalCard({ approval, onRespond }: { approval: ApprovalItem; onRespond: (approval: ApprovalItem, decision: 'approve' | 'edit' | 'reject', scope?: 'once' | 'run_tool', editedArguments?: JsonRecord) => void }) {
-  const [scope, setScope] = useState<'once' | 'run_tool'>('once')
+function ApprovalCard({ approval, onRespond }: { approval: ApprovalItem; onRespond: (approval: ApprovalItem, decision: 'approve' | 'edit' | 'reject', scope?: ApprovalScopeChoice, editedArguments?: JsonRecord) => void }) {
+  const [scope, setScope] = useState<ApprovalScopeChoice>('once')
   const [editing, setEditing] = useState(false)
   const [editedText, setEditedText] = useState(() => JSON.stringify(approval.arguments ?? {}, null, 2))
   const [editError, setEditError] = useState<string>()
   const canApproveForTask = approval.risk === 'reversible_write'
-  const actionLabel = approval.risk === 'irreversible' ? '允许高风险操作' : approval.risk === 'external_effect' ? '允许这次外部操作' : '允许这一次'
+  const sessionOffer = approval.sessionRule?.eligible ? approval.sessionRule : undefined
+  const scopeOptions = canApproveForTask || sessionOffer
+  const effectiveScope: ApprovalScopeChoice = scope === 'session' && !sessionOffer ? 'once' : scope === 'run_tool' && !canApproveForTask ? 'once' : scope
+  const actionLabel = approval.risk === 'irreversible' ? '允许高风险操作' : approval.risk === 'external_effect' ? '允许这次外部操作' : effectiveScope === 'session' ? '允许并记住' : '允许这一次'
   return (
     <section className={`approval-card risk-${approval.risk}`}>
       <div className="approval-icon"><Icon name={approval.risk === 'irreversible' ? 'warning' : 'shield'} /></div>
@@ -65,18 +70,22 @@ function ApprovalCard({ approval, onRespond }: { approval: ApprovalItem; onRespo
           <span className="risk-label">{approval.risk === 'reversible_write' ? '可以撤销' : approval.risk === 'external_effect' ? '会影响外部系统' : '可能无法撤销'}</span>
         </div>
         <p>{approval.summary || 'DeskForge 需要得到允许后才能继续。'}</p>
+        {approval.diff && !editing && <ApprovalDiff diff={approval.diff} />}
         {approval.arguments && !editing && <details className="approval-details"><summary>查看操作参数</summary><pre>{JSON.stringify(approval.arguments, null, 2)}</pre></details>}
         {editing && <div className="approval-editor"><textarea aria-label="修改操作参数" className="mono" rows={6} value={editedText} onChange={(event) => { setEditedText(event.target.value); setEditError(undefined) }} />{editError && <span>{editError}</span>}</div>}
         <div className="approval-facts">
           <span><Icon name={approval.reversible ? 'check' : 'warning'} size={14} />{approval.reversible ? '可回滚' : '可能无法撤销'}</span>
           {approval.dataShared && <span><Icon name="globe" size={14} />将发送：{approval.dataShared}</span>}
+          {!sessionOffer && approval.sessionRule?.reason && <span title={approval.sessionRule.reason}><Icon name="lock" size={14} />每次都需确认</span>}
         </div>
+        {effectiveScope === 'session' && sessionOffer?.label && <p className="approval-session-hint"><Icon name="info" size={13} />本会话中，{sessionOffer.label}将自动允许，并照常写入审计日志；可在右侧「详细」或「隐私与记录」中撤销。</p>}
         <div className="approval-actions">
-          <select aria-label="授权范围" value={canApproveForTask ? scope : 'once'} disabled={!canApproveForTask} onChange={(event) => setScope(event.target.value as 'once' | 'run_tool')}>
+          <select aria-label="授权范围" value={effectiveScope} disabled={!scopeOptions} onChange={(event) => setScope(event.target.value as ApprovalScopeChoice)}>
             <option value="once">仅批准本次</option>
             {canApproveForTask && <option value="run_tool">本工作相同参数操作</option>}
+            {sessionOffer && <option value="session">本会话总是允许此类操作</option>}
           </select>
-          {editing ? <><button type="button" className="button secondary" onClick={() => setEditing(false)}>取消编辑</button><button type="button" className="button primary" onClick={() => { try { const value = JSON.parse(editedText) as unknown; if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('参数必须是 JSON 对象'); onRespond(approval, 'edit', undefined, value as JsonRecord) } catch (cause) { setEditError(cause instanceof Error ? cause.message : 'JSON 格式无效') } }}>修改后允许</button></> : <><button type="button" className="button ghost" onClick={() => setEditing(true)}>编辑参数</button><button type="button" className="button secondary" onClick={() => onRespond(approval, 'reject')}>拒绝</button><button type="button" className="button primary" onClick={() => onRespond(approval, 'approve', scope)}>{actionLabel}</button></>}
+          {editing ? <><button type="button" className="button secondary" onClick={() => setEditing(false)}>取消编辑</button><button type="button" className="button primary" onClick={() => { try { const value = JSON.parse(editedText) as unknown; if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('参数必须是 JSON 对象'); onRespond(approval, 'edit', undefined, value as JsonRecord) } catch (cause) { setEditError(cause instanceof Error ? cause.message : 'JSON 格式无效') } }}>修改后允许</button></> : <><button type="button" className="button ghost" onClick={() => setEditing(true)}>编辑参数</button><button type="button" className="button secondary" onClick={() => onRespond(approval, 'reject')}>拒绝</button><button type="button" className="button primary" onClick={() => onRespond(approval, 'approve', effectiveScope)}>{actionLabel}</button></>}
         </div>
       </div>
     </section>
@@ -177,7 +186,7 @@ function TasksView({
   onPause: () => void
   onResume: () => void
   onCancel: () => void
-  onApproval: (approval: ApprovalItem, decision: 'approve' | 'edit' | 'reject', scope?: 'once' | 'run_tool', editedArguments?: JsonRecord) => void
+  onApproval: (approval: ApprovalItem, decision: 'approve' | 'edit' | 'reject', scope?: ApprovalScopeChoice, editedArguments?: JsonRecord) => void
   onBindChrome: () => void
   onRevealArtifact: (id: string) => void
   onUndoChange: (id: string) => void
@@ -394,11 +403,11 @@ export default function App() {
     workbench.removeOptimisticUserMessage(runId, optimisticEventId)
   }
 
-  const respondApproval = async (approval: ApprovalItem, decision: 'approve' | 'edit' | 'reject', scope?: 'once' | 'run_tool', editedArguments?: JsonRecord) => {
+  const respondApproval = async (approval: ApprovalItem, decision: 'approve' | 'edit' | 'reject', scope?: ApprovalScopeChoice, editedArguments?: JsonRecord) => {
     const input: JsonRecord = { requestId: approval.id, decision }
     if (decision === 'approve') input.scope = scope ?? 'once'
     if (decision === 'edit' && editedArguments) input.editedArguments = editedArguments
-    await perform(() => bridge.respondApproval(input), decision === 'approve' ? '已允许这次操作' : decision === 'edit' ? '参数已修改，DeskForge 将按新参数继续' : '操作已拒绝', { refreshRun: true })
+    await perform(() => bridge.respondApproval(input), decision === 'approve' ? (scope === 'session' ? '已允许，本会话同类操作将自动允许' : '已允许这次操作') : decision === 'edit' ? '参数已修改，DeskForge 将按新参数继续' : '操作已拒绝', { refreshRun: true })
   }
 
   const handleAutomationRun = (value: unknown) => {

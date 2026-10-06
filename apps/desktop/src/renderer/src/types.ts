@@ -132,6 +132,44 @@ export interface TraceSpanItem extends JsonRecord {
   artifactIds: string[]
 }
 
+export interface ApprovalDiffLineView {
+  kind: 'context' | 'add' | 'del'
+  text: string
+  oldLine?: number
+  newLine?: number
+}
+
+export interface ApprovalDiffHunkView {
+  oldStart: number
+  oldLines: number
+  newStart: number
+  newLines: number
+  lines: ApprovalDiffLineView[]
+}
+
+export interface ApprovalDiffView {
+  path: string
+  operation: 'create' | 'modify' | 'delete'
+  additions: number
+  deletions: number
+  hunks: ApprovalDiffHunkView[]
+  text: string
+  truncated: boolean
+  omittedLines: number
+  binary: boolean
+  tooLarge: boolean
+  note?: string
+}
+
+/** 「本会话总是允许此类操作」 offer computed by the main process. */
+export interface SessionRuleOffer {
+  eligible: boolean
+  label?: string
+  reason?: string
+}
+
+export type ApprovalScopeChoice = 'once' | 'run_tool' | 'session'
+
 export interface ApprovalItem extends JsonRecord {
   id: string
   title: string
@@ -141,14 +179,80 @@ export interface ApprovalItem extends JsonRecord {
   dataShared?: string
   reversible?: boolean
   status?: 'pending' | 'approved' | 'rejected'
+  diff?: ApprovalDiffView
+  sessionRule?: SessionRuleOffer
 }
+
+export interface SessionRuleItem {
+  id: string
+  runId: string
+  runTitle?: string
+  kind: 'tool' | 'shell_prefix'
+  toolName: string
+  riskLevel: string
+  commandPrefix?: string
+  label: string
+  useCount: number
+  createdAt: string
+  lastUsedAt?: string
+}
+
+export interface AuditRecordView {
+  id: string
+  runId?: string
+  category: string
+  action: string
+  summary: string
+  actor?: string
+  outcome?: string
+  riskLevel?: string
+  target?: string
+  ruleId?: string
+  ruleLabel?: string
+  payload: unknown
+  prevHash?: string
+  entryHash?: string
+  chain: 'ok' | 'broken' | 'unlinked' | 'legacy'
+  createdAt: string
+}
+
+export interface AuditChainView {
+  valid: boolean
+  checkedEntries: number
+  hashedEntries: number
+  legacyEntries: number
+  brokenIds: string[]
+  linkBreakIds: string[]
+  checkedAt: string
+}
+
+export interface AuditQueryView {
+  items: AuditRecordView[]
+  total: number
+  truncated: boolean
+  categories: string[]
+  runs: Array<{ id: string; title: string }>
+  chain: AuditChainView
+}
+
+export interface AuditFilters {
+  runId?: string
+  category?: string
+  outcome?: string
+  from?: string
+  to?: string
+  text?: string
+  limit?: number
+}
+
+export type AuditExportFormat = 'json' | 'csv' | 'markdown'
 
 export interface ApprovalHistoryItem extends JsonRecord {
   id: string
   title: string
   summary: string
   status: 'pending' | 'approved' | 'rejected' | 'edited'
-  scope?: 'once' | 'run_tool'
+  scope?: ApprovalScopeChoice
   createdAt?: string
   resolvedAt?: string
 }

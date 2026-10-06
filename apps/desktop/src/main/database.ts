@@ -44,6 +44,8 @@ export class AppDatabase {
     this.db.pragma('foreign_keys = ON')
     this.db.pragma('busy_timeout = 5000')
     this.migrate()
+    // Session rules live only as long as the app session that created them.
+    this.expireSessionRules('app_restart')
   }
 
   close(): void { this.db.close() }
@@ -180,6 +182,22 @@ export class AppDatabase {
         created_at TEXT NOT NULL,
         expires_at TEXT
       );
+      CREATE TABLE IF NOT EXISTS session_approval_rules (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL CHECK(kind IN ('tool','shell_prefix')),
+        tool_id TEXT NOT NULL,
+        risk_level TEXT NOT NULL,
+        command_prefix TEXT,
+        label TEXT NOT NULL,
+        source_approval_id TEXT,
+        use_count INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        last_used_at TEXT,
+        revoked_at TEXT,
+        revoke_reason TEXT
+      );
+      CREATE INDEX IF NOT EXISTS session_approval_rules_run_idx ON session_approval_rules(run_id, revoked_at);
       CREATE TABLE IF NOT EXISTS artifacts (
         id TEXT PRIMARY KEY,
         run_id TEXT REFERENCES runs(id) ON DELETE SET NULL,
@@ -1026,6 +1044,92 @@ export class AppDatabase {
       if (expected !== row.entry_hash) brokenIds.push(Number(row.id))
     }
     return { valid: brokenIds.length === 0, hashedEntries, legacyEntries, brokenIds }
+  }
+
+  /**
+   * Full chain report: recomputes every entry hash and checks that each
+   * entry links to its predecessor. Gaps (e.g. retention pruning) are
+   * reported as `unlinked`, recomputation mismatches as `broken`.
+   */
+  auditChainReport(limit = 50_000): { status: Map<number, 'ok' | 'broken' | 'unlinked' | 'legacy'>; summary: { valid: boolean; checkedEntries: number; hashedEntries: number; legacyEntries: number; brokenIds: string[]; linkBreakIds: string[]; checkedAt: string } } {
+    const rows = (this.db.prepare('SELECT * FROM (SELECT * FROM audit_events ORDER BY id DESC LIMIT ?) ORDER BY id ASC').all(Math.max(1, Math.min(200_000, limit))) as any[])
+    const status = new Map<number, 'ok' | 'broken' | 'unlinked' | 'legacy'>()
+    const brokenIds: string[] = []
+    const linkBreakIds: string[] = []
+    let hashedEntries = 0
+    let legacyEntries = 0
+    let previousHash: string | undefined
+    for (const row of rows) {
+      const id = Number(row.id)
+      if (!row.entry_hash || !row.prev_hash) { legacyEntries += 1; status.set(id, 'legacy'); continue }
+      hashedEntries += 1
+      const payload = parse(row.payload_json, null)
+      const canonical = canonicalJson({ category: row.category, action: row.action, runId: row.run_id ?? null, summary: row.summary, payload, createdAt: row.created_at })
+      const expected = createHash('sha256').update(row.prev_hash).update('\n').update(canonical).digest('hex')
+      // The oldest entry in the window has no visible predecessor, so only its own hash is checked.
+      if (expected !== row.entry_hash) { brokenIds.push(String(id)); status.set(id, 'broken') } else if (previousHash !== undefined && row.prev_hash !== previousHash) { linkBreakIds.push(String(id)); status.set(id, 'unlinked') } else status.set(id, 'ok')
+      previousHash = row.entry_hash
+    }
+    return { status, summary: { valid: brokenIds.length === 0, checkedEntries: rows.length, hashedEntries, legacyEntries, brokenIds, linkBreakIds, checkedAt: now() } }
+  }
+
+  queryAudit(filters: { runId?: string; category?: string; outcome?: string; from?: string; to?: string; text?: string; limit?: number } = {}): { rows: any[]; total: number } {
+    const where: string[] = []
+    const params: unknown[] = []
+    if (filters.runId) { where.push('run_id=?'); params.push(filters.runId) }
+    if (filters.category) { where.push('category=?'); params.push(filters.category) }
+    if (filters.outcome) { where.push("json_extract(payload_json,'$.outcome')=?"); params.push(filters.outcome) }
+    if (filters.from) { where.push('created_at>=?'); params.push(new Date(filters.from).toISOString()) }
+    if (filters.to) { where.push('created_at<=?'); params.push(new Date(filters.to).toISOString()) }
+    if (filters.text) { where.push("(summary LIKE ? ESCAPE '\\' OR action LIKE ? ESCAPE '\\')"); const like = `%${filters.text.replace(/[\\%_]/g, (char) => `\\${char}`)}%`; params.push(like, like) }
+    const clause = where.length ? `WHERE ${where.join(' AND ')}` : ''
+    const limit = Math.max(1, Math.min(5_000, filters.limit ?? 500))
+    const total = Number((this.db.prepare(`SELECT COUNT(*) AS count FROM audit_events ${clause}`).get(...params) as { count: number }).count)
+    const rows = (this.db.prepare(`SELECT * FROM audit_events ${clause} ORDER BY id DESC LIMIT ?`).all(...params, limit) as any[])
+      .map((row) => ({ ...row, payload: parse(row.payload_json, {}), createdAt: row.created_at }))
+    return { rows, total }
+  }
+
+  auditRuns(limit = 200): Array<{ id: string; title: string }> {
+    return (this.db.prepare(`SELECT a.run_id AS id, MAX(a.id) AS last_id, runs.title AS title FROM audit_events a LEFT JOIN runs ON runs.id=a.run_id
+      WHERE a.run_id IS NOT NULL GROUP BY a.run_id ORDER BY last_id DESC LIMIT ?`).all(limit) as Array<{ id: string; title: string | null }>)
+      .map((row) => ({ id: row.id, title: row.title ?? '已删除的工作' }))
+  }
+
+  auditCategories(): string[] {
+    return (this.db.prepare('SELECT DISTINCT category FROM audit_events ORDER BY category').all() as Array<{ category: string }>).map((row) => row.category)
+  }
+
+  addSessionRule(input: { runId: string; kind: 'tool' | 'shell_prefix'; toolId: string; riskLevel: string; commandPrefix?: string; label: string; sourceApprovalId?: string }): any {
+    const existing = this.db.prepare(`SELECT * FROM session_approval_rules WHERE run_id=? AND kind=? AND tool_id=? AND risk_level=? AND COALESCE(command_prefix,'')=? AND revoked_at IS NULL`)
+      .get(input.runId, input.kind, input.toolId, input.riskLevel, input.commandPrefix ?? '') as any
+    if (existing) return existing
+    const id = randomUUID()
+    this.db.prepare('INSERT INTO session_approval_rules(id,run_id,kind,tool_id,risk_level,command_prefix,label,source_approval_id,created_at) VALUES(?,?,?,?,?,?,?,?,?)')
+      .run(id, input.runId, input.kind, input.toolId, input.riskLevel, input.commandPrefix ?? null, input.label, input.sourceApprovalId ?? null, now())
+    return this.db.prepare('SELECT * FROM session_approval_rules WHERE id=?').get(id)
+  }
+
+  listSessionRules(runId?: string): any[] {
+    return this.db.prepare(`SELECT r.*, runs.title AS run_title FROM session_approval_rules r LEFT JOIN runs ON runs.id=r.run_id
+      WHERE r.revoked_at IS NULL ${runId ? 'AND r.run_id=?' : ''} ORDER BY r.created_at DESC`).all(...(runId ? [runId] : [])) as any[]
+  }
+
+  getSessionRule(id: string): any | undefined { return this.db.prepare('SELECT * FROM session_approval_rules WHERE id=?').get(id) }
+
+  touchSessionRule(id: string): void {
+    this.db.prepare('UPDATE session_approval_rules SET use_count=use_count+1,last_used_at=? WHERE id=?').run(now(), id)
+  }
+
+  revokeSessionRule(id: string, reason = 'user'): boolean {
+    return this.db.prepare('UPDATE session_approval_rules SET revoked_at=?,revoke_reason=? WHERE id=? AND revoked_at IS NULL').run(now(), reason, id).changes > 0
+  }
+
+  expireSessionRules(reason: string, runId?: string): number {
+    const changes = this.db.prepare(`UPDATE session_approval_rules SET revoked_at=?,revoke_reason=? WHERE revoked_at IS NULL ${runId ? 'AND run_id=?' : ''}`)
+      .run(now(), reason, ...(runId ? [runId] : [])).changes
+    if (changes) this.audit('approval', 'session_rules_expired', `${changes} 条会话规则已失效`, { actor: 'system', outcome: 'succeeded', reason, ...(runId ? { runId } : {}) }, runId)
+    return changes
   }
 
   createRunTrace(input: { id?: string; runId: string; rootSpanId: string; metadata?: Json }): string {

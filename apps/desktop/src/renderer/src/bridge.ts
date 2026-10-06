@@ -1,6 +1,13 @@
 import type {
+  ApprovalDiffLineView,
+  ApprovalDiffView,
   ApprovalHistoryItem,
   ApprovalItem,
+  AuditExportFormat,
+  AuditFilters,
+  AuditQueryView,
+  SessionRuleItem,
+  SessionRuleOffer,
   ArtifactItem,
   AutomationItem,
   CapabilityPackageItem,
@@ -533,6 +540,108 @@ function normalizeProgress(value: unknown): RunProgressItem | undefined {
   return item
 }
 
+export function normalizeApprovalDiff(value: unknown): ApprovalDiffView | undefined {
+  const source = record(value)
+  const path = textValue(source, ['path'])
+  const operation = textValue(source, ['operation'])
+  if (!path || (operation !== 'create' && operation !== 'modify' && operation !== 'delete')) return undefined
+  const hunks = arrayValue(source.hunks, []).map((hunkValue) => {
+    const hunk = record(hunkValue)
+    return {
+      oldStart: numberValue(hunk, ['oldStart']) ?? 0,
+      oldLines: numberValue(hunk, ['oldLines']) ?? 0,
+      newStart: numberValue(hunk, ['newStart']) ?? 0,
+      newLines: numberValue(hunk, ['newLines']) ?? 0,
+      lines: arrayValue(hunk.lines, []).map((lineValue) => {
+        const line = record(lineValue)
+        const kind: ApprovalDiffLineView['kind'] = line.kind === 'add' || line.kind === 'del' ? line.kind : 'context'
+        const oldLine = numberValue(line, ['oldLine'])
+        const newLine = numberValue(line, ['newLine'])
+        return { kind, text: typeof line.text === 'string' ? line.text : '', ...(oldLine !== undefined ? { oldLine } : {}), ...(newLine !== undefined ? { newLine } : {}) }
+      }),
+    }
+  })
+  const note = textValue(source, ['note'])
+  return {
+    path,
+    operation,
+    additions: numberValue(source, ['additions']) ?? 0,
+    deletions: numberValue(source, ['deletions']) ?? 0,
+    hunks,
+    text: textValue(source, ['text']),
+    truncated: booleanValue(source, ['truncated']),
+    omittedLines: numberValue(source, ['omittedLines']) ?? 0,
+    binary: booleanValue(source, ['binary']),
+    tooLarge: booleanValue(source, ['tooLarge']),
+    ...(note ? { note } : {}),
+  }
+}
+
+function normalizeSessionOffer(value: unknown): SessionRuleOffer | undefined {
+  const source = record(value)
+  if (typeof source.eligible !== 'boolean') return undefined
+  const label = textValue(source, ['label'])
+  const reason = textValue(source, ['reason'])
+  return { eligible: source.eligible, ...(label ? { label } : {}), ...(reason ? { reason } : {}) }
+}
+
+export function normalizeSessionRule(value: unknown, index: number): SessionRuleItem {
+  const source = record(value)
+  const runTitle = textValue(source, ['runTitle'])
+  const commandPrefix = textValue(source, ['commandPrefix'])
+  const lastUsedAt = textValue(source, ['lastUsedAt'])
+  return {
+    id: idValue(source, 'session-rule', index),
+    runId: textValue(source, ['runId']),
+    ...(runTitle ? { runTitle } : {}),
+    kind: source.kind === 'shell_prefix' ? 'shell_prefix' : 'tool',
+    toolName: textValue(source, ['toolName']),
+    riskLevel: textValue(source, ['riskLevel'], 'reversible_write'),
+    ...(commandPrefix ? { commandPrefix } : {}),
+    label: textValue(source, ['label'], '会话规则'),
+    useCount: numberValue(source, ['useCount']) ?? 0,
+    createdAt: textValue(source, ['createdAt']),
+    ...(lastUsedAt ? { lastUsedAt } : {}),
+  }
+}
+
+export function normalizeAuditQuery(value: unknown): AuditQueryView {
+  const source = record(value)
+  const chain = record(source.chain)
+  const strings = (input: unknown): string[] => arrayValue(input, []).filter((item): item is string => typeof item === 'string')
+  return {
+    items: arrayValue(source.items, []).map((itemValue, index) => {
+      const item = record(itemValue)
+      const chainStatus = item.chain === 'ok' || item.chain === 'broken' || item.chain === 'unlinked' ? item.chain : 'legacy' as const
+      const optional = (key: string) => (typeof item[key] === 'string' && item[key] ? { [key]: item[key] as string } : {})
+      return {
+        id: idValue(item, 'audit', index),
+        category: textValue(item, ['category'], 'unknown'),
+        action: textValue(item, ['action'], '—'),
+        summary: textValue(item, ['summary']),
+        payload: item.payload ?? {},
+        chain: chainStatus,
+        createdAt: textValue(item, ['createdAt']),
+        ...optional('runId'), ...optional('actor'), ...optional('outcome'), ...optional('riskLevel'), ...optional('target'),
+        ...optional('ruleId'), ...optional('ruleLabel'), ...optional('prevHash'), ...optional('entryHash'),
+      }
+    }),
+    total: numberValue(source, ['total']) ?? 0,
+    truncated: booleanValue(source, ['truncated']),
+    categories: strings(source.categories),
+    runs: arrayValue(source.runs, []).map((runValue) => { const run = record(runValue); return { id: textValue(run, ['id']), title: textValue(run, ['title'], '工作') } }).filter((run) => run.id),
+    chain: {
+      valid: chain.valid !== false,
+      checkedEntries: numberValue(chain, ['checkedEntries']) ?? 0,
+      hashedEntries: numberValue(chain, ['hashedEntries']) ?? 0,
+      legacyEntries: numberValue(chain, ['legacyEntries']) ?? 0,
+      brokenIds: strings(chain.brokenIds),
+      linkBreakIds: strings(chain.linkBreakIds),
+      checkedAt: textValue(chain, ['checkedAt']),
+    },
+  }
+}
+
 function normalizeApproval(value: unknown, index: number): ApprovalItem {
   const source = record(value)
   const rawRisk = textValue(source, ['risk', 'riskLevel'], 'reversible_write')
@@ -556,6 +665,12 @@ function normalizeApproval(value: unknown, index: number): ApprovalItem {
   const status = textValue(source, ['status'])
   if (dataShared) item.dataShared = dataShared
   if (status === 'pending' || status === 'approved' || status === 'rejected') item.status = status
+  const diff = normalizeApprovalDiff(source.diff)
+  if (diff) item.diff = diff
+  else delete item.diff
+  const sessionRule = normalizeSessionOffer(source.sessionRule)
+  if (sessionRule) item.sessionRule = sessionRule
+  else delete item.sessionRule
   return item
 }
 
@@ -573,7 +688,7 @@ function normalizeApprovalHistory(value: unknown, index: number): ApprovalHistor
   const scope = textValue(source, ['scope'])
   const createdAt = textValue(source, ['createdAt', 'created_at'])
   const resolvedAt = textValue(source, ['resolvedAt', 'resolved_at'])
-  if (scope === 'once' || scope === 'run_tool') item.scope = scope
+  if (scope === 'once' || scope === 'run_tool' || scope === 'session') item.scope = scope
   if (createdAt) item.createdAt = createdAt
   if (resolvedAt) item.resolvedAt = resolvedAt
   return item
@@ -871,6 +986,18 @@ export const bridge = {
   exportAudit: () => call<unknown>([
     { path: 'audit.exportDiagnostics' },
     { path: 'exportAudit' },
+  ]),
+  queryAudit: async (filters: AuditFilters = {}) => normalizeAuditQuery(await call<unknown>([
+    { path: 'audit.query', args: [filters] },
+  ])),
+  exportAuditLog: (format: AuditExportFormat, filters: AuditFilters = {}) => call<unknown>([
+    { path: 'audit.export', args: [{ ...filters, format }] },
+  ]),
+  listSessionRules: async (runId?: string) => arrayValue(await call<unknown>([
+    { path: 'runs.listSessionRules', args: [runId ? { runId } : {}] },
+  ]), []).map(normalizeSessionRule),
+  revokeSessionRule: (id: string) => call<unknown>([
+    { path: 'runs.revokeSessionRule', args: [{ id }] },
   ]),
   listAudit: () => call<unknown>([
     { path: 'audit.list', args: [{ limit: 100 }] },

@@ -313,6 +313,54 @@ export const PolicyDecisionSchema = z
 export const ApprovalScopeSchema = z.enum(['once', 'run_tool', 'persistent_rule'])
 export const ApprovalStatusSchema = z.enum(['pending', 'approved', 'edited', 'rejected', 'expired'])
 
+export const ApprovalDiffLineSchema = z.object({
+  kind: z.enum(['context', 'add', 'del']),
+  text: z.string(),
+  oldLine: z.number().int().nonnegative().optional(),
+  newLine: z.number().int().nonnegative().optional(),
+}).strict()
+
+export const ApprovalDiffPreviewSchema = z.object({
+  kind: z.literal('file_diff'),
+  path: z.string().min(1),
+  operation: z.enum(['create', 'modify', 'delete']),
+  additions: z.number().int().nonnegative(),
+  deletions: z.number().int().nonnegative(),
+  hunks: z.array(z.object({
+    oldStart: z.number().int().nonnegative(),
+    oldLines: z.number().int().nonnegative(),
+    newStart: z.number().int().nonnegative(),
+    newLines: z.number().int().nonnegative(),
+    lines: z.array(ApprovalDiffLineSchema).max(2_000),
+  }).strict()).max(500),
+  text: z.string().max(512 * 1024),
+  truncated: z.boolean(),
+  omittedLines: z.number().int().nonnegative(),
+  binary: z.boolean(),
+  tooLarge: z.boolean(),
+  note: z.string().optional(),
+}).strict()
+
+export const ApprovalSessionRuleOfferSchema = z.object({
+  eligible: z.boolean(),
+  label: z.string().optional(),
+  reason: z.string().optional(),
+}).strict()
+
+export const SessionApprovalRuleSchema = z.object({
+  id: IdSchema,
+  runId: IdSchema,
+  runTitle: z.string().optional(),
+  kind: z.enum(['tool', 'shell_prefix']),
+  toolName: z.string().min(1),
+  riskLevel: RiskLevelSchema,
+  commandPrefix: z.string().optional(),
+  label: z.string().min(1),
+  useCount: z.number().int().nonnegative(),
+  createdAt: IsoDateTimeSchema,
+  lastUsedAt: IsoDateTimeSchema.optional(),
+}).strict()
+
 export const ApprovalRequestSchema = z
   .object({
     id: IdSchema,
@@ -329,6 +377,8 @@ export const ApprovalRequestSchema = z
     status: ApprovalStatusSchema,
     createdAt: IsoDateTimeSchema,
     expiresAt: IsoDateTimeSchema.optional(),
+    diff: ApprovalDiffPreviewSchema.optional(),
+    sessionRule: ApprovalSessionRuleOfferSchema.optional(),
   })
   .strict()
 
@@ -350,7 +400,7 @@ export const ApprovalResponseSchema = z
   .object({
     requestId: IdSchema,
     decision: z.enum(['approve', 'edit', 'reject']),
-    scope: z.enum(['once', 'run_tool']).optional(),
+    scope: z.enum(['once', 'run_tool', 'session']).optional(),
     editedArguments: JsonValueSchema.optional(),
   })
   .strict()
@@ -547,7 +597,7 @@ export const AuditEntrySchema = z
     actor: z.enum(['user', 'agent', 'system', 'tool']),
     action: z.string().min(1),
     target: z.string().optional(),
-    outcome: z.enum(['started', 'allowed', 'blocked', 'approved', 'rejected', 'succeeded', 'failed']),
+    outcome: z.enum(['started', 'allowed', 'blocked', 'approved', 'auto_approved', 'rejected', 'succeeded', 'failed']),
     summary: z.string(),
     riskLevel: RiskLevelSchema.optional(),
     durationMs: z.number().int().nonnegative().optional(),
@@ -608,7 +658,7 @@ export const ToolReceiptSchema = z
   .strict()
 
 export const ApprovalHistoryEntrySchema = ApprovalRequestSchema.extend({
-  scope: z.enum(['once', 'run_tool']).optional(),
+  scope: z.enum(['once', 'run_tool', 'session']).optional(),
   resolvedAt: IsoDateTimeSchema.optional(),
 }).strict()
 

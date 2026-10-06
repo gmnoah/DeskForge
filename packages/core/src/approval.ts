@@ -35,7 +35,8 @@ export function resolveApproval(
   if (requestedScope === undefined) throw new Error('Approved request must include an approval scope.')
 
   // High-risk actions are always exact, one-shot grants regardless of UI bugs.
-  const scope = forceOneShot(request.riskLevel) ? 'once' : requestedScope
+  // Session rules are stored separately by the host; the grant itself stays one-shot.
+  const scope = forceOneShot(request.riskLevel) || requestedScope === 'session' ? 'once' : requestedScope
   const grant: ApprovalGrant = {
     id: options.grantId,
     runId: request.runId,

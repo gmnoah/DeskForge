@@ -5,6 +5,7 @@ import type { JsonRecord, RunDetailView, SourceItem, TraceSpanItem, WorkbenchSna
 import { EmptyState, Modal, Tabs } from '../../ui'
 import { PanelResizer, usePersistentPanelWidth } from '../shell/panel-resizer'
 import { readTokenUsage, tokenUsageLines } from './run-insights'
+import { SessionRulesList } from './SessionRules'
 
 export type WorkInspectorTab = 'details' | 'changes' | 'activity'
 
@@ -19,7 +20,7 @@ interface WorkInspectorProps {
 }
 
 const TOOL_LABELS: Record<string, string> = {
-  web_search: '搜索网页', web_fetch: '读取网页', file_list: '浏览文件', file_read: '读取文件', file_search: '搜索工作区', attachment_open: '打开附件', output_register: '登记产物',
+  web_search: '搜索网页', web_fetch: '读取网页', file_list: '浏览文件', file_read: '读取文件', file_search: '搜索工作区', file_find: '查找文件', attachment_open: '打开附件', output_register: '登记产物',
   file_write: '写入文件', file_replace: '修改文件', file_delete: '移入废纸篓', shell_run: '运行命令', process_start: '启动后台进程', process_poll: '读取后台进程', process_stop: '停止后台进程', document_render: '导出 PDF', task_plan: '整理计划',
   task_step_update: '更新步骤', task_complete: '完成检查', skill_read: '读取技能', memory_propose: '提出记忆', agent_delegate: '并行处理',
   chrome_snapshot: '读取网页', chrome_screenshot: '网页截图', chrome_navigate: '打开网页', chrome_click: '点击网页', chrome_type: '网页输入',
@@ -120,6 +121,8 @@ function DetailsPanel({ detail, snapshot, onBindChrome, onOpenSettings }: Pick<W
     {sources.length > 0 && <Section title="来源" icon="globe"><div className="source-list">{sources.map((source, index) => <a href={source.url} target="_blank" rel="noreferrer noopener" key={source.url}><span>{index + 1}</span><span><strong>{source.title || sourceHost(source.url)}</strong><small>{source.publisher || sourceHost(source.url)} · {source.status === 'verified' ? '已核验' : source.status === 'fetched' ? '已读取' : source.status === 'failed' ? '读取失败' : '搜索发现'}</small></span><Icon name="external" size={14} /></a>)}</div></Section>}
 
     <Section title="当前目标" icon="tasks"><p className="inspector-goal">{detail.goal ?? detail.prompt ?? detail.title}</p></Section>
+
+    <SessionRulesList runId={detail.id} refreshKey={`${detail.updatedAt ?? ''}:${detail.approvalHistory.length}:${detail.events.length}`} hideWhenEmpty wrap={(children) => <Section title="本会话自动允许" icon="shield">{children}</Section>} />
 
     {tokenUsage && <Section title="Token 用量" icon="layers"><div className="token-usage-list">{tokenUsageLines(tokenUsage).map((line) => <div key={line.label}><span>{line.label}</span><strong>{line.value}</strong></div>)}</div><p className="token-usage-note">数据来自模型服务返回的 usage，仅统计本次工作。</p></Section>}
 

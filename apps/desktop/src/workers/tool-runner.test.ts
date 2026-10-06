@@ -3,7 +3,8 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { BoundedTextCapture, searchFilesFallback } from './tool-runner'
+import { BoundedTextCapture } from './tool-runner'
+import { resolveSearchScope, searchContents } from './workspace-search'
 
 describe('BoundedTextCapture', () => {
   it('returns small output unchanged and counts UTF-8 bytes', () => {
@@ -66,7 +67,7 @@ describe('built-in file search fallback', () => {
     await writeFile(join(root, 'src', 'report.md'), 'GraphRAG evidence\nsecond line\n')
     await writeFile(join(root, 'node_modules', 'ignored.txt'), 'GraphRAG hidden\n')
 
-    const result = await searchFilesFallback(root, 'GraphRAG') as any
+    const result = await searchContents(await resolveSearchScope(root, root, root), { query: 'GraphRAG', engine: 'builtin' }) as any
     expect(result).toMatchObject({ engine: 'builtin', matchCount: 1 })
     expect(result.matches[0]).toMatchObject({ path: 'src/report.md', line: 1, column: 1 })
     await rm(root, { recursive: true, force: true })

@@ -27,7 +27,7 @@ export interface PolicyEvaluationInput {
   targetAuthorized?: boolean
 }
 
-const READONLY_FILE_ACTIONS = new Set(['read', 'list', 'search', 'glob', 'stat', 'exists', 'diff'])
+const READONLY_FILE_ACTIONS = new Set(['read', 'list', 'search', 'glob', 'find', 'stat', 'exists', 'diff'])
 const REVERSIBLE_FILE_ACTIONS = new Set(['write', 'edit', 'create', 'mkdir', 'copy', 'move', 'rename', 'restore'])
 const READONLY_BROWSER_ACTIONS = new Set(['read', 'read_dom', 'screenshot', 'navigate', 'get_url', 'get_title', 'wait'])
 const HIGH_RISK_ACTIONS = new Set(['delete', 'purchase', 'pay', 'publish', 'send', 'submit', 'transfer', 'erase'])

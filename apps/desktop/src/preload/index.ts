@@ -24,6 +24,7 @@ const api: DesktopApi = {
     list: (input) => invoke('runs:list', input), get: (input) => invoke('runs:get', input), create: (input) => invoke('runs:create', input),
     sendMessage: (input) => invoke('runs:send-message', input), pause: (input) => invoke('runs:pause', input), resume: (input) => invoke('runs:resume', input),
     cancel: (input) => invoke('runs:cancel', input), remove: (input) => invoke('runs:remove', input), respondToApproval: (input) => invoke('runs:respond-approval', input),
+    listSessionRules: (input) => invoke('approvals:list-session-rules', input), revokeSessionRule: (input) => invoke('approvals:revoke-session-rule', input),
   },
   models: {
     list: noInput('models:list'), catalog: (input) => invoke('models:catalog', input), upsert: (input) => invoke('models:upsert', input), remove: (input) => invoke('models:remove', input),
@@ -61,7 +62,10 @@ const api: DesktopApi = {
     getStatus: noInput('chrome:get-status'), listGrants: (input) => invoke('chrome:list-grants', input), requestBinding: (input) => invoke('chrome:request-binding', input),
     revokeGrant: (input) => invoke('chrome:revoke-grant', input),
   },
-  audit: { list: (input) => invoke('audit:list', input), exportDiagnostics: (input) => invoke('audit:export-diagnostics', input) },
+  audit: {
+    list: (input) => invoke('audit:list', input), exportDiagnostics: (input) => invoke('audit:export-diagnostics', input),
+    query: (input) => invoke('audit:query', input), export: (input) => invoke('audit:export', input),
+  },
   artifacts: { getText: (input) => invoke('artifacts:get-text', input), reveal: (input) => invoke('artifacts:reveal', input), undoChange: (input) => invoke('artifacts:undo-change', input) },
   events: {
     subscribe(listener) {
