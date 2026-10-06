@@ -181,7 +181,7 @@ function topicVector(text: string): number[] {
   return vector
 }
 
-interface MockServer { url: string; requests: Array<{ auth?: string; body: any }> }
+interface MockServer { url: string; requests: Array<{ auth: string | undefined; body: any }> }
 async function mockEmbeddingsServer(): Promise<MockServer> {
   const requests: MockServer['requests'] = []
   const server: Server = createServer(async (request: IncomingMessage, response) => {

@@ -287,3 +287,20 @@ describe('worker protocol', () => {
     }).type).toBe('ready')
   })
 })
+
+describe('M4 session + knowledge contracts', () => {
+  it('validates session search, rename, export and knowledge channels', async () => {
+    const { DesktopInvokeContracts, EMBEDDINGS_PRESETS } = await import('./index')
+    expect(DesktopInvokeContracts['runs:search'].input.parse({ query: '周报', limit: 10 })).toEqual({ query: '周报', limit: 10 })
+    expect(DesktopInvokeContracts['runs:rename'].input.safeParse({ id: 'r', title: '   ' }).success).toBe(false)
+    expect(DesktopInvokeContracts['runs:export-markdown'].output.parse(null)).toBeNull()
+    expect(DesktopInvokeContracts['knowledge:rebuild'].input.safeParse({ workspaceId: 'w', mode: 'everything' }).success).toBe(false)
+    expect((DesktopInvokeContracts['knowledge:search'].output.parse({ query: 'q', state: 'ready', mode: 'hybrid', fileCount: 1, results: [{ path: 'a.md', startLine: 1, endLine: 2, chunkStartLine: 1, chunkEndLine: 9, snippet: 's', score: 0.03, matchedBy: 'hybrid' }] }) as { results: unknown[] }).results).toHaveLength(1)
+    const settings = DesktopInvokeContracts['knowledge:set-embeddings'].input
+    expect(settings.safeParse({ enabled: true, preset: 'dashscope-v4', baseUrl: 'https://x', model: 'm', acknowledgeEgress: true }).success).toBe(true)
+    expect(settings.safeParse({ enabled: true, preset: 'unknown', baseUrl: '', model: '' }).success).toBe(false)
+    // The embeddings key never travels back to the renderer.
+    expect(DesktopInvokeContracts['knowledge:get-embeddings'].output.safeParse({ enabled: false, preset: 'custom', baseUrl: '', model: '', hasKey: true, secureStorage: true, apiKey: 'x' }).success).toBe(false)
+    expect(EMBEDDINGS_PRESETS.find((preset) => preset.id === 'dashscope-v4')).toMatchObject({ model: 'text-embedding-v4' })
+  })
+})

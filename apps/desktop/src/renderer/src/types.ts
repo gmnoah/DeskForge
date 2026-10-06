@@ -490,3 +490,80 @@ export interface ToastMessage {
   title: string
   detail?: string
 }
+
+export interface SessionSearchHitItem {
+  runId: string
+  title: string
+  workspaceId: string
+  status: RunStatus
+  updatedAt: string
+  matchedIn: 'title' | 'message'
+  snippet: string
+}
+
+export interface SessionExportView {
+  path: string
+  bytes: number
+}
+
+export type KnowledgeState = 'empty' | 'indexing' | 'ready' | 'error'
+
+export interface KnowledgeStatusItem {
+  workspaceId: string
+  workspaceName: string
+  rootPath: string
+  state: KnowledgeState
+  fileCount: number
+  chunkCount: number
+  indexedBytes: number
+  storageBytes: number
+  indexedAt?: string
+  lastDurationMs?: number
+  lastRun?: { added: number; updated: number; unchanged: number; removed: number }
+  skipped: { ignored: number; symlinks: number; unsupported: number; sensitive: number; tooLarge: number; binary: number; unreadable: number }
+  truncated: boolean
+  limitReason?: string
+  error?: string
+  embeddings: { enabled: boolean; model?: string; embeddedChunks: number; error?: string }
+}
+
+export interface KnowledgeHitItem {
+  path: string
+  startLine: number
+  endLine: number
+  snippet: string
+  score: number
+  matchedBy: 'keyword' | 'semantic' | 'hybrid'
+}
+
+export interface KnowledgeSearchView {
+  query: string
+  state: KnowledgeState
+  mode: 'keyword' | 'hybrid'
+  results: KnowledgeHitItem[]
+  note?: string
+}
+
+export type EmbeddingsPresetId = 'dashscope-v4' | 'dashscope-v3' | 'openai-3-small' | 'custom'
+
+export interface EmbeddingsView {
+  enabled: boolean
+  preset: EmbeddingsPresetId
+  baseUrl: string
+  model: string
+  dimensions?: number
+  hasKey: boolean
+  acknowledgedAt?: string
+  secureStorage: boolean
+}
+
+export interface EmbeddingsInput {
+  enabled: boolean
+  preset: EmbeddingsPresetId
+  baseUrl: string
+  model: string
+  dimensions?: number
+  apiKey?: string
+  clearKey?: boolean
+  acknowledgeEgress?: boolean
+}

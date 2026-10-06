@@ -7,6 +7,12 @@ import type {
   AuditFilters,
   AuditQueryView,
   SessionRuleItem,
+  SessionSearchHitItem,
+  SessionExportView,
+  KnowledgeStatusItem,
+  KnowledgeSearchView,
+  EmbeddingsView,
+  EmbeddingsInput,
   SessionRuleOffer,
   ArtifactItem,
   AutomationItem,
@@ -731,6 +737,90 @@ export function normalizeSessionRule(value: unknown, index: number): SessionRule
   }
 }
 
+export function normalizeSessionHit(value: unknown): SessionSearchHitItem {
+  const source = record(value)
+  return {
+    runId: textValue(source, ['runId']),
+    title: textValue(source, ['title'], '未命名会话'),
+    workspaceId: textValue(source, ['workspaceId']),
+    status: textValue(source, ['status'], 'completed') as RunStatus,
+    updatedAt: textValue(source, ['updatedAt']),
+    matchedIn: source.matchedIn === 'title' ? 'title' : 'message',
+    snippet: textValue(source, ['snippet']),
+  }
+}
+
+const KNOWLEDGE_STATES = new Set(['empty', 'indexing', 'ready', 'error'])
+
+export function normalizeKnowledgeStatus(value: unknown): KnowledgeStatusItem {
+  const source = record(value)
+  const skipped = record(source.skipped)
+  const embeddings = record(source.embeddings)
+  const lastRun = record(source.lastRun)
+  const count = (from: JsonRecord, key: string) => numberValue(from, [key]) ?? 0
+  const optionalText = (key: string) => (typeof source[key] === 'string' && source[key] ? { [key]: source[key] as string } : {})
+  return {
+    workspaceId: textValue(source, ['workspaceId']),
+    workspaceName: textValue(source, ['workspaceName'], '工作区'),
+    rootPath: textValue(source, ['rootPath']),
+    state: (KNOWLEDGE_STATES.has(String(source.state)) ? source.state : 'empty') as KnowledgeStatusItem['state'],
+    fileCount: count(source, 'fileCount'),
+    chunkCount: count(source, 'chunkCount'),
+    indexedBytes: count(source, 'indexedBytes'),
+    storageBytes: count(source, 'storageBytes'),
+    ...optionalText('indexedAt'), ...optionalText('limitReason'), ...optionalText('error'),
+    ...(typeof source.lastDurationMs === 'number' ? { lastDurationMs: source.lastDurationMs } : {}),
+    ...(source.lastRun ? { lastRun: { added: count(lastRun, 'added'), updated: count(lastRun, 'updated'), unchanged: count(lastRun, 'unchanged'), removed: count(lastRun, 'removed') } } : {}),
+    skipped: { ignored: count(skipped, 'ignored'), symlinks: count(skipped, 'symlinks'), unsupported: count(skipped, 'unsupported'), sensitive: count(skipped, 'sensitive'), tooLarge: count(skipped, 'tooLarge'), binary: count(skipped, 'binary'), unreadable: count(skipped, 'unreadable') },
+    truncated: booleanValue(source, ['truncated']),
+    embeddings: {
+      enabled: booleanValue(embeddings, ['enabled']),
+      embeddedChunks: count(embeddings, 'embeddedChunks'),
+      ...(textValue(embeddings, ['model']) ? { model: textValue(embeddings, ['model']) } : {}),
+      ...(textValue(embeddings, ['error']) ? { error: textValue(embeddings, ['error']) } : {}),
+    },
+  }
+}
+
+export function normalizeKnowledgeSearch(value: unknown): KnowledgeSearchView {
+  const source = record(value)
+  const note = textValue(source, ['note'])
+  return {
+    query: textValue(source, ['query']),
+    state: (KNOWLEDGE_STATES.has(String(source.state)) ? source.state : 'empty') as KnowledgeSearchView['state'],
+    mode: source.mode === 'hybrid' ? 'hybrid' : 'keyword',
+    results: arrayValue(source.results, []).map((itemValue) => {
+      const item = record(itemValue)
+      return {
+        path: textValue(item, ['path']),
+        startLine: numberValue(item, ['startLine']) ?? 1,
+        endLine: numberValue(item, ['endLine']) ?? 1,
+        snippet: textValue(item, ['snippet']),
+        score: numberValue(item, ['score']) ?? 0,
+        matchedBy: item.matchedBy === 'semantic' || item.matchedBy === 'hybrid' ? item.matchedBy : 'keyword',
+      }
+    }),
+    ...(note ? { note } : {}),
+  }
+}
+
+export function normalizeEmbeddings(value: unknown): EmbeddingsView {
+  const source = record(value)
+  const preset = ['dashscope-v4', 'dashscope-v3', 'openai-3-small', 'custom'].includes(String(source.preset)) ? source.preset as EmbeddingsView['preset'] : 'dashscope-v4'
+  const acknowledgedAt = textValue(source, ['acknowledgedAt'])
+  const dimensions = numberValue(source, ['dimensions'])
+  return {
+    enabled: booleanValue(source, ['enabled']),
+    preset,
+    baseUrl: textValue(source, ['baseUrl']),
+    model: textValue(source, ['model']),
+    ...(dimensions ? { dimensions } : {}),
+    hasKey: booleanValue(source, ['hasKey']),
+    ...(acknowledgedAt ? { acknowledgedAt } : {}),
+    secureStorage: booleanValue(source, ['secureStorage'], true),
+  }
+}
+
 export function normalizeAuditQuery(value: unknown): AuditQueryView {
   const source = record(value)
   const chain = record(source.chain)
@@ -957,6 +1047,36 @@ export const bridge = {
     { path: 'runs.remove', args: [{ id: runId }] },
     { path: 'removeRun', args: [runId] },
   ]),
+  searchRuns: async (query: string, workspaceId?: string) => arrayValue(await call<unknown>([
+    { path: 'runs.search', args: [{ query, ...(workspaceId ? { workspaceId } : {}), limit: 30 }] },
+  ]), []).map(normalizeSessionHit).filter((hit) => hit.runId),
+  renameRun: (runId: string, title: string) => call<unknown>([
+    { path: 'runs.rename', args: [{ id: runId, title }] },
+  ]),
+  exportRunMarkdown: async (runId: string): Promise<SessionExportView | null> => {
+    const result = await call<unknown>([{ path: 'runs.exportMarkdown', args: [{ id: runId }] }])
+    if (!result) return null
+    const source = record(result)
+    return { path: textValue(source, ['path']), bytes: numberValue(source, ['bytes']) ?? 0 }
+  },
+  knowledgeStatus: async () => arrayValue(await call<unknown>([{ path: 'knowledge.listStatus' }]), []).map(normalizeKnowledgeStatus),
+  rebuildKnowledge: async (workspaceId: string, mode: 'incremental' | 'full') => normalizeKnowledgeStatus(await call<unknown>([
+    { path: 'knowledge.rebuild', args: [{ workspaceId, mode }] },
+  ])),
+  clearKnowledge: async (workspaceId: string) => normalizeKnowledgeStatus(await call<unknown>([
+    { path: 'knowledge.clear', args: [{ workspaceId }] },
+  ])),
+  searchKnowledge: async (workspaceId: string, query: string) => normalizeKnowledgeSearch(await call<unknown>([
+    { path: 'knowledge.search', args: [{ workspaceId, query, limit: 8 }] },
+  ])),
+  getEmbeddings: async () => normalizeEmbeddings(await call<unknown>([{ path: 'knowledge.getEmbeddings' }])),
+  setEmbeddings: async (input: EmbeddingsInput) => normalizeEmbeddings(await call<unknown>([{ path: 'knowledge.setEmbeddings', args: [input] }])),
+  testEmbeddings: async () => {
+    const source = record(await call<unknown>([{ path: 'knowledge.testEmbeddings' }]))
+    const dimensions = numberValue(source, ['dimensions'])
+    const error = textValue(source, ['error'])
+    return { ok: source.ok === true, latencyMs: numberValue(source, ['latencyMs']) ?? 0, ...(dimensions ? { dimensions } : {}), ...(error ? { error } : {}) }
+  },
   respondApproval: (input: JsonRecord) => call<unknown>([
     { path: 'runs.respondToApproval', args: [input] },
     { path: 'respondApproval', args: [input] },

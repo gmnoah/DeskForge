@@ -150,3 +150,7 @@
   .composer-options { flex-wrap: wrap; }
   .composer-options select[aria-label="模型"] { max-width: 210px; }
 }
+
+/* M4 session search hits */
+.session-hit-snippet { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-height: 1.45; word-break: break-all; }
+.session-hit-snippet em { margin-right: 4px; padding: 0 4px; border-radius: var(--radius-control); background: var(--accent-soft); color: var(--accent); font-size: 11px; font-style: normal; }

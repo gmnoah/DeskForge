@@ -173,7 +173,7 @@ describe('risk policy', () => {
 
 describe('knowledge.search policy (M4)', () => {
   it('is a readonly local-index read that never requires approval, even in cautious mode', () => {
-    const input = { call: call('knowledge.search', { query: '回滚演练' }), descriptor: descriptor('knowledge.search'), now }
+    const input = { call: call('knowledge.search', { query: '回滚演练' }), descriptor: descriptor('knowledge.search'), now: new Date(now) }
     expect(classifyToolRisk(input.call, input.descriptor)).toMatchObject({ riskLevel: 'readonly', ruleId: 'knowledge.local-index', sendsDataOffDevice: false })
     expect(evaluateToolPolicyForMode(input, 'cautious').effect).toBe('allow')
   })

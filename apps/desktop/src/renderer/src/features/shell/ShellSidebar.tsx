@@ -1,6 +1,27 @@
+import { useEffect, useState } from 'react'
+import { bridge } from '../../bridge'
 import { BrandMark, Icon, type IconName } from '../../icons'
-import type { ViewKey, WorkbenchSnapshot } from '../../types'
+import type { SessionSearchHitItem, ViewKey, WorkbenchSnapshot } from '../../types'
 import { IconButton, StatusBadge } from '../../ui'
+
+/** Full-text session search (title + messages) with a debounce; falls back to title filtering. */
+function useSessionSearch(query: string, workspaceId: string | undefined): { hits: SessionSearchHitItem[] | undefined; searching: boolean } {
+  const [state, setState] = useState<{ key: string; hits: SessionSearchHitItem[] | undefined }>({ key: '', hits: undefined })
+  const trimmed = query.trim()
+  const key = `${workspaceId ?? ''}\u0000${trimmed}`
+  useEffect(() => {
+    if (!trimmed) return undefined
+    let cancelled = false
+    const timer = window.setTimeout(() => {
+      bridge.searchRuns(trimmed, workspaceId)
+        .then((hits) => { if (!cancelled) setState({ key, hits }) })
+        .catch(() => { if (!cancelled) setState({ key, hits: undefined }) })
+    }, 220)
+    return () => { cancelled = true; window.clearTimeout(timer) }
+  }, [key, trimmed, workspaceId])
+  if (!trimmed) return { hits: undefined, searching: false }
+  return { hits: state.key === key ? state.hits : undefined, searching: state.key !== key }
+}
 
 const NAV_ITEMS: Array<{ id: ViewKey; label: string; icon: IconName }> = [
   { id: 'tasks', label: '工作', icon: 'tasks' },
@@ -48,11 +69,13 @@ export function ShellSidebar({
   onRefresh,
   onHide,
 }: ShellSidebarProps) {
+  const { hits, searching } = useSessionSearch(search, selectedWorkspaceId)
   const runs = snapshot.runs.filter((run) => {
     const inWorkspace = !selectedWorkspaceId || run.workspaceId === selectedWorkspaceId
     const matches = !search || run.title.toLocaleLowerCase().includes(search.toLocaleLowerCase())
     return inWorkspace && matches
   })
+  const showHits = Boolean(search.trim()) && hits !== undefined
 
   return (
     <aside className="sidebar">
@@ -101,11 +124,26 @@ export function ShellSidebar({
       </div>
       <div className="run-search-wrap">
         <Icon name="search" size={14} />
-        <input id="run-search" value={search} onChange={(event) => onSearch(event.target.value)} placeholder="搜索" />
+        <input id="run-search" value={search} onChange={(event) => onSearch(event.target.value)} placeholder="搜索会话标题和内容" aria-label="搜索会话" />
         {search && <button type="button" aria-label="清除搜索" onClick={() => onSearch('')}><Icon name="x" size={13} /></button>}
       </div>
       <div className="task-list">
-        {runs.map((run) => (
+        {showHits && hits!.map((hit) => (
+          <button
+            type="button"
+            key={hit.runId}
+            className={`task-list-item session-hit ${view === 'tasks' && selectedRunId === hit.runId ? 'is-active' : ''}`}
+            onClick={() => { onRun(hit.runId); onView('tasks') }}
+          >
+            <StatusBadge status={hit.status} compact />
+            <span className="task-list-copy">
+              <strong>{hit.title}</strong>
+              <small className="session-hit-snippet"><em>{hit.matchedIn === 'title' ? '标题' : '内容'}</em>{hit.matchedIn === 'title' ? formatDate(hit.updatedAt) : hit.snippet}</small>
+            </span>
+          </button>
+        ))}
+        {showHits && hits!.length === 0 && <div className="sidebar-empty">没有匹配的会话</div>}
+        {!showHits && runs.map((run) => (
           <button
             type="button"
             key={run.id}
@@ -117,7 +155,7 @@ export function ShellSidebar({
             {run.status === 'waiting_approval' && <span className="attention-dot" />}
           </button>
         ))}
-        {runs.length === 0 && <div className="sidebar-empty">{search ? '没有匹配的工作' : '最近工作会显示在这里'}</div>}
+        {!showHits && runs.length === 0 && <div className="sidebar-empty">{search ? (searching ? '正在搜索…' : '没有匹配的工作') : '最近工作会显示在这里'}</div>}
       </div>
 
       <div className="sidebar-footer">
