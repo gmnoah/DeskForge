@@ -49,10 +49,13 @@ const api: DesktopApi = {
   mcp: {
     list: noInput('mcp:list'), upsert: (input) => invoke('mcp:upsert', input), remove: (input) => invoke('mcp:remove', input), test: (input) => invoke('mcp:test', input),
     startOAuth: (input) => invoke('mcp:start-oauth', input), completeOAuth: (input) => invoke('mcp:complete-oauth', input),
+    setEnabled: (input) => invoke('mcp:set-enabled', input), setToolEnabled: (input) => invoke('mcp:set-tool-enabled', input), chooseCwd: noInput('mcp:choose-cwd'),
   },
   skills: {
     list: noInput('skills:list'), get: (input) => invoke('skills:get', input), import: (input) => invoke('skills:import', input),
     remove: (input) => invoke('skills:remove', input), setEnabled: (input) => invoke('skills:set-enabled', input),
+    previewFolder: noInput('skills:preview-folder'), previewGit: (input) => invoke('skills:preview-git', input), previewUpdate: (input) => invoke('skills:preview-update', input),
+    confirmImport: (input) => invoke('skills:confirm-import', input), cancelImport: (input) => invoke('skills:cancel-import', input),
   },
   automations: {
     list: (input) => invoke('automations:list', input), upsert: (input) => invoke('automations:upsert', input), remove: (input) => invoke('automations:remove', input),

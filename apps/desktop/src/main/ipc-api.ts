@@ -2,7 +2,7 @@ import { basename, dirname, isAbsolute, join, relative } from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
 import { lstat, mkdir, readFile, realpath, writeFile } from 'node:fs/promises'
 import { app, dialog, shell } from 'electron'
-import { DesktopInvokeContracts, type AppSettings, type DesktopInvokeChannel, type InstalledCapabilityPackage, type ModelConnectionTest, type ModelProfile } from '@deskforge/contracts'
+import { McpServerInputSchema, type AppSettings, type McpServerInput, type DesktopInvokeChannel, type InstalledCapabilityPackage, type ModelConnectionTest, type ModelProfile } from '@deskforge/contracts'
 import { classifyModelError, redactSecrets } from '@deskforge/core'
 import type { AppDatabase } from './database'
 import type { SecretStore } from './secret-store'
@@ -14,6 +14,9 @@ import type { SkillService } from './skill-service'
 import type { AutomationService } from './automation-service'
 import type { McpOAuthService } from './mcp-oauth'
 import type { ArtifactStore } from './artifact-store'
+import type { McpService } from './mcp-service'
+import type { SkillImportService } from './skill-import'
+import { BUNDLED_SKILL_NAMES, REMOVED_BUNDLED_SKILLS_SETTING } from './bundled-skills'
 import { DEFAULT_SETTINGS, normalizeRunLimits, presentArtifact, presentAudit, presentChromeGrant, presentMcp, presentMemory, presentModel, presentRunSummary, presentSessionRule, presentWorkspace } from './presenters'
 import { auditExportFileName, presentAuditRecord, renderAuditExport } from './audit-export'
 import { CapabilityPackageService, type ParsedCapabilityPackage } from './capability-package-service'
@@ -54,6 +57,8 @@ export class IpcApi {
     private automations: AutomationService<any>,
     private oauth: McpOAuthService,
     private artifacts: ArtifactStore,
+    private mcp: McpService,
+    private skillImports: SkillImportService,
   ) {
     this.handlers = this.createHandlers()
   }
@@ -240,7 +245,13 @@ export class IpcApi {
 
         const mcpInputs = parsed.mcpConfigs.map(({ relativePath, config }) => {
           if ('id' in config || 'secrets' in config) throw new Error(`能力包 MCP 配置不得携带 id 或 Secret：${relativePath}`)
-          return DesktopInvokeContracts['mcp:upsert'].input.parse(config) as any
+          const input = McpServerInputSchema.parse(config) as McpServerInput
+          // Packages cannot choose an arbitrary working directory.
+          if (input.transport.type === 'stdio' && input.transport.cwdMode === 'custom') throw new Error(`能力包 MCP 配置不能指定自定义工作目录：${relativePath}`)
+          if ((input.transport.type === 'stdio' && input.transport.envKeys.length) || (input.transport.type === 'streamable_http' && (input.transport.auth === 'bearer' || input.transport.auth === 'headers'))) {
+            throw new Error(`能力包 MCP 配置需要密钥，请安装后在设置中手动添加：${relativePath}`)
+          }
+          return input
         })
         const ruleBlock = parsed.rules.map((rule) => `\n<!-- capability:${parsed.manifest.name}@${parsed.manifest.version}:${rule.relativePath} -->\n${rule.content.trim()}\n`).join('')
         if (workspace && Buffer.byteLength(`${workspace.rules ?? ''}${ruleBlock}`) > 128 * 1024) throw new Error('能力包规则会使工作区规则超过 128 KB 上限')
@@ -256,12 +267,8 @@ export class IpcApi {
         }))
         const skillIds: string[] = []
         for (const skill of parsed.skills) skillIds.push((await this.skills.import({ directory: skill.directory })).id)
-        const mcpServerIds = mcpInputs.map((input) => this.database.saveMcpServer({
-          name: input.name,
-          enabled: input.enabled,
-          transport: input.transport.type === 'stdio' ? 'stdio' : 'http',
-          config: { ...input.transport, toolNamespace: input.toolNamespace },
-        }))
+        const mcpServerIds: string[] = []
+        for (const input of mcpInputs) mcpServerIds.push((await this.mcp.save(input, 'capability_package')).id)
         if (workspace && parsed.rules.length) {
           this.database.updateWorkspaceRules(workspace.id, `${workspace.rules ?? ''}${ruleBlock}`.trim())
         }
@@ -297,33 +304,22 @@ export class IpcApi {
       'memory:disable': ({ id }) => { this.database.updateMemoryStatus(id, 'disabled'); return presentMemory(this.database.getMemory(id)) },
       'memory:remove': ({ id }) => { this.database.deleteMemory(id) },
 
-      'mcp:list': () => this.database.listMcpServers().map(presentMcp),
-      'mcp:upsert': async (input) => {
-        const secretValue = input.secrets && Object.keys(input.secrets).length ? await this.secrets.encrypt(JSON.stringify(input.secrets)) : undefined
-        const id = this.database.saveMcpServer({ id: input.id, name: input.name, enabled: input.enabled, transport: input.transport.type === 'stdio' ? 'stdio' : 'http', config: { ...input.transport, toolNamespace: input.toolNamespace } }, secretValue)
-        void this.runner.execute({ runId: 'system', toolId: 'mcp.disconnect', args: { serverId: id } }).catch(() => {})
-        return presentMcp(this.database.listMcpServers().find((server) => server.id === id))
+      'mcp:list': () => this.mcp.list(),
+      'mcp:upsert': (input) => this.mcp.save(input),
+      'mcp:remove': async ({ id }) => {
+        for (const [state, serverId] of this.oauthServerByState) if (serverId === id) this.oauthServerByState.delete(state)
+        await this.mcp.remove(id)
       },
-      'mcp:remove': ({ id }) => { void this.runner.execute({ runId: 'system', toolId: 'mcp.disconnect', args: { serverId: id } }).catch(() => {}); for (const [state, serverId] of this.oauthServerByState) if (serverId === id) this.oauthServerByState.delete(state); this.database.removeMcpServer(id) },
-      'mcp:test': async ({ id }) => {
-        const started = Date.now(); let row = this.database.getMcpServer(id)
-        if (!row) throw new Error('MCP Server 不存在')
-        try {
-          if (row.config?.auth === 'oauth' && typeof row.config?.url === 'string') {
-            await this.oauth.refreshOAuthIfNeeded(id, row.config.url)
-            row = this.database.getMcpServer(id)
-          }
-          const decrypted = row.encrypted_secret ? await this.secrets.decrypt(row.encrypted_secret) : undefined
-          const secrets = decrypted ? this.decodeSecret(decrypted) : undefined
-          const result = await this.runner.execute({ runId: 'system', toolId: 'mcp.list_tools', args: { serverId: id }, mcpServer: { id, transport: row.transport, config: row.config, ...(secrets ? { secrets } : {}) } })
-          const fingerprint = createHash('sha256').update(JSON.stringify(result.tools ?? [])).digest('hex')
-          const serverVersion = typeof result.serverVersion?.version === 'string' ? result.serverVersion.version : undefined
-          this.database.updateMcpHealth(id, 'healthy', undefined, fingerprint, serverVersion)
-          return { ok: true, latencyMs: Date.now() - started, ...(serverVersion ? { serverVersion } : {}), toolCount: result.tools?.length ?? 0 }
-        } catch (error) {
-          this.database.updateMcpHealth(id, 'unhealthy', error instanceof Error ? error.message : String(error))
-          return { ok: false, latencyMs: Date.now() - started, error: { code: 'MCP_CONNECTION_FAILED', message: error instanceof Error ? error.message : String(error), retryable: true } }
-        }
+      'mcp:test': ({ id, workspaceId }) => {
+        const workspaceRoot = this.workspaceRootFor(workspaceId)
+        return this.mcp.test(id, workspaceRoot ? { workspaceRoot } : {})
+      },
+      'mcp:set-enabled': ({ id, enabled }) => this.mcp.setEnabled(id, enabled),
+      'mcp:set-tool-enabled': ({ id, toolName, enabled }) => this.mcp.setToolEnabled(id, toolName, enabled),
+      'mcp:choose-cwd': async () => {
+        const result = await dialog.showOpenDialog({ title: '选择 MCP Server 的工作目录', properties: ['openDirectory', 'createDirectory'] })
+        if (result.canceled || !result.filePaths[0]) return null
+        return this.mcp.rememberChosenCwd(result.filePaths[0])
       },
       'mcp:start-oauth': async ({ id }) => {
         const row = this.database.getMcpServer(id)
@@ -338,9 +334,34 @@ export class IpcApi {
 
       'skills:list': () => this.skills.list(),
       'skills:get': ({ id }) => this.skills.get({ id }),
-      'skills:import': ({ directory }) => this.skills.import({ directory }),
-      'skills:remove': ({ id }) => this.skills.remove({ id }),
-      'skills:set-enabled': (input) => this.skills.setEnabled(input),
+      'skills:import': async ({ directory }) => {
+        // Legacy direct import still goes through the same validation as the preview flow.
+        const preview = await this.skillImports.previewFolder(directory)
+        return this.confirmSkillImport(preview.selectionId)
+      },
+      'skills:remove': async ({ id }) => {
+        const removed = await this.skills.remove({ id })
+        if (removed.source?.kind === 'bundled' || (!removed.source && BUNDLED_SKILL_NAMES.includes(removed.name))) {
+          // Remember the choice so the bundled copy is not reinstalled on next launch.
+          const current = this.database.getSetting<string[]>(REMOVED_BUNDLED_SKILLS_SETTING, [])
+          this.database.setSetting(REMOVED_BUNDLED_SKILLS_SETTING, [...new Set([...(Array.isArray(current) ? current : []), removed.name])] as any)
+        }
+        this.database.audit('skill', 'remove', `已移除 Skill ${removed.name}`, { actor: 'user', outcome: 'succeeded', target: removed.id, name: removed.name })
+      },
+      'skills:set-enabled': async (input) => {
+        const result = await this.skills.setEnabled(input)
+        this.database.audit('skill', input.enabled ? 'enable' : 'disable', `${input.enabled ? '已启用' : '已停用'} Skill ${result.name}`, { actor: 'user', outcome: 'succeeded', target: result.id })
+        return result
+      },
+      'skills:preview-folder': async () => {
+        const result = await dialog.showOpenDialog({ title: '选择包含 SKILL.md 的文件夹', properties: ['openDirectory'] })
+        if (result.canceled || !result.filePaths[0]) return null
+        return this.skillImports.previewFolder(result.filePaths[0])
+      },
+      'skills:preview-git': (input) => this.skillImports.previewGit(input),
+      'skills:preview-update': ({ id }) => this.skillImports.previewUpdate(id),
+      'skills:confirm-import': ({ selectionId }) => this.confirmSkillImport(selectionId),
+      'skills:cancel-import': async ({ selectionId }) => { await this.skillImports.cancel(selectionId) },
 
       'automations:list': (input) => this.automations.list(input),
       'automations:upsert': (input) => this.automations.upsert(input),
@@ -449,6 +470,25 @@ export class IpcApi {
     this.database.updateMcpHealth(id, 'unknown')
     this.database.audit('mcp', 'oauth_complete', 'MCP OAuth 授权完成', { actor: 'user', outcome: 'succeeded', target: id })
     return presentMcp(this.database.listMcpServers().find((server) => server.id === id))
+  }
+
+  private workspaceRootFor(workspaceId?: string): string | undefined {
+    const workspace = workspaceId ? this.database.getWorkspace(workspaceId) : this.database.listWorkspaces()[0]
+    return typeof workspace?.root_path === 'string' ? workspace.root_path : undefined
+  }
+
+  private async confirmSkillImport(selectionId: string) {
+    const manifest = await this.skillImports.confirm(selectionId)
+    const removedBundled = this.database.getSetting<string[]>(REMOVED_BUNDLED_SKILLS_SETTING, [])
+    if (Array.isArray(removedBundled) && removedBundled.includes(manifest.name)) {
+      this.database.setSetting(REMOVED_BUNDLED_SKILLS_SETTING, removedBundled.filter((name) => name !== manifest.name) as any)
+    }
+    const source = manifest.source
+    this.database.audit('skill', 'import', `已导入 Skill ${manifest.name}@${manifest.version}`, {
+      actor: 'user', outcome: 'succeeded', target: manifest.id, name: manifest.name, version: manifest.version,
+      source: source?.kind === 'git' ? { kind: 'git', url: source.url, ...(source.ref ? { ref: source.ref } : {}), ...(source.subpath ? { subpath: source.subpath } : {}), ...(source.commit ? { commit: source.commit } : {}) } : { kind: source?.kind ?? 'folder' },
+    })
+    return manifest
   }
 
   private decodeSecret(value: string): Record<string, unknown> | string {
