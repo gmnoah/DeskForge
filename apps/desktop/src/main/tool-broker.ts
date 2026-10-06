@@ -42,6 +42,13 @@ const DIFF_PREVIEW_TOOLS = new Set(['file_write', 'file_replace', 'file_draft_co
 const APPROVAL_DIFF_MAX_LINES = 400
 const ARTIFACT_DIFF_MAX_LINES = 20_000
 
+/** The slice of McpService the broker needs; optional so tests can omit MCP. */
+export interface McpBrokerBridge {
+  blockedReason(serverId: unknown, toolName?: unknown): string | undefined
+  runtimeServer(id: string, context: { workspaceRoot?: string }): Promise<Record<string, any>>
+  disabledTools(serverId: string): string[]
+}
+
 const sourceFor = (id: string): ToolDescriptor['source'] => id.startsWith('chrome_') ? 'chrome' : id.startsWith('mcp_') ? 'mcp' : 'builtin'
 const policyName = (id: string): string => ({
   file_list: 'file.list', file_read: 'file.read', file_search: 'file.search', file_find: 'file.glob', attachment_open: 'attachment.open', output_register: 'output.register', file_write: 'file.write', file_draft_start: 'file.stage', file_draft_append: 'file.stage', file_draft_commit: 'file.write', file_replace: 'file.edit', file_delete: 'file.delete',
@@ -202,6 +209,7 @@ export class ToolBroker {
     private delegate: (input: { parentRunId: string; task: string; role: string }) => Promise<unknown>,
     private refreshMcpOAuth?: (serverId: string, serverUrl: string) => Promise<void>,
     private documentRenderer?: DocumentRenderService,
+    private mcp?: McpBrokerBridge,
   ) {}
 
   /**
@@ -252,8 +260,13 @@ export class ToolBroker {
       (tool.id === 'agent_delegate' && input.args.role === 'general')
     )
     const destructiveEscape = this.destructiveShellEscape(rawRun, tool, input.args)
+    const mcpBlocked = tool.id.startsWith('mcp_') && this.mcp
+      ? this.mcp.blockedReason(input.args.serverId, tool.id === 'mcp_call_tool' ? input.args.toolName : undefined)
+      : undefined
     const decision = memoryDisabled
       ? { ...baseDecision, effect: 'deny' as const, reason: 'Memory 已在设置中关闭。', ruleId: 'memory.disabled' }
+      : mcpBlocked
+        ? { ...baseDecision, effect: 'deny' as const, reason: mcpBlocked, ruleId: 'mcp.disabled' }
       : readOnlyViolation
         ? { ...baseDecision, effect: 'deny' as const, reason: '只读子 Agent 不允许执行该操作。', ruleId: 'run.readonly-capability' }
         : destructiveEscape
@@ -391,8 +404,10 @@ export class ToolBroker {
     const id = randomUUID()
     const created = createApprovalRequest({
       id, call, decision, title: tool.label,
-      target: String(args.path ?? args.url ?? args.query ?? args.command ?? args.selector ?? tool.id),
-      sendsData: decision.sendsDataOffDevice ? ['工具参数可能发送到外部系统'] : [],
+      target: tool.id === 'mcp_call_tool'
+        ? `${String(this.database.getMcpServer(String(args.serverId))?.name ?? args.serverId)} · ${String(args.toolName)}`
+        : String(args.path ?? args.url ?? args.query ?? args.command ?? args.selector ?? tool.id),
+      sendsData: decision.sendsDataOffDevice ? [tool.id === 'mcp_call_tool' ? '工具参数会交给 MCP Server，可能发送到外部系统' : '工具参数可能发送到外部系统'] : [],
       expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
     })
     const eligibility = sessionRuleEligibility(candidate)
@@ -723,7 +738,9 @@ export class ToolBroker {
       ? await this.prepareFileSnapshot(runId, requestId, tool, args, workspace.root_path, authorizedRoot)
       : undefined
     let mcpServer: any
-    if (tool.id.startsWith('mcp_')) {
+    if (tool.id.startsWith('mcp_') && this.mcp) {
+      mcpServer = await this.mcp.runtimeServer(String(args.serverId), { workspaceRoot: workspace.root_path })
+    } else if (tool.id.startsWith('mcp_')) {
       let raw = this.database.getMcpServer(String(args.serverId))
       if (!raw || !raw.enabled) throw new Error('MCP Server 不存在或未启用')
       if (raw.config?.auth === 'oauth' && typeof raw.config?.url === 'string') {
@@ -740,6 +757,11 @@ export class ToolBroker {
       this.lastToolProgressAt.set(requestId, now)
       this.database.appendRunEvent(runId, 'tool.progress', `${tool.label}: ${String(progress.text).slice(-500)}`, { channel: progress.channel })
     })
+    if (tool.id === 'mcp_list_tools' && this.mcp && Array.isArray(result?.tools)) {
+      // Tools disabled in settings are invisible to the Agent.
+      const disabled = new Set(this.mcp.disabledTools(String(args.serverId)))
+      return this.captureArtifacts(runId, tool, { ...result, tools: result.tools.filter((entry: any) => !disabled.has(String(entry?.name))) }, preMutationSnapshot)
+    }
     return this.captureArtifacts(runId, tool, result, preMutationSnapshot)
   }
 

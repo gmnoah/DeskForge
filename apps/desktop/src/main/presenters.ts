@@ -459,11 +459,40 @@ export function presentMemory(row: any): MemoryEntry {
   }
 }
 
+const stringMap = (value: unknown): Record<string, string> | undefined => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const entries = Object.entries(value as Record<string, unknown>).filter((entry): entry is [string, string] => typeof entry[1] === 'string')
+  return entries.length ? Object.fromEntries(entries) : undefined
+}
+const stringList = (value: unknown): string[] => Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : []
+
+/** Settings view of a server. Secret values are never included, only their names. */
 export function presentMcp(row: any): McpServerConfig {
   const config = row.config ?? {}
-  const transport = row.transport === 'stdio'
-    ? { type: 'stdio' as const, command: config.command ?? '', args: config.args ?? [], envKeys: Object.keys(config.env ?? {}) }
-    : { type: 'streamable_http' as const, url: config.url ?? '', auth: config.auth ?? (row.hasSecret ? 'bearer' : 'none'), secretConfigured: Boolean(row.hasSecret) }
+  const env = stringMap(config.env)
+  const headers = stringMap(config.headers)
+  const secretHeaderKeys = stringList(config.secretHeaderKeys)
+  const transport: McpServerConfig['transport'] = row.transport === 'stdio'
+    ? {
+        type: 'stdio',
+        command: config.command ?? '',
+        args: stringList(config.args),
+        envKeys: stringList(config.envKeys),
+        ...(env ? { env } : {}),
+        cwdMode: config.cwdMode === 'workspace' || config.cwdMode === 'custom' ? config.cwdMode : config.cwd ? 'custom' : 'isolated',
+        ...(typeof config.cwd === 'string' && config.cwd ? { cwd: config.cwd } : {}),
+      }
+    : {
+        type: 'streamable_http',
+        url: config.url ?? '',
+        auth: config.auth ?? (row.hasSecret ? 'bearer' : 'none'),
+        secretConfigured: Boolean(row.hasSecret),
+        ...(headers ? { headers } : {}),
+        ...(secretHeaderKeys.length ? { secretHeaderKeys } : {}),
+        sseFallback: config.sseFallback !== false,
+      }
+  const disabledTools = stringList(config.disabledTools)
+  const tools = Array.isArray(row.tools) ? row.tools.filter((tool: any) => tool && typeof tool.name === 'string').map((tool: any) => ({ ...tool, enabled: !disabledTools.includes(tool.name) })) : undefined
   return {
     id: row.id,
     name: row.name,
@@ -475,6 +504,9 @@ export function presentMcp(row: any): McpServerConfig {
     health: row.health ?? 'unknown',
     ...(row.last_checked_at ? { lastCheckedAt: row.last_checked_at } : {}),
     ...(row.last_error ? { lastError: { code: 'MCP_ERROR', message: row.last_error, retryable: true } } : {}),
+    ...(tools ? { tools } : {}),
+    ...(disabledTools.length ? { disabledTools } : {}),
+    ...(row.connected_via === 'stdio' || row.connected_via === 'streamable_http' || row.connected_via === 'sse' ? { connectedVia: row.connected_via } : {}),
   }
 }
 
@@ -489,6 +521,7 @@ export function presentSkill(row: any): SkillManifest {
     permissions: row.permissions ?? [],
     entrypoint: row.entrypoint ?? `${row.path ?? row.directory}/SKILL.md`,
     ...(row.updatedAt ?? row.updated_at ? { loadedAt: row.updatedAt ?? row.updated_at } : {}),
+    ...(row.source && typeof row.source === 'object' ? { source: row.source } : {}),
   }
 }
 
