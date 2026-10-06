@@ -121,19 +121,19 @@
   border-radius: var(--radius-surface);
   box-shadow: var(--shadow-floating);
 }
-.onboarding-side { display: flex; padding: 26px 20px 20px; color: #f1f4f9; background: #0e1117; flex-direction: column; border-right: 1px solid rgba(255, 255, 255, 0.08); }
+.onboarding-side { display: flex; padding: 26px 20px 20px; color: #f7f6f3; background: #121216; flex-direction: column; border-right: 1px solid rgba(255, 240, 220, 0.08); }
 .onboarding-brand { display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 700; letter-spacing: -0.01em; }
 .onboarding-brand .brand-mark { width: 32px; height: 32px; }
 .setup-steps { display: grid; gap: 14px; margin-top: 64px; }
-.setup-steps > div { position: relative; display: flex; align-items: center; gap: 10px; color: #7f8899; }
-.setup-steps > div:not(:last-child)::after { position: absolute; top: 28px; left: 13px; width: 1px; height: 16px; background: #2d3340; content: ""; }
-.setup-steps > div > span { display: grid; place-items: center; width: 26px; height: 26px; border: 1px solid #3d4554; border-radius: var(--radius-control); font-size: 11px; font-weight: 600; }
+.setup-steps > div { position: relative; display: flex; align-items: center; gap: 10px; color: #9e968c; }
+.setup-steps > div:not(:last-child)::after { position: absolute; top: 28px; left: 13px; width: 1px; height: 16px; background: #2c2a32; content: ""; }
+.setup-steps > div > span { display: grid; place-items: center; width: 26px; height: 26px; border: 1px solid #3c3944; border-radius: var(--radius-control); font-size: 11px; font-weight: 600; }
 .setup-steps > div strong { font-size: 12px; font-weight: 500; }
 .setup-steps > div.is-current { color: #fff; }
 .setup-steps > div.is-current > span { color: #fff; background: var(--accent); border-color: var(--accent); box-shadow: 0 0 8px var(--accent); }
-.setup-steps > div.is-done { color: #b4bed0; }
+.setup-steps > div.is-done { color: #d0c8be; }
 .setup-steps > div.is-done > span { color: var(--success); background: rgba(34, 197, 94, .18); border-color: rgba(74, 222, 128, .36); }
-.onboarding-side > p { display: flex; align-items: center; gap: 6px; margin: auto 0 0; color: #858f9f; font-size: 11px; }
+.onboarding-side > p { display: flex; align-items: center; gap: 6px; margin: auto 0 0; color: #8e867c; font-size: 11px; }
 .onboarding-main { min-width: 0; max-height: calc(100vh - 48px); overflow-y: auto; }
 .setup-panel { width: min(520px, calc(100% - 64px)); margin: auto; padding: 60px 0 48px; }
 .setup-panel h1 { margin: 8px 0 10px; font-size: 28px; font-weight: 700; letter-spacing: -0.035em; }

@@ -82,27 +82,27 @@ export function ShellSidebar({
       <div className="titlebar-drag sidebar-titlebar" aria-hidden="true" />
       <div className="brand-row">
         <div className="brand-mark"><BrandMark size={20} /></div>
-        <div className="brand-copy"><strong>DeskForge</strong><span>本地工作助手</span></div>
+        <div className="brand-copy"><strong>DeskForge</strong><span className="brand-tag">STUDIO FORGE</span></div>
         <IconButton icon="panelRight" label="隐藏侧栏" onClick={onHide} />
       </div>
 
       <div className="workspace-select-wrap">
-        <Icon name="folder" size={16} />
+        <Icon name="folder" size={15} />
         <select
           value={selectedWorkspaceId ?? ''}
           onChange={(event) => onWorkspace(event.target.value)}
           aria-label="当前工作区"
         >
-          {snapshot.workspaces.length === 0 && <option value="">尚未添加工作区</option>}
+          {snapshot.workspaces.length === 0 && <option value="">尚未挂载工作区</option>}
           {snapshot.workspaces.map((workspace) => <option key={workspace.id} value={workspace.id}>{workspace.name}</option>)}
         </select>
-        <Icon name="chevronDown" size={14} />
+        <Icon name="chevronDown" size={13} />
       </div>
 
       <button className="new-task-button" type="button" onClick={onNewTask}>
-        <Icon name="plus" size={17} />
-        新工作
-        <kbd>⌘ N</kbd>
+        <Icon name="plus" size={16} />
+        <span>发起新任务</span>
+        <kbd>⌘N</kbd>
       </button>
 
       <nav className="primary-nav" aria-label="主导航">

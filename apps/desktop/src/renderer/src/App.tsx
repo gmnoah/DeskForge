@@ -108,7 +108,11 @@ function RunHeader({ detail, onPause, onResume, onCancel, onToggleInspector, ins
   return (
     <header className="run-header titlebar-drag">
       <div className="run-title-block">
-        <div className="run-title-line"><h1>{detail.title}</h1><StatusBadge status={detail.status} /></div>
+        <div className="run-title-line">
+          <span className="run-forge-badge">工单</span>
+          <h1>{detail.title}</h1>
+          <StatusBadge status={detail.status} />
+        </div>
         <span>更新于 {formatDate(detail.updatedAt ?? detail.createdAt)}</span>
       </div>
       <div className="run-actions no-drag">
@@ -149,35 +153,74 @@ function RunComposer({ runId, permissionMode, disabled, onSend }: {
   }
 
   return (
-    <SubmitForm className="run-composer" onSubmit={submit}>
-      <textarea
-        value={message}
-        onChange={(event) => setMessage(event.target.value)}
-        onKeyDown={handleKeyDown}
-        rows={1}
-        placeholder={disabled ? '这项工作已停止' : '继续补充、调整方向（Enter 发送，Shift+Enter 换行）…'}
-        disabled={disabled}
-      />
-      {attachments.length > 0 && <div className="composer-attachments compact">{attachments.map((attachment) => <span key={attachment.id}><Icon name="file" size={12} />{attachment.name}<button type="button" aria-label={`移除 ${attachment.name}`} onClick={() => setAttachments((items) => items.filter((item) => item.id !== attachment.id))}>×</button></span>)}</div>}
-      <div className="run-composer-bottom">
-        <span>
-          <select
-            className="access-mode-select permission-mode-select compact"
-            value={draftPermissionMode}
-            onChange={(event) => setDraftPermissionMode(event.target.value as RunPermissionMode)}
-            aria-label="操作确认方式"
-            title="自动处理只放行可撤销的工作区写入和验证命令；删除、敏感文件及外发仍需批准"
+    <div className="run-composer-dock">
+      <SubmitForm className="run-composer" onSubmit={submit}>
+        <div className="composer-input-box">
+          <textarea
+            value={message}
+            onChange={(event) => setMessage(event.target.value)}
+            onKeyDown={handleKeyDown}
+            rows={2}
+            placeholder={disabled ? '这项工作已停止' : '交代指令、追加要求或调整方向（Enter 发送，Shift+Enter 换行）…'}
             disabled={disabled}
-          >
-            <option value="approval">请求批准</option>
-            <option value="workspace_auto">工作区内自动处理</option>
-          </select>
-          <button type="button" className="attachment-button compact" disabled={disabled} onClick={async () => { const imported = await bridge.importAttachments(); setAttachments((items) => [...items, ...imported.filter((next) => !items.some((item) => item.id === next.id)).map((item) => ({ id: item.id, name: item.name }))]) }}><Icon name="plus" size={13} />添加文件</button>
-          <span className="composer-context"><Icon name="lock" size={13} />{draftPermissionMode === 'workspace_auto' ? '仅自动放行可撤销操作' : '需要确认时会暂停'}</span>
-        </span>
-        <button type="submit" className="send-button" aria-label="发送" disabled={disabled || !message.trim()}><Icon name="send" size={16} /></button>
-      </div>
-    </SubmitForm>
+          />
+          {attachments.length > 0 && (
+            <div className="composer-attachments compact">
+              {attachments.map((attachment) => (
+                <span key={attachment.id}>
+                  <Icon name="file" size={12} />
+                  {attachment.name}
+                  <button type="button" aria-label={`移除 ${attachment.name}`} onClick={() => setAttachments((items) => items.filter((item) => item.id !== attachment.id))}>×</button>
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="run-composer-bottom">
+          <div className="composer-controls">
+            <select
+              className="access-mode-select permission-mode-select compact"
+              value={draftPermissionMode}
+              onChange={(event) => setDraftPermissionMode(event.target.value as RunPermissionMode)}
+              aria-label="操作确认方式"
+              title="自动处理只放行可撤销的工作区写入和验证命令；删除、敏感文件及外发仍需批准"
+              disabled={disabled}
+            >
+              <option value="approval">请求批准（每步确认）</option>
+              <option value="workspace_auto">工作区内自动处理</option>
+            </select>
+            <button
+              type="button"
+              className="attachment-button compact"
+              disabled={disabled}
+              onClick={async () => {
+                const imported = await bridge.importAttachments()
+                setAttachments((items) => [
+                  ...items,
+                  ...imported
+                    .filter((next) => !items.some((item) => item.id === next.id))
+                    .map((item) => ({ id: item.id, name: item.name })),
+                ])
+              }}
+            >
+              <Icon name="plus" size={13} />
+              添加文件
+            </button>
+            <span className="composer-context">
+              <Icon name="lock" size={12} />
+              {draftPermissionMode === 'workspace_auto' ? '自动放行安全操作' : '变更需审批'}
+            </span>
+          </div>
+          <div className="composer-submit-group">
+            <span className="composer-shortcut-hint">↵ 发送</span>
+            <button type="submit" className="send-button" aria-label="发送" disabled={disabled || !message.trim()}>
+              <span>发送</span>
+              <Icon name="send" size={13} />
+            </button>
+          </div>
+        </div>
+      </SubmitForm>
+    </div>
   )
 }
 

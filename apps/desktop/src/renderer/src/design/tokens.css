@@ -3,34 +3,34 @@
   font-family: "Avenir Next", -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Helvetica Neue", sans-serif;
   font-synthesis: none;
 
-  --canvas: #f2f4f8;
+  --canvas: #f4f3ef;
   --surface: #ffffff;
-  --surface-subtle: #f8f9fc;
-  --surface-muted: #edf0f5;
-  --surface-hover: #e5e9f2;
-  --sidebar: rgba(245, 247, 251, 0.92);
-  --text: #12141a;
-  --text-secondary: #4c5361;
-  --text-tertiary: #5b6373;
-  --separator: rgba(18, 20, 26, 0.08);
-  --separator-strong: rgba(18, 20, 26, 0.16);
-  --accent: #2754e6;
-  --accent-hover: #1e45c7;
-  --accent-soft: #edf2ff;
-  --accent-border: rgba(39, 84, 230, 0.22);
+  --surface-subtle: #fbfaf8;
+  --surface-muted: #eeece6;
+  --surface-hover: #e5e2da;
+  --sidebar: rgba(243, 240, 235, 0.94);
+  --text: #191614;
+  --text-secondary: #4d463e;
+  --text-tertiary: #5d554c;
+  --separator: rgba(30, 24, 16, 0.08);
+  --separator-strong: rgba(30, 24, 16, 0.16);
+  --accent: #d9651a;
+  --accent-hover: #c25410;
+  --accent-soft: #fdf3eb;
+  --accent-border: rgba(217, 101, 26, 0.28);
   --success: #15803d;
   --success-soft: #f0fdf4;
   --warning: #b45309;
   --warning-soft: #fefce8;
   --danger: #b91c1c;
   --danger-soft: #fef2f2;
-  --link: #2563eb;
+  --link: #c25410;
 
   --radius-control: 8px;
   --radius-surface: 12px;
   --radius-floating: 9999px;
-  --shadow-floating: 0 20px 48px -8px rgba(18, 24, 38, 0.14), 0 4px 12px rgba(18, 24, 38, 0.06), 0 0 0 1px rgba(18, 24, 38, 0.05);
-  --shadow-composer: 0 12px 32px -4px rgba(24, 31, 48, 0.08), 0 2px 8px rgba(24, 31, 48, 0.04), 0 0 0 1px rgba(24, 31, 48, 0.06);
+  --shadow-floating: 0 20px 48px -8px rgba(32, 24, 14, 0.14), 0 4px 12px rgba(32, 24, 14, 0.06), 0 0 0 1px rgba(32, 24, 14, 0.05);
+  --shadow-composer: 0 12px 32px -4px rgba(32, 24, 14, 0.08), 0 2px 8px rgba(32, 24, 14, 0.04), 0 0 0 1px rgba(32, 24, 14, 0.06);
 
   --space-1: 4px;
   --space-2: 8px;
@@ -50,43 +50,43 @@
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --canvas: #090b0f;
-  --surface: #0e1117;
-  --surface-subtle: #151922;
-  --surface-muted: #1c222e;
-  --surface-hover: #242c3b;
-  --sidebar: rgba(12, 15, 21, 0.92);
-  --text: #f8fafc;
-  --text-secondary: #b4bed0;
-  --text-tertiary: #9ba8bf;
-  --separator: rgba(240, 246, 255, 0.08);
-  --separator-strong: rgba(240, 246, 255, 0.16);
-  --accent: #3d6eff;
-  --accent-hover: #5582ff;
-  --accent-soft: rgba(61, 110, 255, 0.18);
-  --accent-border: rgba(85, 130, 255, 0.35);
+  --canvas: #0e0e11;
+  --surface: #141418;
+  --surface-subtle: #191920;
+  --surface-muted: #21212a;
+  --surface-hover: #292934;
+  --sidebar: rgba(16, 16, 20, 0.94);
+  --text: #f7f6f3;
+  --text-secondary: #b8b2a7;
+  --text-tertiary: #a0988c;
+  --separator: rgba(255, 240, 220, 0.08);
+  --separator-strong: rgba(255, 240, 220, 0.16);
+  --accent: #f97316;
+  --accent-hover: #fb923c;
+  --accent-soft: rgba(249, 115, 22, 0.16);
+  --accent-border: rgba(249, 115, 22, 0.35);
   --success: #4ade80;
   --success-soft: rgba(34, 197, 94, 0.16);
   --warning: #fbbf24;
   --warning-soft: rgba(245, 158, 11, 0.16);
   --danger: #f87171;
   --danger-soft: rgba(239, 68, 68, 0.16);
-  --link: #60a5fa;
-  --shadow-floating: 0 24px 64px -12px rgba(0, 0, 0, 0.72), 0 8px 24px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.08);
-  --shadow-composer: 0 16px 40px -8px rgba(0, 0, 0, 0.6), 0 4px 16px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.09);
+  --link: #fb923c;
+  --shadow-floating: 0 24px 64px -12px rgba(0, 0, 0, 0.72), 0 8px 24px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 240, 220, 0.08);
+  --shadow-composer: 0 16px 40px -8px rgba(0, 0, 0, 0.6), 0 4px 16px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 240, 220, 0.09);
 }
 
 @media (prefers-contrast: more) {
   :root {
-    --separator: rgba(18, 20, 26, 0.22);
-    --separator-strong: rgba(18, 20, 26, 0.36);
-    --text-secondary: #2f343e;
-    --text-tertiary: #434956;
+    --separator: rgba(30, 24, 16, 0.22);
+    --separator-strong: rgba(30, 24, 16, 0.36);
+    --text-secondary: #2f2923;
+    --text-tertiary: #433c34;
   }
   :root[data-theme="dark"] {
     --separator: rgba(255, 255, 255, 0.24);
     --separator-strong: rgba(255, 255, 255, 0.40);
-    --text-secondary: #d6deeb;
-    --text-tertiary: #bac6d8;
+    --text-secondary: #ded6c8;
+    --text-tertiary: #c2baa9;
   }
 }
