@@ -220,7 +220,7 @@ function Onboarding({
   const initialStep = connectedModel ? snapshot.workspaces.length ? 3 : 2 : snapshot.models.length ? 1 : 0
   const [step, setStep] = useState(initialStep)
   const [provider, setProvider] = useState<ModelProvider>('deepseek')
-  const [modelId, setModelId] = useState('deepseek-chat')
+  const [modelId, setModelId] = useState(MODEL_PROVIDER_META.deepseek.defaultModelId)
   const [baseUrl, setBaseUrl] = useState(MODEL_PROVIDER_META.deepseek.defaultBaseUrl)
   const [key, setKey] = useState('')
   const [saving, setSaving] = useState(false)
