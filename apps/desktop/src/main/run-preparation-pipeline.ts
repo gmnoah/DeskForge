@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
-import { basename, isAbsolute, join, relative, sep } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path'
 import { lstat, readFile, realpath } from 'node:fs/promises'
+import { homedir } from 'node:os'
 import type { ContextItem, ModelProfile } from '@deskforge/contracts'
 import { compileContext, compressContext, renderContextItem } from '@deskforge/core'
 import type { AppDatabase } from './database'
@@ -324,36 +325,111 @@ export class RunPreparationPipeline {
     return 1
   }
 
-  private async loadWorkspaceRules(run: any, workspace: any): Promise<Array<{ source: string; content: string }>> {
+  async loadWorkspaceRules(run: any, workspace: any): Promise<Array<{ source: string; content: string }>> {
     const rules: Array<{ source: string; content: string }> = []
+    const loadedRealPaths = new Set<string>()
     let totalBytes = 0
+
     if (workspace.rules?.trim()) {
       const bytes = Buffer.byteLength(workspace.rules)
       if (bytes <= MAX_RULE_FILE_BYTES && bytes <= MAX_RULES_TOTAL_BYTES) {
-        rules.push({ source: 'workspace-settings', content: workspace.rules }); totalBytes += bytes
-      } else this.database.audit('security', 'workspace_rules_rejected', '工作区设置规则超过上下文大小限制', { actor: 'system', outcome: 'blocked', target: 'workspace-settings', byteLength: bytes }, run.id)
-    }
-    const root = await realpath(workspace.root_path)
-    for (const file of ['WORKBUDDY.md', 'AGENTS.md', join('.deskforge', 'rules.md')]) {
-      try {
-        let candidate = root
-        for (const segment of file.split(/[\\/]/).filter(Boolean)) {
-          candidate = join(candidate, segment)
-          if ((await lstat(candidate)).isSymbolicLink()) throw new Error(`规则路径不允许符号链接：${file}`)
-        }
-        const info = await lstat(candidate)
-        if (!info.isFile()) throw new Error(`规则路径不是普通文件：${file}`)
-        if (info.size > MAX_RULE_FILE_BYTES) throw new Error(`规则文件超过 ${MAX_RULE_FILE_BYTES} 字节：${file}`)
-        const resolved = await realpath(candidate)
-        if (!withinRoot(root, resolved)) throw new Error(`规则文件超出授权工作区：${file}`)
-        const content = await readFile(resolved)
-        if (totalBytes + content.byteLength > MAX_RULES_TOTAL_BYTES) throw new Error(`规则文件总量超过 ${MAX_RULES_TOTAL_BYTES} 字节`)
-        rules.push({ source: file, content: content.toString('utf8') }); totalBytes += content.byteLength
-      } catch (error) {
-        if (missingFile(error)) continue
-        this.database.audit('security', 'workspace_rule_rejected', `拒绝加载工作区规则 ${file}`, { actor: 'system', outcome: 'blocked', target: file, reason: error instanceof Error ? error.message : String(error) }, run.id)
+        rules.push({ source: 'workspace-settings', content: workspace.rules })
+        totalBytes += bytes
+      } else {
+        this.database.audit('security', 'workspace_rules_rejected', '工作区设置规则超过上下文大小限制', { actor: 'system', outcome: 'blocked', target: 'workspace-settings', byteLength: bytes }, run.id)
       }
     }
+
+    const root = await realpath(workspace.root_path)
+
+    const tryLoadRuleFile = async (filePath: string, sourceLabel: string, mustBeWithinRoot: boolean): Promise<boolean> => {
+      try {
+        const targetLstat = await lstat(filePath)
+        if (targetLstat.isSymbolicLink()) {
+          throw new Error(`规则路径不允许符号链接：${sourceLabel}`)
+        }
+        if (!targetLstat.isFile()) {
+          throw new Error(`规则路径不是普通文件：${sourceLabel}`)
+        }
+        if (targetLstat.size > MAX_RULE_FILE_BYTES) {
+          throw new Error(`规则文件超过 ${MAX_RULE_FILE_BYTES} 字节：${sourceLabel}`)
+        }
+
+        const resolved = await realpath(filePath)
+        if (mustBeWithinRoot && !withinRoot(root, resolved)) {
+          throw new Error(`规则文件超出授权工作区：${sourceLabel}`)
+        }
+
+        if (loadedRealPaths.has(resolved)) {
+          return false
+        }
+
+        const content = await readFile(resolved)
+        if (totalBytes + content.byteLength > MAX_RULES_TOTAL_BYTES) {
+          throw new Error(`规则文件总量超过 ${MAX_RULES_TOTAL_BYTES} 字节`)
+        }
+
+        rules.push({ source: sourceLabel, content: content.toString('utf8') })
+        loadedRealPaths.add(resolved)
+        totalBytes += content.byteLength
+        return true
+      } catch (error) {
+        if (missingFile(error)) return false
+        this.database.audit('security', 'workspace_rule_rejected', `拒绝加载工作区规则 ${sourceLabel}`, { actor: 'system', outcome: 'blocked', target: sourceLabel, reason: error instanceof Error ? error.message : String(error) }, run.id)
+        return false
+      }
+    }
+
+    // 1. 行业标准首要优先级：工作区根目录下的 AGENTS.md / agents.md
+    let hasAgents = await tryLoadRuleFile(join(root, 'AGENTS.md'), 'AGENTS.md', true)
+    if (!hasAgents) {
+      hasAgents = await tryLoadRuleFile(join(root, 'agents.md'), 'agents.md', true)
+    }
+
+    // 2. 工作区专属配置：.deskforge/rules.md
+    await tryLoadRuleFile(join(root, '.deskforge', 'rules.md'), join('.deskforge', 'rules.md'), true)
+
+    // 3. Monorepo 向上继承：当当前工作区不是 Git 根目录时，向上递归查找祖先目录的 AGENTS.md
+    let rootHasGit = false
+    try {
+      const rootGit = await lstat(join(root, '.git'))
+      rootHasGit = rootGit.isDirectory() || rootGit.isFile()
+    } catch {}
+
+    if (!rootHasGit) {
+      const userHome = homedir()
+      let currentDir = root
+      let depth = 0
+      while (depth < 6) {
+        const parentDir = dirname(currentDir)
+        if (!parentDir || parentDir === currentDir || parentDir === userHome || parentDir === '/') {
+          break
+        }
+        currentDir = parentDir
+        depth++
+
+        let loadedParent = await tryLoadRuleFile(join(currentDir, 'AGENTS.md'), 'repo:AGENTS.md', false)
+        if (!loadedParent) {
+          loadedParent = await tryLoadRuleFile(join(currentDir, 'agents.md'), 'repo:agents.md', false)
+        }
+        if (loadedParent) {
+          hasAgents = true
+        }
+
+        try {
+          const gitStat = await lstat(join(currentDir, '.git'))
+          if (gitStat.isDirectory() || gitStat.isFile()) {
+            break // 已到达 Git 根目录边界，停止向上查找
+          }
+        } catch {}
+      }
+    }
+
+    // 4. 兼容性回退：仅当未找到任何 AGENTS.md 时，才加载遗留的 WORKBUDDY.md
+    if (!hasAgents) {
+      await tryLoadRuleFile(join(root, 'WORKBUDDY.md'), 'WORKBUDDY.md', true)
+    }
+
     return rules
   }
 

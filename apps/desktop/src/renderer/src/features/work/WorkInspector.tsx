@@ -136,6 +136,7 @@ function DetailsPanel({ detail, snapshot, onBindChrome, onOpenSettings }: Pick<W
         {workspace && <div><span className="context-icon"><Icon name="folder" size={14} /></span><span><strong>{workspace.name}</strong><small>{shortPath(workspace.path)}</small></span></div>}
         {model && <div><span className="context-icon"><Icon name="layers" size={14} /></span><span><strong>{model.name}</strong><small>{model.modelId}</small></span></div>}
         <div><span className="context-icon trusted"><Icon name="shield" size={14} /></span><span><strong>执行权限</strong><small>工作区内操作按需批准，不会授权 /</small></span></div>
+        <div><span className="context-icon trusted"><Icon name="file" size={14} /></span><span><strong>工程规范</strong><small>遵循 AGENTS.md 规范与工作区规则</small></span></div>
       </div>
     </details>
   </>
