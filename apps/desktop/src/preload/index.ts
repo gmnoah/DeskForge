@@ -16,6 +16,7 @@ const api: DesktopApi = {
     importAttachments: noInput('app:import-attachments'),
     revealPath: (input) => invoke('app:reveal-path', input),
     openPath: (input) => invoke('app:open-path', input),
+    readFileContent: (input) => invoke('app:read-file-content', input),
   },
   workspaces: {
     list: noInput('workspaces:list'), create: (input) => invoke('workspaces:create', input), update: (input) => invoke('workspaces:update', input),

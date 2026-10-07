@@ -274,6 +274,15 @@ export interface ArtifactItem extends JsonRecord {
   size?: number
 }
 
+export interface DocumentPreviewTarget {
+  title: string
+  path?: string | undefined
+  artifactId?: string | undefined
+  content?: string | undefined
+  truncated?: boolean | undefined
+  mime?: string | undefined
+}
+
 export interface DiffItem extends JsonRecord {
   id: string
   path: string

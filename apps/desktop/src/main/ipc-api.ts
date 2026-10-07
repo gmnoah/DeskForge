@@ -209,6 +209,21 @@ export class IpcApi {
         if (errorMessage) return { success: false, error: errorMessage }
         return { success: true }
       },
+      'app:read-file-content': async ({ path, maxBytes }) => {
+        if (!path || typeof path !== 'string') throw new Error('文件路径无效')
+        const canonical = await realpath(path)
+        const stat = await lstat(canonical)
+        if (stat.isDirectory()) throw new Error('不能直接预览目录')
+        const limit = maxBytes ?? 2 * 1024 * 1024
+        const buffer = await readFile(canonical)
+        return {
+          path: canonical,
+          name: basename(canonical),
+          size: stat.size,
+          text: buffer.subarray(0, limit).toString('utf8'),
+          truncated: buffer.length > limit,
+        }
+      },
 
       'workspaces:list': () => { const selected = this.database.getSetting<string | undefined>('selectedWorkspaceId', undefined); return this.database.listWorkspaces().map((row) => presentWorkspace(row, selected)) },
       'workspaces:create': async ({ path, name }) => {

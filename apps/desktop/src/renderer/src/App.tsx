@@ -18,9 +18,11 @@ import { formatTokenCount, readTokenUsage, tokenUsageLines, type TokenUsageView 
 import { WorkTimeline } from './features/work/WorkTimeline'
 import { ApprovalDiff } from './features/work/ApprovalDiff'
 import { isUserVisibleArtifact, WorkInspector, type WorkInspectorTab } from './features/work/WorkInspector'
+import { DocumentPreviewModal } from './features/work/DocumentPreviewModal'
 import type {
   ApprovalItem,
   ApprovalScopeChoice,
+  DocumentPreviewTarget,
   JsonRecord,
   ModelProvider,
   RunPermissionMode,
@@ -621,6 +623,7 @@ function TasksView({
   onUndoChange: (id: string) => void
 }) {
   const [inspectorTab, setInspectorTab] = useState<WorkInspectorTab>('details')
+  const [previewTarget, setPreviewTarget] = useState<DocumentPreviewTarget | undefined>(undefined)
   if (!detail && runLoading) return <main className="main-pane centered"><Spinner size={24} /></main>
   if (!detail) return <main className="main-pane"><WelcomeComposer workspace={selectedWorkspace} models={snapshot.models} defaultMode={snapshot.settings.defaultExecutionMode === 'plan' ? 'plan' : 'execute'} defaultPermissionMode="approval" onSubmit={onCreate} onOpenSettings={onSettings} skills={snapshot.skills} /></main>
   const inputDisabled = detail.status === 'cancelled'
@@ -638,6 +641,7 @@ function TasksView({
             onOpenChanges={() => openInspector('changes')}
             onOpenArtifact={onOpenArtifact}
             onOpenPath={onOpenPath}
+            onPreviewDocument={setPreviewTarget}
           />
         </div>
         <RunComposer
@@ -649,7 +653,13 @@ function TasksView({
           skills={snapshot.skills}
         />
       </main>
-      {inspectorOpen && <WorkInspector detail={detail} snapshot={snapshot} requestedTab={inspectorTab} onBindChrome={onBindChrome} onOpenSettings={onSettings} onRevealArtifact={onRevealArtifact} onOpenArtifact={onOpenArtifact} onOpenPath={onOpenPath} onUndoChange={onUndoChange} />}
+      {inspectorOpen && <WorkInspector detail={detail} snapshot={snapshot} requestedTab={inspectorTab} onBindChrome={onBindChrome} onOpenSettings={onSettings} onRevealArtifact={onRevealArtifact} onOpenArtifact={onOpenArtifact} onOpenPath={onOpenPath} onUndoChange={onUndoChange} onPreviewDocument={setPreviewTarget} />}
+      <DocumentPreviewModal
+        target={previewTarget}
+        onClose={() => setPreviewTarget(undefined)}
+        onOpenExternalPath={onOpenPath}
+        onOpenExternalArtifact={onOpenArtifact}
+      />
     </div>
   )
 }

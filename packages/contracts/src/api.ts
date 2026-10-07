@@ -333,6 +333,14 @@ export interface ArtifactText {
   truncated: boolean
 }
 
+export interface FileContentResult {
+  path: string
+  name: string
+  size: number
+  text: string
+  truncated: boolean
+}
+
 export interface ArtifactRestoreResult {
   restored: true
   path: string
@@ -471,6 +479,7 @@ export interface DesktopApi {
     importAttachments(): Promise<ArtifactRef[]>
     revealPath(input: { path: string }): Promise<void>
     openPath(input: { path: string }): Promise<{ success: boolean; error?: string }>
+    readFileContent(input: { path: string; maxBytes?: number }): Promise<FileContentResult>
   }
   workspaces: {
     list(): Promise<Workspace[]>
@@ -599,6 +608,7 @@ export interface DesktopInvokeMap {
   'app:import-attachments': { input: undefined; output: ArtifactRef[] }
   'app:reveal-path': { input: { path: string }; output: undefined }
   'app:open-path': { input: { path: string }; output: { success: boolean; error?: string } }
+  'app:read-file-content': { input: { path: string; maxBytes?: number }; output: FileContentResult }
   'workspaces:list': { input: undefined; output: Workspace[] }
   'workspaces:create': { input: CreateWorkspaceInput; output: Workspace }
   'workspaces:update': { input: UpdateWorkspaceInput; output: Workspace }
@@ -868,6 +878,10 @@ export const DesktopInvokeContracts: Record<DesktopInvokeChannel, { input: z.Zod
   'app:import-attachments': { input: VoidSchema, output: z.array(ArtifactRefSchema) },
   'app:reveal-path': { input: z.object({ path: z.string().min(1) }).strict(), output: VoidSchema },
   'app:open-path': { input: z.object({ path: z.string().min(1) }).strict(), output: z.object({ success: z.boolean(), error: z.string().optional() }).strict() },
+  'app:read-file-content': {
+    input: z.object({ path: z.string().min(1), maxBytes: z.number().int().positive().max(16 * 1024 * 1024).optional() }).strict(),
+    output: z.object({ path: z.string().min(1), name: z.string().min(1), size: z.number().int().nonnegative(), text: z.string(), truncated: z.boolean() }).strict(),
+  },
   'workspaces:list': { input: VoidSchema, output: z.array(WorkspaceSchema) },
   'workspaces:create': { input: z.object({ path: z.string().min(1), name: z.string().min(1).optional() }).strict(), output: WorkspaceSchema },
   'workspaces:update': { input: z.object({ id: IdSchema, name: z.string().min(1).optional(), rules: z.string().optional() }).strict(), output: WorkspaceSchema },

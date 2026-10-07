@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { bridge } from '../../bridge'
 import { Icon, type IconName } from '../../icons'
-import type { JsonRecord, RunDetailView, SourceItem, TraceSpanItem, WorkbenchSnapshot } from '../../types'
+import type { DocumentPreviewTarget, JsonRecord, RunDetailView, SourceItem, TraceSpanItem, WorkbenchSnapshot } from '../../types'
 import { EmptyState, Modal, Tabs } from '../../ui'
 import { PanelResizer, usePersistentPanelWidth } from '../shell/panel-resizer'
 import { readTokenUsage, tokenUsageLines } from './run-insights'
@@ -19,6 +19,7 @@ interface WorkInspectorProps {
   onOpenArtifact?: ((id: string) => void) | undefined
   onOpenPath?: ((path: string) => void) | undefined
   onUndoChange: (id: string) => void
+  onPreviewDocument?: ((target: DocumentPreviewTarget) => void) | undefined
 }
 
 const TOOL_LABELS: Record<string, string> = {
@@ -207,16 +208,46 @@ function DiagnosticsPanel({ detail }: { detail: RunDetailView }) {
   </>
 }
 
-function ChangesPanel({ detail, onRevealArtifact, onOpenArtifact, onOpenPath, onUndoChange, onPreview }: Pick<WorkInspectorProps, 'detail' | 'onRevealArtifact' | 'onOpenArtifact' | 'onOpenPath' | 'onUndoChange'> & { onPreview: (value: { name: string; text: string; truncated: boolean }) => void }) {
+function ChangesPanel({ detail, onRevealArtifact, onOpenArtifact, onOpenPath, onUndoChange, onPreview, onPreviewDocument }: Pick<WorkInspectorProps, 'detail' | 'onRevealArtifact' | 'onOpenArtifact' | 'onOpenPath' | 'onUndoChange' | 'onPreviewDocument'> & { onPreview: (value: { name: string; text: string; truncated: boolean }) => void }) {
   const outputs = visibleOutputs(detail)
   return <>
-    {detail.diffs.length > 0 && <Section title="文件变更" icon="edit"><div className="file-change-list">{detail.diffs.map((diff) => <div key={diff.id}><Icon name="file" /><span><strong title={`完整路径: ${diff.path}`}>{diff.path.split('/').at(-1)}</strong><small>{shortPath(diff.path)}</small></span><em className="additions">+{diff.additions ?? 0}</em><em className="deletions">−{diff.deletions ?? 0}</em><button type="button" className="text-button" title="用默认程序打开文件" onClick={() => onOpenPath?.(diff.path)}>打开</button><button type="button" className="text-button" onClick={async () => { const result = await bridge.getArtifactText(diff.id); const value = result && typeof result === 'object' ? result as JsonRecord : {}; onPreview({ name: diff.path.split('/').at(-1) ?? 'Diff', text: String(value.text ?? ''), truncated: value.truncated === true }) }}>查看</button><button type="button" className="text-button" onClick={() => onUndoChange(diff.id)}>撤销</button></div>)}</div></Section>}
-    {outputs.length > 0 && <Section title="输出" icon="file"><div className="artifact-list">{outputs.map((artifact) => <div key={artifact.id} className="artifact-row"><button type="button" className="artifact-main-action" title={`文件全称: ${artifact.name}\n用默认程序打开`} onClick={() => onOpenArtifact ? onOpenArtifact(artifact.id) : onRevealArtifact(artifact.id)}><span className="artifact-icon"><Icon name="file" /></span><span><strong title={`文件全称: ${artifact.name}`}>{artifact.name}</strong><small>{artifactKindLabel(artifact.kind)} {formatBytes(artifact.size)}</small></span><span className="artifact-open-tag"><Icon name="external" size={13} />打开</span></button><button type="button" className="artifact-reveal-button" title="在访达 / 文件夹中定位" aria-label="在文件夹中定位" onClick={() => onRevealArtifact(artifact.id)}><Icon name="folder" size={14} /></button></div>)}</div></Section>}
+    {detail.diffs.length > 0 && <Section title="文件变更" icon="edit"><div className="file-change-list">{detail.diffs.map((diff) => <div key={diff.id}><Icon name="file" /><span><strong title={`完整路径: ${diff.path}`}>{diff.path.split('/').at(-1)}</strong><small>{shortPath(diff.path)}</small></span><em className="additions">+{diff.additions ?? 0}</em><em className="deletions">−{diff.deletions ?? 0}</em><button type="button" className="text-button" title="用默认程序打开文件" onClick={() => onOpenPath?.(diff.path)}>打开</button><button type="button" className="text-button" onClick={async () => {
+      if (onPreviewDocument && /\.(html|htm|xhtml|md|markdown|txt|json|css|js|ts|tsx|svg)$/i.test(diff.path)) {
+        onPreviewDocument({ title: diff.path.split('/').at(-1) ?? '文件预览', path: diff.path })
+      } else {
+        const result = await bridge.getArtifactText(diff.id)
+        const value = result && typeof result === 'object' ? result as JsonRecord : {}
+        onPreview({ name: diff.path.split('/').at(-1) ?? 'Diff', text: String(value.text ?? ''), truncated: value.truncated === true })
+      }
+    }}>查看</button><button type="button" className="text-button" onClick={() => onUndoChange(diff.id)}>撤销</button></div>)}</div></Section>}
+    {outputs.length > 0 && <Section title="输出" icon="file"><div className="artifact-list">{outputs.map((artifact) => {
+      const isHtml = artifact.name.toLowerCase().endsWith('.html') || artifact.name.toLowerCase().endsWith('.htm')
+      const handlePreview = () => {
+        if (onPreviewDocument) {
+          onPreviewDocument({ title: artifact.name, artifactId: artifact.id, path: artifact.path })
+        } else if (onOpenArtifact) {
+          onOpenArtifact(artifact.id)
+        } else {
+          onRevealArtifact(artifact.id)
+        }
+      }
+      return (
+        <div key={artifact.id} className="artifact-row">
+          <button type="button" className="artifact-main-action" title={`文件全称: ${artifact.name}\n点击内置预览`} onClick={handlePreview}>
+            <span className="artifact-icon"><Icon name={isHtml ? 'globe' : 'file'} /></span>
+            <span><strong title={`文件全称: ${artifact.name}`}>{artifact.name}</strong><small>{artifactKindLabel(artifact.kind)} {formatBytes(artifact.size)}</small></span>
+            <span className="artifact-open-tag"><Icon name={isHtml ? 'globe' : 'file'} size={13} />{isHtml ? '网页预览' : '预览'}</span>
+          </button>
+          {onOpenArtifact && <button type="button" className="artifact-reveal-button" title="用默认外部程序打开" aria-label="外部打开" onClick={() => onOpenArtifact(artifact.id)}><Icon name="external" size={13} /></button>}
+          <button type="button" className="artifact-reveal-button" title="在访达 / 文件夹中定位" aria-label="在文件夹中定位" onClick={() => onRevealArtifact(artifact.id)}><Icon name="folder" size={14} /></button>
+        </div>
+      )
+    })}</div></Section>}
     {!detail.diffs.length && !outputs.length && <EmptyState compact icon="edit" title="没有文件或输出" description="有实际变更或生成文件后会显示在这里。" />}
   </>
 }
 
-function ArtifactShelf({ detail, onRevealArtifact, onOpenArtifact, onOpenChanges }: Pick<WorkInspectorProps, 'detail' | 'onRevealArtifact' | 'onOpenArtifact'> & { onOpenChanges: () => void }) {
+function ArtifactShelf({ detail, onRevealArtifact, onOpenArtifact, onOpenChanges, onPreviewDocument }: Pick<WorkInspectorProps, 'detail' | 'onRevealArtifact' | 'onOpenArtifact' | 'onPreviewDocument'> & { onOpenChanges: () => void }) {
   const outputs = visibleOutputs(detail)
   const total = outputs.length + detail.diffs.length
   return (
@@ -226,29 +257,41 @@ function ArtifactShelf({ detail, onRevealArtifact, onOpenArtifact, onOpenChanges
         <p>Agent 生成的文件、报告、截图和变更会集中在这里。</p>
       ) : (
         <div className="artifact-shelf-list">
-          {outputs.slice(0, 3).map((artifact) => (
-            <div key={artifact.id} className="artifact-shelf-row">
-              <button
-                type="button"
-                className="artifact-shelf-main"
-                title={`文件全称: ${artifact.name}\n用默认程序打开`}
-                onClick={() => onOpenArtifact ? onOpenArtifact(artifact.id) : onRevealArtifact(artifact.id)}
-              >
-                <span className="artifact-shelf-icon"><Icon name="file" size={14} /></span>
-                <span><strong title={`文件全称: ${artifact.name}`}>{artifact.name}</strong><small>{artifactKindLabel(artifact.kind)} {formatBytes(artifact.size)}</small></span>
-                <span className="artifact-open-badge"><Icon name="external" size={11} />打开</span>
-              </button>
-              <button
-                type="button"
-                className="artifact-shelf-reveal-btn"
-                title="在访达 / 文件夹中定位"
-                aria-label="在文件夹中定位"
-                onClick={() => onRevealArtifact(artifact.id)}
-              >
-                <Icon name="folder" size={13} />
-              </button>
-            </div>
-          ))}
+          {outputs.slice(0, 3).map((artifact) => {
+            const isHtml = artifact.name.toLowerCase().endsWith('.html') || artifact.name.toLowerCase().endsWith('.htm')
+            const handlePreview = () => {
+              if (onPreviewDocument) {
+                onPreviewDocument({ title: artifact.name, artifactId: artifact.id, path: artifact.path })
+              } else if (onOpenArtifact) {
+                onOpenArtifact(artifact.id)
+              } else {
+                onRevealArtifact(artifact.id)
+              }
+            }
+            return (
+              <div key={artifact.id} className="artifact-shelf-row">
+                <button
+                  type="button"
+                  className="artifact-shelf-main"
+                  title={`文件全称: ${artifact.name}\n点击内置预览`}
+                  onClick={handlePreview}
+                >
+                  <span className="artifact-shelf-icon"><Icon name={isHtml ? 'globe' : 'file'} size={14} /></span>
+                  <span><strong title={`文件全称: ${artifact.name}`}>{artifact.name}</strong><small>{artifactKindLabel(artifact.kind)} {formatBytes(artifact.size)}</small></span>
+                  <span className="artifact-open-badge"><Icon name={isHtml ? 'globe' : 'file'} size={11} />{isHtml ? '网页预览' : '预览'}</span>
+                </button>
+                <button
+                  type="button"
+                  className="artifact-shelf-reveal-btn"
+                  title="在访达 / 文件夹中定位"
+                  aria-label="在文件夹中定位"
+                  onClick={() => onRevealArtifact(artifact.id)}
+                >
+                  <Icon name="folder" size={13} />
+                </button>
+              </div>
+            )
+          })}
           {detail.diffs.length > 0 && <button type="button" onClick={onOpenChanges}><span className="artifact-shelf-icon change"><Icon name="edit" size={14} /></span><span><strong>文件变更</strong><small>{detail.diffs.length} 项可查看或撤销</small></span><Icon name="arrowRight" size={13} /></button>}
           {outputs.length > 3 && <button type="button" className="artifact-shelf-more" onClick={onOpenChanges}>查看另外 {outputs.length - 3} 项产物</button>}
         </div>
@@ -280,7 +323,7 @@ export function WorkInspector(props: WorkInspectorProps) {
   return (
     <aside className="inspector" style={{ width }}>
       <PanelResizer width={width} onWidthChange={setWidth} />
-      <ArtifactShelf detail={detail} onRevealArtifact={props.onRevealArtifact} onOpenArtifact={props.onOpenArtifact} onOpenChanges={() => setTab('changes')} />
+      <ArtifactShelf detail={detail} onRevealArtifact={props.onRevealArtifact} onOpenArtifact={props.onOpenArtifact} onOpenChanges={() => setTab('changes')} onPreviewDocument={props.onPreviewDocument} />
       <Tabs className="inspector-tab-shell" ariaLabel="工作详情" value={tab} onValueChange={setTab} tabListClassName="inspector-tabs" tabPanelClassName="inspector-content" items={items} />
       <Modal open={Boolean(diffPreview)} onClose={() => setDiffPreview(undefined)} title={diffPreview?.name ?? '文件变更'} description={diffPreview?.truncated ? '这里只显示部分内容，可在 Finder 中打开完整文件。' : 'DeskForge 保存的本地文件变更。'} wide><pre className="diff-preview">{diffPreview?.text}</pre></Modal>
     </aside>

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { BrandMark, Icon } from '../../icons'
-import type { JsonRecord, RunDetailView } from '../../types'
+import type { DocumentPreviewTarget, JsonRecord, RunDetailView } from '../../types'
 import { buildWorkTurns, type ResultEvidence } from '../../work-turn'
 import { ProcessDisclosure } from './ProcessDisclosure'
 import { failureMessage, failureTechnicalDetail, readTokenUsage, tokenUsageSummary } from './run-insights'
@@ -14,6 +14,7 @@ interface WorkTimelineProps {
   onOpenChanges: () => void
   onOpenArtifact?: ((id: string) => void) | undefined
   onOpenPath?: ((path: string) => void) | undefined
+  onPreviewDocument?: ((target: DocumentPreviewTarget) => void) | undefined
 }
 
 function formatTime(value?: unknown): string {
@@ -34,7 +35,7 @@ function safeHref(value: unknown): string | undefined {
   }
 }
 
-function CodeBlock({ children }: { children?: ReactNode }) {
+export function CodeBlock({ children }: { children?: ReactNode }) {
   const [copied, setCopied] = useState(false)
   let language = ''
   let rawCode = ''
@@ -92,7 +93,15 @@ function CodeBlock({ children }: { children?: ReactNode }) {
   )
 }
 
-function Markdown({ children, onOpenPath }: { children: string; onOpenPath?: ((path: string) => void) | undefined }) {
+export function Markdown({
+  children,
+  onOpenPath,
+  onPreviewDocument,
+}: {
+  children: string
+  onOpenPath?: ((path: string) => void) | undefined
+  onPreviewDocument?: ((target: DocumentPreviewTarget) => void) | undefined
+}) {
   return (
     <div className="markdown-content">
       <ReactMarkdown
@@ -101,19 +110,25 @@ function Markdown({ children, onOpenPath }: { children: string; onOpenPath?: ((p
         components={{
           pre: ({ children: preChildren }) => <CodeBlock>{preChildren}</CodeBlock>,
           a: ({ href, children: linkChildren, ...props }) => {
-            if (href && onOpenPath && (href.startsWith('file://') || href.startsWith('/') || /^[a-zA-Z0-9_\u4e00-\u9fa5\s/.-]+\.(docx|doc|pdf|xlsx|xls|csv|png|jpg|jpeg|md|html|txt|json|zip)$/i.test(href))) {
+            if (href && (href.startsWith('file://') || href.startsWith('/') || /^[a-zA-Z0-9_\u4e00-\u9fa5\s/.-]+\.(docx|doc|pdf|xlsx|xls|csv|png|jpg|jpeg|md|html|htm|txt|json|zip)$/i.test(href))) {
               const cleanPath = href.startsWith('file://') ? decodeURIComponent(href.replace('file://', '')) : href
+              const isHtml = cleanPath.toLowerCase().endsWith('.html') || cleanPath.toLowerCase().endsWith('.htm')
+              const isPreviewable = /\.(html|htm|md|txt|json|css|js|ts|svg|png|jpg|jpeg)$/i.test(cleanPath)
               return (
                 <button
                   type="button"
                   className="inline-file-link"
-                  title={`点击使用默认程序打开：${cleanPath}`}
+                  title={isPreviewable ? `点击内置预览：${cleanPath}` : `点击使用默认程序打开：${cleanPath}`}
                   onClick={(e) => {
                     e.preventDefault()
-                    onOpenPath(cleanPath)
+                    if (isPreviewable && onPreviewDocument) {
+                      onPreviewDocument({ title: cleanPath.split('/').at(-1) ?? cleanPath, path: cleanPath })
+                    } else if (onOpenPath) {
+                      onOpenPath(cleanPath)
+                    }
                   }}
                 >
-                  <Icon name="file" size={12} />
+                  <Icon name={isHtml ? 'globe' : 'file'} size={12} />
                   {linkChildren}
                 </button>
               )
@@ -131,12 +146,20 @@ function Markdown({ children, onOpenPath }: { children: string; onOpenPath?: ((p
   )
 }
 
-function ResultSummary({ result, onOpenDetails, onOpenChanges, onOpenArtifact, onOpenPath }: {
+function ResultSummary({
+  result,
+  onOpenDetails,
+  onOpenChanges,
+  onOpenArtifact,
+  onOpenPath,
+  onPreviewDocument,
+}: {
   result: ResultEvidence
   onOpenDetails: () => void
   onOpenChanges: () => void
   onOpenArtifact?: ((id: string) => void) | undefined
   onOpenPath?: ((path: string) => void) | undefined
+  onPreviewDocument?: ((target: DocumentPreviewTarget) => void) | undefined
 }) {
   const changes = result.changes?.length ?? 0
   const outputs = useMemo(() => {
@@ -169,11 +192,14 @@ function ResultSummary({ result, onOpenDetails, onOpenChanges, onOpenArtifact, o
           {checks > 0 || sources > 0 ? <button type="button" onClick={onOpenDetails}>查看依据</button> : null}
         </div>
       </div>
-      {outputs.length > 0 && (onOpenArtifact || onOpenPath) && (
+      {outputs.length > 0 && (onOpenArtifact || onOpenPath || onPreviewDocument) && (
         <div className="result-summary-artifacts">
           {outputs.map((artifact) => {
-            const handleOpen = () => {
-              if (artifact.path && onOpenPath) {
+            const isHtml = artifact.name.toLowerCase().endsWith('.html') || artifact.name.toLowerCase().endsWith('.htm')
+            const handleAction = () => {
+              if (onPreviewDocument) {
+                onPreviewDocument({ title: artifact.name, artifactId: artifact.id, path: artifact.path })
+              } else if (artifact.path && onOpenPath) {
                 onOpenPath(artifact.path)
               } else if (onOpenArtifact) {
                 onOpenArtifact(artifact.id)
@@ -184,12 +210,12 @@ function ResultSummary({ result, onOpenDetails, onOpenChanges, onOpenArtifact, o
                 type="button"
                 key={artifact.id}
                 className="result-artifact-chip"
-                title={`文件全称: ${artifact.name}${artifact.path ? `\n完整路径: ${artifact.path}` : ''}\n点击直接使用默认程序打开`}
-                onClick={handleOpen}
+                title={`文件全称: ${artifact.name}${artifact.path ? `\n完整路径: ${artifact.path}` : ''}\n点击在 DeskForge 内置沙箱预览`}
+                onClick={handleAction}
               >
-                <Icon name="file" size={13} />
+                <Icon name={isHtml ? 'globe' : 'file'} size={13} />
                 <span className="result-artifact-name" title={`文件全称: ${artifact.name}`}>{artifact.name}</span>
-                <span className="result-artifact-action">打开</span>
+                <span className="result-artifact-action">{isHtml ? '网页预览' : '预览'}</span>
                 <span className="result-artifact-tooltip" role="tooltip">
                   <span className="artifact-tooltip-label">文件全称</span>
                   <span className="artifact-tooltip-name">{artifact.name}</span>
@@ -199,7 +225,7 @@ function ResultSummary({ result, onOpenDetails, onOpenChanges, onOpenArtifact, o
                       <span className="artifact-tooltip-path">{artifact.path}</span>
                     </>
                   ) : null}
-                  <span className="artifact-tooltip-hint">点击直接使用默认程序打开</span>
+                  <span className="artifact-tooltip-hint">{isHtml ? '点击在 DeskForge 内置安全沙箱中预览网页' : '点击在 DeskForge 内置预览'}</span>
                 </span>
               </button>
             )
@@ -210,7 +236,7 @@ function ResultSummary({ result, onOpenDetails, onOpenChanges, onOpenArtifact, o
   )
 }
 
-export function WorkTimeline({ detail, approvals, onOpenDetails, onOpenChanges, onOpenArtifact, onOpenPath }: WorkTimelineProps) {
+export function WorkTimeline({ detail, approvals, onOpenDetails, onOpenChanges, onOpenArtifact, onOpenPath, onPreviewDocument }: WorkTimelineProps) {
   const tailRef = useRef<HTMLDivElement>(null)
   const followTailRef = useRef(true)
   const [openProcessTurnId, setOpenProcessTurnId] = useState<string>()
@@ -240,7 +266,7 @@ export function WorkTimeline({ detail, approvals, onOpenDetails, onOpenChanges, 
         return (
           <section key={turn.id} className="work-turn">
             <article className={`message user-message${optimistic ? ' is-optimistic' : ''}`}>
-              <div className="message-content"><div className="message-meta"><strong>你</strong><span>{formatTime(turn.prompt.createdAt)}</span></div><Markdown onOpenPath={onOpenPath}>{turn.prompt.content}</Markdown></div>
+              <div className="message-content"><div className="message-meta"><strong>你</strong><span>{formatTime(turn.prompt.createdAt)}</span></div><Markdown onOpenPath={onOpenPath} onPreviewDocument={onPreviewDocument}>{turn.prompt.content}</Markdown></div>
             </article>
             <article className="message agent-message agent-turn">
               <div className="message-avatar agent"><BrandMark size={17} /></div>
@@ -254,8 +280,8 @@ export function WorkTimeline({ detail, approvals, onOpenDetails, onOpenChanges, 
                       onToggle={() => setOpenProcessTurnId((current) => current === turn.id ? undefined : turn.id)}
                     />
                   )}
-                  {turn.response.content && <div className="agent-turn-text"><Markdown onOpenPath={onOpenPath}>{turn.response.content}</Markdown></div>}
-                  {turn.result && <ResultSummary result={turn.result} onOpenDetails={onOpenDetails} onOpenChanges={onOpenChanges} onOpenArtifact={onOpenArtifact} onOpenPath={onOpenPath} />}
+                  {turn.response.content && <div className="agent-turn-text"><Markdown onOpenPath={onOpenPath} onPreviewDocument={onPreviewDocument}>{turn.response.content}</Markdown></div>}
+                  {turn.result && <ResultSummary result={turn.result} onOpenDetails={onOpenDetails} onOpenChanges={onOpenChanges} onOpenArtifact={onOpenArtifact} onOpenPath={onOpenPath} onPreviewDocument={onPreviewDocument} />}
                 </div>
               </div>
             </article>
