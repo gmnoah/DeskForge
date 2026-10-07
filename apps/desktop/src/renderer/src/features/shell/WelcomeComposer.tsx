@@ -1,9 +1,19 @@
 import { useEffect, useRef, useState } from 'react'
 import { bridge, errorMessage } from '../../bridge'
 import { BrandMark, Icon } from '../../icons'
-import type { ModelProfileItem, RunPermissionMode, SkillItem, WorkspaceItem } from '../../types'
+import type { ModelProfileItem, RunPermissionMode, SkillItem, WorkspaceFileItem, WorkspaceItem } from '../../types'
 import { SubmitForm } from '../../ui'
 import { SlashCommandMenu } from './SlashCommandMenu'
+import { FileMentionMenu } from './FileMentionMenu'
+
+function getMentionMatch(text: string, cursorPosition: number): { query: string; start: number } | null {
+  const beforeCursor = text.slice(0, cursorPosition)
+  const match = beforeCursor.match(/(?:^|[\s\n])@([^\s@]*)$/)
+  if (!match) return null
+  const query = match[1] ?? ''
+  const atIndex = beforeCursor.length - query.length - 1
+  return { query, start: atIndex }
+}
 
 export interface WelcomeComposerProps {
   workspace: WorkspaceItem | undefined
@@ -38,6 +48,11 @@ export function WelcomeComposer({
   const [attachmentError, setAttachmentError] = useState<string>()
   const [slashIndex, setSlashIndex] = useState(0)
   const [slashDismissed, setSlashDismissed] = useState(false)
+  const [mentionIndex, setMentionIndex] = useState(0)
+  const [mentionDismissed, setMentionDismissed] = useState(false)
+  const [matchedFiles, setMatchedFiles] = useState<WorkspaceFileItem[]>([])
+  const [mentionLoading, setMentionLoading] = useState(false)
+  const [mentionMatch, setMentionMatch] = useState<{ query: string; start: number } | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
@@ -55,24 +70,94 @@ export function WelcomeComposer({
     ? availableSkills.filter((s) => !slashQuery || s.name.toLowerCase().includes(slashQuery) || (s.description && s.description.toLowerCase().includes(slashQuery)))
     : []
 
+  const isMentionActive = Boolean(workspace && mentionMatch && !mentionDismissed && !isSlashActive)
+
+  const checkMention = (text: string, cursor: number) => {
+    if (!workspace) {
+      setMentionMatch(null)
+      return
+    }
+    const match = getMentionMatch(text, cursor)
+    setMentionMatch(match)
+    if (!match) {
+      setMatchedFiles([])
+      setMentionDismissed(false)
+    }
+  }
+
+  useEffect(() => {
+    if (!workspace || !mentionMatch || mentionDismissed) {
+      setMatchedFiles([])
+      return
+    }
+    let cancelled = false
+    setMentionLoading(true)
+    const timeout = setTimeout(async () => {
+      try {
+        const results = await bridge.searchWorkspaceFiles(workspace.id, mentionMatch.query, 30)
+        if (!cancelled) {
+          setMatchedFiles(results)
+          setMentionIndex(0)
+          setMentionLoading(false)
+        }
+      } catch {
+        if (!cancelled) {
+          setMatchedFiles([])
+          setMentionLoading(false)
+        }
+      }
+    }, 120)
+    return () => {
+      cancelled = true
+      clearTimeout(timeout)
+    }
+  }, [workspace?.id, mentionMatch?.query, mentionDismissed])
+
   const handleSelectSkill = (skill: SkillItem) => {
     setPrompt(`/${skill.name} `)
     setSlashDismissed(false)
     textareaRef.current?.focus()
   }
 
-  const handlePromptChange = (val: string) => {
+  const handleSelectFile = (file: WorkspaceFileItem) => {
+    if (!textareaRef.current) return
+    const cursor = textareaRef.current.selectionStart ?? prompt.length
+    const match = getMentionMatch(prompt, cursor)
+    if (!match) return
+
+    const beforeAt = prompt.slice(0, match.start)
+    const afterCursor = prompt.slice(cursor)
+    const insertText = `@${file.path} `
+    const nextPrompt = beforeAt + insertText + afterCursor
+    const nextCursor = beforeAt.length + insertText.length
+
+    setPrompt(nextPrompt)
+    setMentionDismissed(false)
+    setMentionMatch(null)
+    setMatchedFiles([])
+
+    requestAnimationFrame(() => {
+      if (textareaRef.current) {
+        textareaRef.current.focus()
+        textareaRef.current.setSelectionRange(nextCursor, nextCursor)
+      }
+    })
+  }
+
+  const handlePromptChange = (val: string, cursor: number) => {
     setPrompt(val)
     if (val.startsWith('/') && !val.includes(' ')) {
       setSlashDismissed(false)
       setSlashIndex(0)
     }
+    checkMention(val, cursor)
   }
 
   const submit = () => {
     if (prompt.trim() && workspace && models.length > 0) {
       onSubmit(prompt.trim(), mode, permissionMode, modelId || undefined, attachments.map((attachment) => attachment.id))
       setSlashDismissed(false)
+      setMentionDismissed(false)
     }
   }
 
@@ -99,6 +184,32 @@ export function WelcomeComposer({
       if (event.key === 'Escape') {
         event.preventDefault()
         setSlashDismissed(true)
+        return
+      }
+    }
+
+    if (isMentionActive && matchedFiles.length > 0) {
+      if (event.key === 'ArrowDown') {
+        event.preventDefault()
+        setMentionIndex((prev) => (prev + 1) % matchedFiles.length)
+        return
+      }
+      if (event.key === 'ArrowUp') {
+        event.preventDefault()
+        setMentionIndex((prev) => (prev - 1 + matchedFiles.length) % matchedFiles.length)
+        return
+      }
+      if (event.key === 'Enter' || event.key === 'Tab') {
+        event.preventDefault()
+        const selected = matchedFiles[mentionIndex] ?? matchedFiles[0]
+        if (selected) {
+          handleSelectFile(selected)
+        }
+        return
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setMentionDismissed(true)
         return
       }
     }
@@ -132,12 +243,27 @@ export function WelcomeComposer({
             onSelect={handleSelectSkill}
           />
         )}
+        {isMentionActive && (
+          <FileMentionMenu
+            files={matchedFiles}
+            query={mentionMatch?.query ?? ''}
+            selectedIndex={mentionIndex}
+            loading={mentionLoading}
+            onSelect={handleSelectFile}
+          />
+        )}
         <textarea
           ref={textareaRef}
           value={prompt}
-          onChange={(event) => handlePromptChange(event.target.value)}
+          onChange={(event) => handlePromptChange(event.target.value, event.target.selectionStart)}
+          onKeyUp={(event) => {
+            if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
+              checkMention(event.currentTarget.value, event.currentTarget.selectionStart)
+            }
+          }}
+          onClick={(event) => checkMention(event.currentTarget.value, event.currentTarget.selectionStart)}
           onKeyDown={handleKeyDown}
-          placeholder="描述你想完成的工作（输入 / 快捷调用技能，Enter 发送）…"
+          placeholder="描述你想完成的工作（输入 / 调用技能，@ 关联工作区文件，Enter 发送）…"
           rows={4}
         />
         {attachments.length > 0 && <div className="composer-attachments">{attachments.map((attachment) => <span key={attachment.id}><Icon name="file" size={13} />{attachment.name}<button type="button" aria-label={`移除 ${attachment.name}`} onClick={() => setAttachments((items) => items.filter((item) => item.id !== attachment.id))}>×</button></span>)}</div>}

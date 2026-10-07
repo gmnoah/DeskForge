@@ -535,6 +535,13 @@ export interface Workspace {
   updatedAt: IsoDateTime
 }
 
+export interface WorkspaceFileItem {
+  path: string
+  name: string
+  isDirectory: boolean
+  extension?: string | undefined
+}
+
 export interface AppSettings {
   locale: string
   theme: 'system' | 'light' | 'dark'

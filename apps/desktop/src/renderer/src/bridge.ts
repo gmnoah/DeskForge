@@ -47,6 +47,7 @@ import type {
   VerificationView,
   WorkbenchSnapshot,
   WorkspaceItem,
+  WorkspaceFileItem,
 } from './types'
 
 type UnknownFn = (...args: unknown[]) => unknown
@@ -1114,6 +1115,13 @@ export const bridge = {
     { path: 'workspaces.remove', args: [{ id }] },
     { path: 'removeWorkspace', args: [id] },
   ]),
+  searchWorkspaceFiles: async (workspaceId: string, query?: string, limit?: number): Promise<WorkspaceFileItem[]> => {
+    const result = await optionalCall<unknown>([
+      { path: 'workspaces.searchFiles', args: [{ workspaceId, query, limit }] },
+      { path: 'workspaces.search-files', args: [{ workspaceId, query, limit }] },
+    ])
+    return Array.isArray(result) ? (result as WorkspaceFileItem[]) : []
+  },
   saveModel: (input: JsonRecord) => call<unknown>([
     { path: 'models.upsert', args: [input] },
     { path: 'saveModelProfile', args: [input] },

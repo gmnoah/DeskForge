@@ -168,7 +168,9 @@ export class RunPreparationPipeline {
       }
     } },
     { id: 'user_input', apply: async (state) => {
-      state.contextInput.untrustedContent = await this.attachmentContextItems(state.run.id)
+      const attachments = await this.attachmentContextItems(state.run.id)
+      const mentions = await this.loadMentionedFiles(state)
+      state.contextInput.untrustedContent = [...attachments, ...mentions]
     } },
     { id: 'workspace_rules', apply: async (state) => {
       state.contextInput.workspaceRules = await this.loadWorkspaceRules(state.run, state.workspace)
@@ -490,6 +492,84 @@ export class RunPreparationPipeline {
       const content = await readFile(row.path, 'utf8'); totalBytes += Buffer.byteLength(content)
       items.push({ id: `attachment-${row.id}`, kind: 'untrusted_content', content, source: `attachment:${row.name}`, trusted: false, priority: 650, stable: false })
     }
+    return items
+  }
+
+  private async loadMentionedFiles(state: PipelineState): Promise<ContextItem[]> {
+    const text = [
+      state.run.goal ?? '',
+      state.run.prompt ?? '',
+      state.effectivePrompt ?? '',
+    ].join('\n')
+
+    const matches = text.matchAll(/(?:^|[\s\n])@([a-zA-Z0-9_.\-+/]+)/g)
+    const paths = new Set<string>()
+    for (const match of matches) {
+      const candidate = match[1]?.trim()
+      if (candidate && !candidate.includes('..') && !candidate.startsWith('/') && !candidate.endsWith('@')) {
+        paths.add(candidate)
+      }
+    }
+    if (!paths.size || !state.workspace?.root_path) return []
+
+    const root = await realpath(state.workspace.root_path).catch(() => undefined)
+    if (!root) return []
+
+    const items: ContextItem[] = []
+    let totalBytes = 0
+
+    for (const relPath of paths) {
+      try {
+        const fullPath = join(root, relPath)
+        const resolved = await realpath(fullPath)
+        if (!withinRoot(root, resolved)) continue
+        const fileStat = await lstat(resolved)
+        if (fileStat.isSymbolicLink()) continue
+
+        const hash = createHash('sha256').update(relPath).digest('hex').slice(0, 12)
+        if (fileStat.isDirectory()) {
+          items.push({
+            id: `mention-dir-${hash}`,
+            kind: 'untrusted_content',
+            content: `用户在指令中通过 @ 显式引用了工作区目录：${relPath}`,
+            source: `file:${relPath}`,
+            trusted: false,
+            priority: 680,
+            stable: false,
+          })
+          continue
+        }
+
+        if (fileStat.isFile()) {
+          if (fileStat.size <= 128 * 1024 && totalBytes + fileStat.size <= 256 * 1024) {
+            const content = await readFile(resolved, 'utf8')
+            totalBytes += Buffer.byteLength(content)
+            items.push({
+              id: `mention-file-${hash}`,
+              kind: 'untrusted_content',
+              content: `用户在指令中通过 @ 显式引用了工作区文件 ${relPath}，内容如下：\n\`\`\`\n${content}\n\`\`\``,
+              source: `file:${relPath}`,
+              trusted: false,
+              priority: 680,
+              stable: false,
+            })
+          } else {
+            items.push({
+              id: `mention-file-meta-${hash}`,
+              kind: 'untrusted_content',
+              content: `用户在指令中通过 @ 显式引用了工作区文件 ${relPath}（大小：${fileStat.size} 字节，内容未内联加载，请按需调用 file_read 读取）。`,
+              source: `file:${relPath}`,
+              trusted: false,
+              priority: 680,
+              stable: false,
+            })
+          }
+        }
+      } catch {
+        // file doesn't exist or cannot be read, ignore safely
+      }
+    }
+
     return items
   }
 

@@ -12,6 +12,7 @@ import { ConnectionTestNotice } from './features/settings/ConnectionTestNotice'
 import { ShellSidebar } from './features/shell/ShellSidebar'
 import { WelcomeComposer } from './features/shell/WelcomeComposer'
 import { SlashCommandMenu } from './features/shell/SlashCommandMenu'
+import { FileMentionMenu } from './features/shell/FileMentionMenu'
 import { WorkTimeline } from './features/work/WorkTimeline'
 import { ApprovalDiff } from './features/work/ApprovalDiff'
 import { isUserVisibleArtifact, WorkInspector, type WorkInspectorTab } from './features/work/WorkInspector'
@@ -25,6 +26,7 @@ import type {
   SkillItem,
   ViewKey,
   WorkbenchSnapshot,
+  WorkspaceFileItem,
   WorkspaceItem,
 } from './types'
 import {
@@ -149,8 +151,18 @@ function RunHeader({ detail, onPause, onResume, onCancel, onToggleInspector, ins
   )
 }
 
-function RunComposer({ runId, permissionMode, disabled, onSend, skills = [] }: {
+function getMentionMatch(text: string, cursorPosition: number): { query: string; start: number } | null {
+  const beforeCursor = text.slice(0, cursorPosition)
+  const match = beforeCursor.match(/(?:^|[\s\n])@([^\s@]*)$/)
+  if (!match) return null
+  const query = match[1] ?? ''
+  const atIndex = beforeCursor.length - query.length - 1
+  return { query, start: atIndex }
+}
+
+function RunComposer({ runId, workspaceId, permissionMode, disabled, onSend, skills = [] }: {
   runId: string
+  workspaceId?: string | undefined
   permissionMode: RunPermissionMode
   disabled: boolean
   onSend: (message: string, permissionMode: RunPermissionMode, attachmentIds?: string[]) => void
@@ -161,6 +173,11 @@ function RunComposer({ runId, permissionMode, disabled, onSend, skills = [] }: {
   const [attachments, setAttachments] = useState<Array<{ id: string; name: string }>>([])
   const [slashIndex, setSlashIndex] = useState(0)
   const [slashDismissed, setSlashDismissed] = useState(false)
+  const [mentionIndex, setMentionIndex] = useState(0)
+  const [mentionDismissed, setMentionDismissed] = useState(false)
+  const [matchedFiles, setMatchedFiles] = useState<WorkspaceFileItem[]>([])
+  const [mentionLoading, setMentionLoading] = useState(false)
+  const [mentionMatch, setMentionMatch] = useState<{ query: string; start: number } | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => { setDraftPermissionMode(permissionMode) }, [runId, permissionMode])
@@ -172,18 +189,87 @@ function RunComposer({ runId, permissionMode, disabled, onSend, skills = [] }: {
     ? availableSkills.filter((s) => !slashQuery || s.name.toLowerCase().includes(slashQuery) || (s.description && s.description.toLowerCase().includes(slashQuery)))
     : []
 
+  const isMentionActive = Boolean(!disabled && workspaceId && mentionMatch && !mentionDismissed && !isSlashActive)
+
+  const checkMention = (text: string, cursor: number) => {
+    if (!workspaceId) {
+      setMentionMatch(null)
+      return
+    }
+    const match = getMentionMatch(text, cursor)
+    setMentionMatch(match)
+    if (!match) {
+      setMatchedFiles([])
+      setMentionDismissed(false)
+    }
+  }
+
+  useEffect(() => {
+    if (!workspaceId || !mentionMatch || mentionDismissed) {
+      setMatchedFiles([])
+      return
+    }
+    let cancelled = false
+    setMentionLoading(true)
+    const timeout = setTimeout(async () => {
+      try {
+        const results = await bridge.searchWorkspaceFiles(workspaceId, mentionMatch.query, 30)
+        if (!cancelled) {
+          setMatchedFiles(results)
+          setMentionIndex(0)
+          setMentionLoading(false)
+        }
+      } catch {
+        if (!cancelled) {
+          setMatchedFiles([])
+          setMentionLoading(false)
+        }
+      }
+    }, 120)
+    return () => {
+      cancelled = true
+      clearTimeout(timeout)
+    }
+  }, [workspaceId, mentionMatch?.query, mentionDismissed])
+
   const handleSelectSkill = (skill: SkillItem) => {
     setMessage(`/${skill.name} `)
     setSlashDismissed(false)
     textareaRef.current?.focus()
   }
 
-  const handleMessageChange = (val: string) => {
+  const handleSelectFile = (file: WorkspaceFileItem) => {
+    if (!textareaRef.current) return
+    const cursor = textareaRef.current.selectionStart ?? message.length
+    const match = getMentionMatch(message, cursor)
+    if (!match) return
+
+    const beforeAt = message.slice(0, match.start)
+    const afterCursor = message.slice(cursor)
+    const insertText = `@${file.path} `
+    const nextMessage = beforeAt + insertText + afterCursor
+    const nextCursor = beforeAt.length + insertText.length
+
+    setMessage(nextMessage)
+    setMentionDismissed(false)
+    setMentionMatch(null)
+    setMatchedFiles([])
+
+    requestAnimationFrame(() => {
+      if (textareaRef.current) {
+        textareaRef.current.focus()
+        textareaRef.current.setSelectionRange(nextCursor, nextCursor)
+      }
+    })
+  }
+
+  const handleMessageChange = (val: string, cursor: number) => {
     setMessage(val)
     if (val.startsWith('/') && !val.includes(' ')) {
       setSlashDismissed(false)
       setSlashIndex(0)
     }
+    checkMention(val, cursor)
   }
 
   const submit = () => {
@@ -192,6 +278,7 @@ function RunComposer({ runId, permissionMode, disabled, onSend, skills = [] }: {
     setMessage('')
     setAttachments([])
     setSlashDismissed(false)
+    setMentionDismissed(false)
   }
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -221,6 +308,32 @@ function RunComposer({ runId, permissionMode, disabled, onSend, skills = [] }: {
       }
     }
 
+    if (isMentionActive && matchedFiles.length > 0) {
+      if (event.key === 'ArrowDown') {
+        event.preventDefault()
+        setMentionIndex((prev) => (prev + 1) % matchedFiles.length)
+        return
+      }
+      if (event.key === 'ArrowUp') {
+        event.preventDefault()
+        setMentionIndex((prev) => (prev - 1 + matchedFiles.length) % matchedFiles.length)
+        return
+      }
+      if (event.key === 'Enter' || event.key === 'Tab') {
+        event.preventDefault()
+        const selected = matchedFiles[mentionIndex] ?? matchedFiles[0]
+        if (selected) {
+          handleSelectFile(selected)
+        }
+        return
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setMentionDismissed(true)
+        return
+      }
+    }
+
     if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault()
       submit()
@@ -238,14 +351,29 @@ function RunComposer({ runId, permissionMode, disabled, onSend, skills = [] }: {
             onSelect={handleSelectSkill}
           />
         )}
+        {isMentionActive && (
+          <FileMentionMenu
+            files={matchedFiles}
+            query={mentionMatch?.query ?? ''}
+            selectedIndex={mentionIndex}
+            loading={mentionLoading}
+            onSelect={handleSelectFile}
+          />
+        )}
         <div className="composer-input-box">
           <textarea
             ref={textareaRef}
             value={message}
-            onChange={(event) => handleMessageChange(event.target.value)}
+            onChange={(event) => handleMessageChange(event.target.value, event.target.selectionStart)}
+            onKeyUp={(event) => {
+              if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
+                checkMention(event.currentTarget.value, event.currentTarget.selectionStart)
+              }
+            }}
+            onClick={(event) => checkMention(event.currentTarget.value, event.currentTarget.selectionStart)}
             onKeyDown={handleKeyDown}
             rows={2}
-            placeholder={disabled ? '这项工作已停止' : '交代指令、追加要求（输入 / 快捷调用技能，Enter 发送）…'}
+            placeholder={disabled ? '这项工作已停止' : '交代指令、追加要求（输入 / 调用技能，@ 关联工作区文件，Enter 发送）…'}
             disabled={disabled}
           />
           {attachments.length > 0 && (
@@ -378,7 +506,14 @@ function TasksView({
             onOpenPath={onOpenPath}
           />
         </div>
-        <RunComposer runId={detail.id} permissionMode={detail.permissionMode ?? 'approval'} disabled={inputDisabled} onSend={onSend} skills={snapshot.skills} />
+        <RunComposer
+          runId={detail.id}
+          workspaceId={detail.workspaceId ?? selectedWorkspace?.id}
+          permissionMode={detail.permissionMode ?? 'approval'}
+          disabled={inputDisabled}
+          onSend={onSend}
+          skills={snapshot.skills}
+        />
       </main>
       {inspectorOpen && <WorkInspector detail={detail} snapshot={snapshot} requestedTab={inspectorTab} onBindChrome={onBindChrome} onOpenSettings={onSettings} onRevealArtifact={onRevealArtifact} onOpenArtifact={onOpenArtifact} onOpenPath={onOpenPath} onUndoChange={onUndoChange} />}
     </div>

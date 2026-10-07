@@ -144,4 +144,36 @@ Follow the glossary.
     expect(result.systemPrompt).toContain('# Deep Modules Instructions')
     expect(result.systemPrompt).toContain('Follow the glossary.')
   })
+
+  it('preloads workspace file content when prompt contains @path/to/file mention', async () => {
+    const { directory } = await fixture()
+    const srcDir = join(directory, 'src')
+    await mkdir(srcDir, { recursive: true })
+    const mainTs = join(srcDir, 'main.ts')
+    await writeFile(mainTs, 'export const answer = 42\nconsole.log(answer)\n', 'utf8')
+
+    const database = {
+      audit: vi.fn(),
+      getSetting: vi.fn().mockReturnValue(''),
+      listSkills: vi.fn().mockReturnValue([]),
+      listArtifacts: vi.fn().mockReturnValue([]),
+      listMemory: vi.fn().mockReturnValue([]),
+      listContextCheckpoints: vi.fn().mockReturnValue([]),
+      listMcpServers: vi.fn().mockReturnValue([]),
+      listToolReceiptsForModel: vi.fn().mockReturnValue([]),
+      getArtifact: vi.fn(),
+    } as any
+    const artifacts = {} as any
+    const pipeline = new RunPreparationPipeline(database, artifacts, vi.fn())
+
+    const result = await pipeline.prepare({
+      run: { id: 'run-at', prompt: '请帮我检查 @src/main.ts 的实现', accessMode: 'approval', permissionMode: 'approval' },
+      profile: { id: 'test', name: 'Test', provider: 'deepseek', modelId: 'v3', capabilities: { contextWindow: 64000 } } as any,
+      workspace: { id: 'ws-1', root_path: directory, rules: '' },
+      effectivePrompt: '请帮我检查 @src/main.ts 的实现',
+    })
+
+    expect(result.systemPrompt).toContain('src/main.ts')
+    expect(result.systemPrompt).toContain('export const answer = 42')
+  })
 })

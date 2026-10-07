@@ -614,6 +614,15 @@ export const WorkspaceSchema = z
   })
   .strict()
 
+export const WorkspaceFileItemSchema = z
+  .object({
+    path: z.string().min(1),
+    name: z.string().min(1),
+    isDirectory: z.boolean(),
+    extension: z.string().optional(),
+  })
+  .strict()
+
 export const AppSettingsSchema = z
   .object({
     locale: z.string().min(2),

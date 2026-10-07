@@ -31,6 +31,13 @@ export interface WorkspaceItem extends JsonRecord {
   selected?: boolean
 }
 
+export interface WorkspaceFileItem extends JsonRecord {
+  path: string
+  name: string
+  isDirectory: boolean
+  extension?: string | undefined
+}
+
 export interface RunItem extends JsonRecord {
   id: string
   title: string

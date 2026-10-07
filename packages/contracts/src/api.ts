@@ -36,6 +36,7 @@ import {
   SessionApprovalRuleSchema,
   SkillManifestSchema,
   WorkspaceSchema,
+  WorkspaceFileItemSchema,
 } from './schemas'
 import type {
   AppSettings,
@@ -73,6 +74,7 @@ import type {
   SessionApprovalRule,
   SkillManifest,
   Workspace,
+  WorkspaceFileItem,
 } from './types'
 
 export const DESKTOP_API_VERSION = 1 as const
@@ -476,6 +478,7 @@ export interface DesktopApi {
     update(input: UpdateWorkspaceInput): Promise<Workspace>
     remove(input: { id: string }): Promise<void>
     select(input: { id: string }): Promise<Workspace>
+    searchFiles(input: { workspaceId: string; query?: string; limit?: number }): Promise<WorkspaceFileItem[]>
   }
   runs: {
     list(input?: PageRequest & { workspaceId?: string; status?: Run['status'] }): Promise<Page<RunSummary>>
@@ -601,6 +604,7 @@ export interface DesktopInvokeMap {
   'workspaces:update': { input: UpdateWorkspaceInput; output: Workspace }
   'workspaces:remove': { input: { id: string }; output: undefined }
   'workspaces:select': { input: { id: string }; output: Workspace }
+  'workspaces:search-files': { input: { workspaceId: string; query?: string; limit?: number }; output: WorkspaceFileItem[] }
   'runs:list': { input: (PageRequest & { workspaceId?: string; status?: Run['status'] }) | undefined; output: Page<RunSummary> }
   'runs:get': { input: { id: string }; output: RunDetail }
   'runs:create': { input: CreateRunInput; output: RunDetail }
@@ -869,6 +873,14 @@ export const DesktopInvokeContracts: Record<DesktopInvokeChannel, { input: z.Zod
   'workspaces:update': { input: z.object({ id: IdSchema, name: z.string().min(1).optional(), rules: z.string().optional() }).strict(), output: WorkspaceSchema },
   'workspaces:remove': { input: ByIdSchema, output: VoidSchema },
   'workspaces:select': { input: ByIdSchema, output: WorkspaceSchema },
+  'workspaces:search-files': {
+    input: z.object({
+      workspaceId: IdSchema,
+      query: z.string().max(300).optional(),
+      limit: z.number().int().min(1).max(200).optional(),
+    }).strict(),
+    output: z.array(WorkspaceFileItemSchema),
+  },
   'runs:list': { input: PageRequestSchema.extend({ workspaceId: IdSchema.optional(), status: RunStatusSchema.optional() }).strict().optional(), output: PageSchema(RunSummarySchema) },
   'runs:get': { input: ByIdSchema, output: RunDetailSchema },
   'runs:create': {

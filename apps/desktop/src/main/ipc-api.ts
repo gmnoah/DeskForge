@@ -1,9 +1,10 @@
-import { basename, dirname, isAbsolute, join, relative } from 'node:path'
+import { basename, dirname, extname, isAbsolute, join, relative } from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
 import { lstat, mkdir, readFile, realpath, writeFile } from 'node:fs/promises'
 import { app, dialog, shell } from 'electron'
 import { McpServerInputSchema, type AppSettings, type McpServerInput, type DesktopInvokeChannel, type InstalledCapabilityPackage, type ModelConnectionTest, type ModelProfile } from '@deskforge/contracts'
 import { classifyModelError, redactSecrets } from '@deskforge/core'
+import { walkWorkspace, type SearchScope } from '../workers/workspace-search'
 import type { AppDatabase } from './database'
 import type { SecretStore } from './secret-store'
 import type { AgentHostBridge, ToolRunnerBridge } from './worker-bridge'
@@ -47,6 +48,70 @@ export class IpcApi {
   private pendingWorkspaceSelections = new Map<string, number>()
   private capabilitySelections = new Map<string, { parsed: ParsedCapabilityPackage; fingerprint: string; expiresAt: number }>()
   private capabilityPackages = new CapabilityPackageService()
+
+  private async searchWorkspaceFiles(workspaceId: string, query?: string, limit = 30): Promise<Array<{ path: string; name: string; isDirectory: boolean; extension?: string }>> {
+    const workspace = this.database.getWorkspace(workspaceId)
+    if (!workspace || !workspace.root_path) return []
+    const root = workspace.root_path
+    try {
+      const stat = await lstat(root)
+      if (!stat.isDirectory()) return []
+    } catch {
+      return []
+    }
+
+    const normalizedQuery = (query ?? '').trim().toLowerCase()
+    const maxResults = Math.min(Math.max(limit ?? 30, 1), 100)
+    const candidates: Array<{ item: { path: string; name: string; isDirectory: boolean; extension?: string }; score: number }> = []
+
+    const scope: SearchScope = { root, base: root }
+    try {
+      await walkWorkspace(scope, { maxEntries: 4000, deadline: Date.now() + 2500 }, (entry) => {
+        const relPath = entry.display
+        if (!relPath || relPath === '.') return true
+
+        const name = basename(relPath)
+        const ext = entry.isDirectory ? undefined : extname(name).replace(/^\./, '').toLowerCase()
+
+        if (!normalizedQuery) {
+          candidates.push({
+            item: { path: relPath, name, isDirectory: entry.isDirectory, ...(ext ? { extension: ext } : {}) },
+            score: entry.isDirectory ? 5 : 10,
+          })
+          return candidates.length < maxResults * 2
+        }
+
+        const lowerName = name.toLowerCase()
+        const lowerPath = relPath.toLowerCase()
+
+        if (!lowerPath.includes(normalizedQuery)) return true
+
+        let score = 0
+        if (lowerName === normalizedQuery) score = 100
+        else if (lowerName.startsWith(normalizedQuery)) score = 80
+        else if (lowerName.includes(normalizedQuery)) score = 60
+        else if (lowerPath.startsWith(normalizedQuery)) score = 40
+        else score = 20
+
+        if (!entry.isDirectory) score += 5
+
+        const depth = relPath.split('/').length
+        score -= Math.min(depth, 10)
+
+        candidates.push({
+          item: { path: relPath, name, isDirectory: entry.isDirectory, ...(ext ? { extension: ext } : {}) },
+          score,
+        })
+
+        return candidates.length < 150
+      })
+    } catch {
+      return []
+    }
+
+    candidates.sort((a, b) => b.score - a.score || a.item.path.localeCompare(b.item.path))
+    return candidates.slice(0, maxResults).map((c) => c.item)
+  }
 
   constructor(
     private database: AppDatabase,
@@ -164,6 +229,7 @@ export class IpcApi {
       },
       'workspaces:remove': async ({ id }) => { this.database.removeWorkspace(id); await this.knowledge.drop(id).catch(() => undefined) },
       'workspaces:select': ({ id }) => { const row = this.database.getWorkspace(id); if (!row) throw new Error('工作区不存在'); this.database.setSetting('selectedWorkspaceId', id); return presentWorkspace(row, id) },
+      'workspaces:search-files': ({ workspaceId, query, limit }) => this.searchWorkspaceFiles(workspaceId, query, limit),
 
       'runs:list': (input) => {
         const profiles = this.modelProfiles()

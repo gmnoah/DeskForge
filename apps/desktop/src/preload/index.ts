@@ -20,6 +20,7 @@ const api: DesktopApi = {
   workspaces: {
     list: noInput('workspaces:list'), create: (input) => invoke('workspaces:create', input), update: (input) => invoke('workspaces:update', input),
     remove: (input) => invoke('workspaces:remove', input), select: (input) => invoke('workspaces:select', input),
+    searchFiles: (input) => invoke('workspaces:search-files', input),
   },
   runs: {
     list: (input) => invoke('runs:list', input), get: (input) => invoke('runs:get', input), create: (input) => invoke('runs:create', input),

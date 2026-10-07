@@ -56,6 +56,19 @@ describe('renderer contracts', () => {
     expect(contract.input.safeParse({ path: '/tmp/project', name: 'Project' }).success).toBe(true)
   })
 
+  it('validates workspaces:search-files IPC contract input and output', () => {
+    const contract = DesktopInvokeContracts['workspaces:search-files']
+    expect(contract.input.safeParse({ workspaceId: 'ws-123', query: 'app', limit: 20 }).success).toBe(true)
+    expect(contract.input.safeParse({ workspaceId: 'ws-123' }).success).toBe(true)
+    expect(contract.input.safeParse({}).success).toBe(false)
+    expect(contract.input.safeParse({ workspaceId: 'ws-123', limit: 500 }).success).toBe(false)
+
+    expect(contract.output.safeParse([
+      { path: 'src/main.ts', name: 'main.ts', isDirectory: false, extension: 'ts' },
+      { path: 'src', name: 'src', isDirectory: true },
+    ]).success).toBe(true)
+  })
+
   it('accepts Moonshot AI China across provider and renderer model contracts', () => {
     expect(ProviderIdSchema.parse('kimi')).toBe('kimi')
     expect(DesktopInvokeContracts['models:catalog'].input.parse({ provider: 'kimi' })).toEqual({ provider: 'kimi' })

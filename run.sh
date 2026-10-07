@@ -13,8 +13,9 @@ if [[ "$(uname -s)" == "Darwin" && -f "apps/desktop/build/icon.icns" ]]; then
 fi
 
 # 确保 better-sqlite3 符合当前 Electron ABI
-if [[ -f "node_modules/.bin/electron" ]]; then
-  if ! ./node_modules/.bin/electron -e "require('better-sqlite3')" >/dev/null 2>&1; then
+ELECTRON_BIN="$(find apps/desktop/node_modules/electron/dist -name "Electron" -type f -perm +111 2>/dev/null | head -n 1 || true)"
+if [[ -n "$ELECTRON_BIN" ]]; then
+  if ! ELECTRON_RUN_AS_NODE=1 "$ELECTRON_BIN" -e "require('./apps/desktop/node_modules/better-sqlite3')" >/dev/null 2>&1; then
     echo ">> 同步原生模块至 Electron ABI..."
     pnpm --filter @deskforge/desktop exec electron-rebuild -f -w better-sqlite3 >/dev/null 2>&1 || true
   fi
