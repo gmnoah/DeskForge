@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { app, BrowserWindow, ipcMain, Menu, nativeImage, Notification, session, shell, Tray } from 'electron'
 import { DesktopEventSchema, DesktopInvokeContracts, type DesktopInvokeChannel, type RunEvent } from '@deskforge/contracts'
@@ -48,8 +49,25 @@ function routeOAuthCallback(url: string): void {
 
 app.on('open-url', (event, url) => { event.preventDefault(); routeOAuthCallback(url) })
 
+function getAppIcon(): Electron.NativeImage | undefined {
+  const candidates = [
+    join(__dirname, '../../build/icon.png'),
+    join(__dirname, '../build/icon.png'),
+    join(app.getAppPath(), 'build/icon.png'),
+    join(process.cwd(), 'build/icon.png'),
+    join(process.cwd(), 'apps/desktop/build/icon.png'),
+  ]
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      const img = nativeImage.createFromPath(candidate)
+      if (!img.isEmpty()) return img
+    }
+  }
+  return undefined
+}
+
 const trayIcon = (): Electron.NativeImage => {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 22 22"><path fill="black" d="M4 3.5A2.5 2.5 0 0 1 6.5 1h9A2.5 2.5 0 0 1 18 3.5v11a2.5 2.5 0 0 1-2.5 2.5H11l-4.8 3.2c-.5.33-1.2-.03-1.2-.64V17A2.5 2.5 0 0 1 2.5 14.5v-11H4Zm3.2 4.2a1.3 1.3 0 1 0 0 2.6 1.3 1.3 0 0 0 0-2.6Zm7.6 0a1.3 1.3 0 1 0 0 2.6 1.3 1.3 0 0 0 0-2.6ZM7 12.4a.8.8 0 0 0-.64 1.28A5.78 5.78 0 0 0 11 16a5.78 5.78 0 0 0 4.64-2.32.8.8 0 1 0-1.28-.96A4.18 4.18 0 0 1 11 14.4a4.18 4.18 0 0 1-3.36-1.68A.8.8 0 0 0 7 12.4Z"/></svg>`
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20"><path fill="none" stroke="black" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="M3 5l3.5 10 3.5-6.5m0 0l3.5 6.5 3.5-10"/><circle cx="10" cy="8.5" r="1.6" fill="black"/></svg>`
   const icon = nativeImage.createFromDataURL(`data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`)
   icon.setTemplateImage(true)
   return icon
@@ -64,6 +82,12 @@ function createWindow(): BrowserWindow {
   const rendererEntryPath = join(__dirname, '../renderer/index.html')
   const rendererDevUrl = process.env.ELECTRON_RENDERER_URL
   const navigationPolicy = createRendererNavigationPolicy(rendererEntryPath, rendererDevUrl)
+  const appIcon = getAppIcon()
+
+  if (process.platform === 'darwin' && app.dock && appIcon) {
+    app.dock.setIcon(appIcon)
+  }
+
   const window = new BrowserWindow({
     width: 1440,
     height: 900,
@@ -74,6 +98,7 @@ function createWindow(): BrowserWindow {
     trafficLightPosition: { x: 16, y: 16 },
     backgroundColor: '#f6f7f9',
     show: false,
+    ...(appIcon ? { icon: appIcon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.cjs'),
       sandbox: true,
@@ -103,6 +128,10 @@ function createWindow(): BrowserWindow {
 }
 
 async function initialize(): Promise<void> {
+  const appIcon = getAppIcon()
+  if (process.platform === 'darwin' && app.dock && appIcon) {
+    app.dock.setIcon(appIcon)
+  }
   const userData = app.getPath('userData')
   if (process.platform === 'darwin') {
     const migration = await migrateLegacyBrandDirectory(app.getPath('appData'), userData)

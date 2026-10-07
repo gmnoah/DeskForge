@@ -1,28 +1,114 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
   <defs>
-    <linearGradient id="field" x1="160" y1="120" x2="860" y2="920" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#FFFEFA"/>
-      <stop offset="1" stop-color="#EEEDE7"/>
+    <!-- Background Gradient: Deep Slate Carbon with Warm Metallic Undertone -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#242833"/>
+      <stop offset="45%" stop-color="#181B22"/>
+      <stop offset="100%" stop-color="#0E1015"/>
     </linearGradient>
-    <linearGradient id="cobalt" x1="220" y1="250" x2="520" y2="760" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#5269D7"/>
-      <stop offset="1" stop-color="#2F45AD"/>
+
+    <!-- Bevel Rim Highlight -->
+    <linearGradient id="rimGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.28"/>
+      <stop offset="40%" stop-color="#FFA86B" stop-opacity="0.14"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0.5"/>
     </linearGradient>
-    <linearGradient id="graphite" x1="500" y1="250" x2="810" y2="760" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#343943"/>
-      <stop offset="1" stop-color="#171A1F"/>
+
+    <!-- Forge Flame Radial Glow -->
+    <radialGradient id="forgeGlow" cx="50%" cy="48%" r="48%">
+      <stop offset="0%" stop-color="#EA580C" stop-opacity="0.45"/>
+      <stop offset="35%" stop-color="#C2410C" stop-opacity="0.20"/>
+      <stop offset="100%" stop-color="#0E1015" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Primary Forge Beam: Molten Amber Gold to Copper -->
+    <linearGradient id="beamPrimary" x1="10%" y1="10%" x2="90%" y2="90%">
+      <stop offset="0%" stop-color="#FBBF24"/>
+      <stop offset="35%" stop-color="#F59E0B"/>
+      <stop offset="100%" stop-color="#D97706"/>
     </linearGradient>
-    <filter id="shadow" x="-25%" y="-25%" width="150%" height="170%">
-      <feDropShadow dx="0" dy="24" stdDeviation="22" flood-color="#1B1D22" flood-opacity=".22"/>
-    </filter>
+
+    <!-- Secondary Forge Beam: Deep Bronze Copper -->
+    <linearGradient id="beamSecondary" x1="20%" y1="20%" x2="80%" y2="80%">
+      <stop offset="0%" stop-color="#FB923C"/>
+      <stop offset="45%" stop-color="#EA580C"/>
+      <stop offset="100%" stop-color="#C2410C"/>
+    </linearGradient>
+
+    <!-- Core Orb Glowing Bead Gradient -->
+    <radialGradient id="orbCore" cx="35%" cy="30%" r="70%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="30%" stop-color="#FEF3C7"/>
+      <stop offset="70%" stop-color="#F59E0B"/>
+      <stop offset="100%" stop-color="#B45309"/>
+    </radialGradient>
   </defs>
-  <rect x="64" y="64" width="896" height="896" rx="218" fill="url(#field)"/>
-  <g filter="url(#shadow)">
-    <path d="M244 300 366 716 512 470" fill="none" stroke="url(#cobalt)" stroke-width="112" stroke-linecap="round" stroke-linejoin="round"/>
-    <path d="m512 470 146 246 122-416" fill="none" stroke="url(#graphite)" stroke-width="112" stroke-linecap="round" stroke-linejoin="round"/>
-    <path d="M252 292 368 680" fill="none" stroke="#FFFFFF" stroke-width="13" stroke-linecap="round" opacity=".18"/>
-    <path d="m521 470 136 222" fill="none" stroke="#FFFFFF" stroke-width="11" stroke-linecap="round" opacity=".10"/>
+
+  <!-- macOS Squircle App Plate -->
+  <rect x="72" y="72" width="880" height="880" rx="204" fill="url(#bgGrad)"/>
+  <rect x="72" y="72" width="880" height="880" rx="204" fill="url(#forgeGlow)"/>
+  <rect x="73" y="73" width="878" height="878" rx="203" fill="none" stroke="url(#rimGrad)" stroke-width="2.5"/>
+
+  <!-- Center DeskForge Brand Emblem -->
+  <g transform="translate(104, 104) scale(25.5)" fill="none">
+    <!-- Ambient Shadow Underlayer -->
+    <g transform="translate(0, 0.75)" opacity="0.6">
+      <path d="M4.5 7.25 9.75 24.5 16 13.25" stroke="#000000" stroke-width="4.2" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="m16 13.25 6.25 11.25L27.5 7.25" stroke="#000000" stroke-width="4.2" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="m10.25 8.25 5.75 5 5.75-5" stroke="#000000" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="16" cy="13.25" r="3.2" fill="#000000"/>
+    </g>
+
+    <!-- Primary Left Arm -->
+    <path
+      d="M4.5 7.25 9.75 24.5 16 13.25"
+      stroke="url(#beamPrimary)"
+      stroke-width="3.8"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+    <!-- Specular Highlight along Left Arm -->
+    <path
+      d="M4.6 7.4 9.75 24.2 15.9 13.3"
+      stroke="#FFFFFF"
+      stroke-width="0.8"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      opacity="0.42"
+    />
+
+    <!-- Secondary Right Arm -->
+    <path
+      d="m16 13.25 6.25 11.25L27.5 7.25"
+      stroke="url(#beamSecondary)"
+      stroke-width="3.8"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      opacity="0.94"
+    />
+    <!-- Specular Highlight along Right Arm -->
+    <path
+      d="m16.1 13.4 6.15 11.05L27.4 7.4"
+      stroke="#FFFFFF"
+      stroke-width="0.8"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      opacity="0.35"
+    />
+
+    <!-- Connecting Chevron Joint -->
+    <path
+      d="m10.25 8.25 5.75 5 5.75-5"
+      stroke="#FDBA74"
+      stroke-width="2.2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      opacity="0.55"
+    />
+
+    <!-- Central Glowing Core Node -->
+    <circle cx="16" cy="13.25" r="4.2" fill="#EA580C" opacity="0.3"/>
+    <circle cx="16" cy="13.25" r="2.7" fill="url(#orbCore)"/>
+    <circle cx="16" cy="13.25" r="2.7" stroke="#FFFBEB" stroke-width="0.5" opacity="0.9"/>
   </g>
-  <circle cx="512" cy="470" r="25" fill="#A76513"/>
-  <circle cx="512" cy="470" r="25" fill="none" stroke="#FFF7E8" stroke-width="7" opacity=".88"/>
 </svg>
