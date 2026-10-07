@@ -518,14 +518,17 @@
   border-top: 1px solid var(--separator);
 }
 .composer-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.composer-submit-group { display: flex; align-items: center; gap: 10px; }
-.composer-shortcut-hint { color: var(--text-tertiary); font-size: 11px; }
-.send-button {
+.composer-submit-group { display: flex; align-items: center; }
+.run-composer .send-button {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
+  width: auto;
+  min-width: 68px;
   height: 30px;
   padding: 0 12px;
+  white-space: nowrap;
   color: #ffffff;
   background: linear-gradient(135deg, var(--accent) 0%, var(--accent-hover) 100%);
   border: 0;
@@ -533,15 +536,21 @@
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
-  transition: all var(--motion-fast) ease;
+  box-shadow: 0 2px 6px var(--accent-border), inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  transition: transform var(--motion-fast) ease, box-shadow var(--motion-fast) ease, background var(--motion-fast) ease;
 }
-.send-button:hover:not(:disabled) {
+.run-composer .send-button:hover:not(:disabled) {
   background: var(--accent-hover);
-  box-shadow: 0 2px 8px var(--accent-border);
+  box-shadow: 0 4px 10px var(--accent-border);
 }
-.send-button:disabled {
+.run-composer .send-button:active:not(:disabled) {
+  transform: scale(0.96);
+}
+.run-composer .send-button:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
 }
 .attachment-button.compact { height: 28px; padding: 0 8px; color: var(--text-secondary); background: transparent; border: 1px solid transparent; border-radius: var(--radius-control); font-size: 12px; }
 .attachment-button.compact:hover { background: var(--surface-hover); color: var(--text); border-color: var(--separator); }

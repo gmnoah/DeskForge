@@ -232,8 +232,13 @@ function RunComposer({ runId, permissionMode, disabled, onSend }: {
             </span>
           </div>
           <div className="composer-submit-group">
-            <span className="composer-shortcut-hint">↵ 发送</span>
-            <button type="submit" className="send-button" aria-label="发送" disabled={disabled || !message.trim()}>
+            <button
+              type="submit"
+              className="send-button"
+              aria-label="发送指令"
+              title="发送指令 (Enter，Shift+Enter 换行)"
+              disabled={disabled || !message.trim()}
+            >
               <span>发送</span>
               <Icon name="send" size={13} />
             </button>
