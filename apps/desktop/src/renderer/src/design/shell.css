@@ -236,6 +236,7 @@
 .welcome-view > .inline-notice { width: min(680px, 100%); margin-bottom: 14px; }
 
 .hero-composer {
+  position: relative;
   width: min(680px, 100%);
   padding: 16px;
   background: var(--surface);

@@ -174,7 +174,37 @@ export class RunPreparationPipeline {
       state.contextInput.workspaceRules = await this.loadWorkspaceRules(state.run, state.workspace)
     } },
     { id: 'skill_catalog', apply: async (state) => {
-      state.contextInput.skills = this.database.listSkills().filter((skill) => skill.enabled).map((skill) => ({ manifest: presentSkill(skill) }))
+      const skills = this.database.listSkills().filter((skill) => skill.enabled)
+      const promptText = (state.run.goal ?? state.run.prompt ?? '').trim()
+      const slashMatch = promptText.match(/^\/([a-z0-9]+(?:-[a-z0-9]+)*)(?:\s+|$)/i)
+      const explicitSkillName = slashMatch?.[1]?.toLowerCase()
+
+      state.contextInput.skills = await Promise.all(skills.map(async (skill) => {
+        const manifest = presentSkill(skill)
+        if (explicitSkillName && manifest.name.toLowerCase() === explicitSkillName) {
+          try {
+            const skillMdPath = join(skill.path, 'SKILL.md')
+            const raw = await readFile(skillMdPath, 'utf8')
+            const normalized = raw.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n')
+            let body = normalized
+            if (normalized.startsWith('---\n')) {
+              const end = normalized.indexOf('\n---\n', 4)
+              const tend = normalized.endsWith('\n---') ? normalized.length - 4 : -1
+              const endIndex = end >= 0 ? end : tend
+              if (endIndex > 0) {
+                const bodyOffset = end >= 0 ? endIndex + 5 : endIndex + 4
+                body = normalized.slice(bodyOffset).trim()
+              }
+            }
+            if (body) {
+              return { manifest, instructions: body }
+            }
+          } catch {
+            // fallback without preloaded instructions
+          }
+        }
+        return { manifest }
+      }))
     } },
     { id: 'mcp_catalog', apply: async (state) => {
       const catalog = renderMcpCatalog(this.database.listMcpServers())
@@ -272,7 +302,7 @@ export class RunPreparationPipeline {
     const contextBudgetDiagnostic = state.diagnostics.find((entry) => entry.id === 'context_budget')
     if (contextBudgetDiagnostic) contextBudgetDiagnostic.tokenEstimate = context.estimatedTokens
 
-    let history: PreparedHistoryMessage[] = input.run.messages
+    let history: PreparedHistoryMessage[] = (input.run.messages ?? [])
       .filter((message: any) => (message.role === 'user' || message.role === 'assistant') && (message.role !== 'assistant' || String(message.content ?? '').trim().length > 0))
       .map((message: any) => ({ role: message.role, content: message.content, timestamp: Date.parse(message.createdAt ?? message.created_at), sourceRef: `message:${message.id}` }))
     const last = history.at(-1)
@@ -434,7 +464,8 @@ export class RunPreparationPipeline {
   }
 
   private async loadPreviousCheckpoint(run: any): Promise<ContextItem | undefined> {
-    const latest = run.artifacts.find((artifact: any) => artifact.kind === 'checkpoint')
+    const artifacts = Array.isArray(run.artifacts) ? run.artifacts : []
+    const latest = artifacts.find((artifact: any) => artifact.kind === 'checkpoint')
     if (!latest) return undefined
     try {
       return { id: `checkpoint-${latest.id}`, kind: 'checkpoint', content: (await this.artifacts.read(latest.path)).toString('utf8'), source: `artifact:${latest.id}`, trusted: true, priority: 980, stable: false, createdAt: latest.createdAt ?? latest.created_at }

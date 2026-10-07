@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { bridge, resultId } from './bridge'
 import { useResolvedTheme, useWorkbench } from './hooks'
 import { BrandMark, Icon, type IconName } from './icons'
@@ -11,6 +11,7 @@ import { connectionTestFailure, describeConnectionTest, type ConnectionTestView 
 import { ConnectionTestNotice } from './features/settings/ConnectionTestNotice'
 import { ShellSidebar } from './features/shell/ShellSidebar'
 import { WelcomeComposer } from './features/shell/WelcomeComposer'
+import { SlashCommandMenu } from './features/shell/SlashCommandMenu'
 import { WorkTimeline } from './features/work/WorkTimeline'
 import { ApprovalDiff } from './features/work/ApprovalDiff'
 import { isUserVisibleArtifact, WorkInspector, type WorkInspectorTab } from './features/work/WorkInspector'
@@ -21,6 +22,7 @@ import type {
   ModelProvider,
   RunPermissionMode,
   RunDetailView,
+  SkillItem,
   ViewKey,
   WorkbenchSnapshot,
   WorkspaceItem,
@@ -147,25 +149,78 @@ function RunHeader({ detail, onPause, onResume, onCancel, onToggleInspector, ins
   )
 }
 
-function RunComposer({ runId, permissionMode, disabled, onSend }: {
+function RunComposer({ runId, permissionMode, disabled, onSend, skills = [] }: {
   runId: string
   permissionMode: RunPermissionMode
   disabled: boolean
   onSend: (message: string, permissionMode: RunPermissionMode, attachmentIds?: string[]) => void
+  skills?: SkillItem[]
 }) {
   const [message, setMessage] = useState('')
   const [draftPermissionMode, setDraftPermissionMode] = useState<RunPermissionMode>(permissionMode)
   const [attachments, setAttachments] = useState<Array<{ id: string; name: string }>>([])
+  const [slashIndex, setSlashIndex] = useState(0)
+  const [slashDismissed, setSlashDismissed] = useState(false)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
   useEffect(() => { setDraftPermissionMode(permissionMode) }, [runId, permissionMode])
+
+  const isSlashActive = !disabled && message.startsWith('/') && !message.includes(' ') && !slashDismissed
+  const slashQuery = isSlashActive ? message.slice(1).toLowerCase() : ''
+  const availableSkills = skills.filter((s) => s.enabled !== false)
+  const matchingSkills = isSlashActive
+    ? availableSkills.filter((s) => !slashQuery || s.name.toLowerCase().includes(slashQuery) || (s.description && s.description.toLowerCase().includes(slashQuery)))
+    : []
+
+  const handleSelectSkill = (skill: SkillItem) => {
+    setMessage(`/${skill.name} `)
+    setSlashDismissed(false)
+    textareaRef.current?.focus()
+  }
+
+  const handleMessageChange = (val: string) => {
+    setMessage(val)
+    if (val.startsWith('/') && !val.includes(' ')) {
+      setSlashDismissed(false)
+      setSlashIndex(0)
+    }
+  }
 
   const submit = () => {
     if (!message.trim() || disabled) return
     onSend(message.trim(), draftPermissionMode, attachments.map((attachment) => attachment.id))
     setMessage('')
     setAttachments([])
+    setSlashDismissed(false)
   }
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (isSlashActive && matchingSkills.length > 0) {
+      if (event.key === 'ArrowDown') {
+        event.preventDefault()
+        setSlashIndex((prev) => (prev + 1) % matchingSkills.length)
+        return
+      }
+      if (event.key === 'ArrowUp') {
+        event.preventDefault()
+        setSlashIndex((prev) => (prev - 1 + matchingSkills.length) % matchingSkills.length)
+        return
+      }
+      if (event.key === 'Enter' || event.key === 'Tab') {
+        event.preventDefault()
+        const selected = matchingSkills[slashIndex] ?? matchingSkills[0]
+        if (selected) {
+          handleSelectSkill(selected)
+        }
+        return
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setSlashDismissed(true)
+        return
+      }
+    }
+
     if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault()
       submit()
@@ -175,13 +230,22 @@ function RunComposer({ runId, permissionMode, disabled, onSend }: {
   return (
     <div className="run-composer-dock">
       <SubmitForm className="run-composer" onSubmit={submit}>
+        {isSlashActive && matchingSkills.length > 0 && (
+          <SlashCommandMenu
+            skills={matchingSkills}
+            query={slashQuery}
+            selectedIndex={slashIndex}
+            onSelect={handleSelectSkill}
+          />
+        )}
         <div className="composer-input-box">
           <textarea
+            ref={textareaRef}
             value={message}
-            onChange={(event) => setMessage(event.target.value)}
+            onChange={(event) => handleMessageChange(event.target.value)}
             onKeyDown={handleKeyDown}
             rows={2}
-            placeholder={disabled ? '这项工作已停止' : '交代指令、追加要求或调整方向（Enter 发送，Shift+Enter 换行）…'}
+            placeholder={disabled ? '这项工作已停止' : '交代指令、追加要求（输入 / 快捷调用技能，Enter 发送）…'}
             disabled={disabled}
           />
           {attachments.length > 0 && (
@@ -296,7 +360,7 @@ function TasksView({
 }) {
   const [inspectorTab, setInspectorTab] = useState<WorkInspectorTab>('details')
   if (!detail && runLoading) return <main className="main-pane centered"><Spinner size={24} /></main>
-  if (!detail) return <main className="main-pane"><WelcomeComposer workspace={selectedWorkspace} models={snapshot.models} defaultMode={snapshot.settings.defaultExecutionMode === 'plan' ? 'plan' : 'execute'} defaultPermissionMode="approval" onSubmit={onCreate} onOpenSettings={onSettings} /></main>
+  if (!detail) return <main className="main-pane"><WelcomeComposer workspace={selectedWorkspace} models={snapshot.models} defaultMode={snapshot.settings.defaultExecutionMode === 'plan' ? 'plan' : 'execute'} defaultPermissionMode="approval" onSubmit={onCreate} onOpenSettings={onSettings} skills={snapshot.skills} /></main>
   const inputDisabled = detail.status === 'cancelled'
   const pendingApprovals = detail.approvals.filter((approval) => approval.status === undefined || approval.status === 'pending')
   const openInspector = (tab: WorkInspectorTab) => { setInspectorTab(tab); if (!inspectorOpen) onInspector() }
@@ -314,7 +378,7 @@ function TasksView({
             onOpenPath={onOpenPath}
           />
         </div>
-        <RunComposer runId={detail.id} permissionMode={detail.permissionMode ?? 'approval'} disabled={inputDisabled} onSend={onSend} />
+        <RunComposer runId={detail.id} permissionMode={detail.permissionMode ?? 'approval'} disabled={inputDisabled} onSend={onSend} skills={snapshot.skills} />
       </main>
       {inspectorOpen && <WorkInspector detail={detail} snapshot={snapshot} requestedTab={inspectorTab} onBindChrome={onBindChrome} onOpenSettings={onSettings} onRevealArtifact={onRevealArtifact} onOpenArtifact={onOpenArtifact} onOpenPath={onOpenPath} onUndoChange={onUndoChange} />}
     </div>

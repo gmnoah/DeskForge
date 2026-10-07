@@ -105,4 +105,43 @@ describe('RunPreparationPipeline workspace rules loading', () => {
     expect(rules[0]!.source).toBe('WORKBUDDY.md')
     expect(rules[0]!.content).toContain('# Legacy Instructions')
   })
+
+  it('preloads skill instructions when run prompt starts with /skill-name', async () => {
+    const { directory } = await fixture()
+    const skillDir = join(directory, 'skills', 'codebase-design')
+    await mkdir(skillDir, { recursive: true })
+    await writeFile(join(skillDir, 'SKILL.md'), `---
+name: codebase-design
+description: Design deep modules.
+---
+# Deep Modules Instructions
+Follow the glossary.
+`, 'utf8')
+
+    const database = {
+      audit: vi.fn(),
+      getSetting: vi.fn().mockReturnValue(''),
+      listSkills: vi.fn().mockReturnValue([
+        { id: 'skill-1', name: 'codebase-design', description: 'Design deep modules.', path: skillDir, enabled: true },
+      ]),
+      listArtifacts: vi.fn().mockReturnValue([]),
+      listMemory: vi.fn().mockReturnValue([]),
+      listContextCheckpoints: vi.fn().mockReturnValue([]),
+      listMcpServers: vi.fn().mockReturnValue([]),
+      listToolReceiptsForModel: vi.fn().mockReturnValue([]),
+      getArtifact: vi.fn(),
+    } as any
+    const artifacts = {} as any
+    const pipeline = new RunPreparationPipeline(database, artifacts, vi.fn())
+
+    const result = await pipeline.prepare({
+      run: { id: 'run-slash', prompt: '/codebase-design 优化架构设计', accessMode: 'approval', permissionMode: 'approval' },
+      profile: { id: 'test', name: 'Test', provider: 'deepseek', modelId: 'v3', capabilities: { contextWindow: 64000 } } as any,
+      workspace: { id: 'ws-1', root_path: directory, rules: '' },
+      effectivePrompt: '/codebase-design 优化架构设计',
+    })
+
+    expect(result.systemPrompt).toContain('# Deep Modules Instructions')
+    expect(result.systemPrompt).toContain('Follow the glossary.')
+  })
 })

@@ -12,5 +12,13 @@ if [[ "$(uname -s)" == "Darwin" && -f "apps/desktop/build/icon.icns" ]]; then
   fi
 fi
 
+# 确保 better-sqlite3 符合当前 Electron ABI
+if [[ -f "node_modules/.bin/electron" ]]; then
+  if ! ./node_modules/.bin/electron -e "require('better-sqlite3')" >/dev/null 2>&1; then
+    echo ">> 同步原生模块至 Electron ABI..."
+    pnpm --filter @deskforge/desktop exec electron-rebuild -f -w better-sqlite3 >/dev/null 2>&1 || true
+  fi
+fi
+
 echo ">> 启动 DeskForge 桌面开发环境..."
 exec pnpm dev

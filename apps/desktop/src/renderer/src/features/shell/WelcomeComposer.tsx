@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { bridge, errorMessage } from '../../bridge'
 import { BrandMark, Icon } from '../../icons'
-import type { ModelProfileItem, RunPermissionMode, WorkspaceItem } from '../../types'
+import type { ModelProfileItem, RunPermissionMode, SkillItem, WorkspaceItem } from '../../types'
 import { SubmitForm } from '../../ui'
+import { SlashCommandMenu } from './SlashCommandMenu'
 
 export interface WelcomeComposerProps {
   workspace: WorkspaceItem | undefined
@@ -11,6 +12,7 @@ export interface WelcomeComposerProps {
   defaultPermissionMode: RunPermissionMode
   onSubmit: (prompt: string, mode: 'plan' | 'execute', permissionMode: RunPermissionMode, modelId?: string, attachmentIds?: string[]) => void
   onOpenSettings: () => void
+  skills?: SkillItem[]
 }
 
 const SUGGESTIONS = [
@@ -26,6 +28,7 @@ export function WelcomeComposer({
   defaultPermissionMode,
   onSubmit,
   onOpenSettings,
+  skills = [],
 }: WelcomeComposerProps) {
   const [prompt, setPrompt] = useState('')
   const [mode, setMode] = useState<'plan' | 'execute'>(defaultMode)
@@ -33,6 +36,9 @@ export function WelcomeComposer({
   const [modelId, setModelId] = useState(models.find((model) => model.isDefault)?.id ?? models[0]?.id ?? '')
   const [attachments, setAttachments] = useState<Array<{ id: string; name: string }>>([])
   const [attachmentError, setAttachmentError] = useState<string>()
+  const [slashIndex, setSlashIndex] = useState(0)
+  const [slashDismissed, setSlashDismissed] = useState(false)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
     if (!models.some((model) => model.id === modelId)) {
@@ -42,13 +48,61 @@ export function WelcomeComposer({
 
   useEffect(() => { setPermissionMode(defaultPermissionMode) }, [defaultPermissionMode])
 
+  const isSlashActive = prompt.startsWith('/') && !prompt.includes(' ') && !slashDismissed
+  const slashQuery = isSlashActive ? prompt.slice(1).toLowerCase() : ''
+  const availableSkills = skills.filter((s) => s.enabled !== false)
+  const matchingSkills = isSlashActive
+    ? availableSkills.filter((s) => !slashQuery || s.name.toLowerCase().includes(slashQuery) || (s.description && s.description.toLowerCase().includes(slashQuery)))
+    : []
+
+  const handleSelectSkill = (skill: SkillItem) => {
+    setPrompt(`/${skill.name} `)
+    setSlashDismissed(false)
+    textareaRef.current?.focus()
+  }
+
+  const handlePromptChange = (val: string) => {
+    setPrompt(val)
+    if (val.startsWith('/') && !val.includes(' ')) {
+      setSlashDismissed(false)
+      setSlashIndex(0)
+    }
+  }
+
   const submit = () => {
     if (prompt.trim() && workspace && models.length > 0) {
       onSubmit(prompt.trim(), mode, permissionMode, modelId || undefined, attachments.map((attachment) => attachment.id))
+      setSlashDismissed(false)
     }
   }
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (isSlashActive && matchingSkills.length > 0) {
+      if (event.key === 'ArrowDown') {
+        event.preventDefault()
+        setSlashIndex((prev) => (prev + 1) % matchingSkills.length)
+        return
+      }
+      if (event.key === 'ArrowUp') {
+        event.preventDefault()
+        setSlashIndex((prev) => (prev - 1 + matchingSkills.length) % matchingSkills.length)
+        return
+      }
+      if (event.key === 'Enter' || event.key === 'Tab') {
+        event.preventDefault()
+        const selected = matchingSkills[slashIndex] ?? matchingSkills[0]
+        if (selected) {
+          handleSelectSkill(selected)
+        }
+        return
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setSlashDismissed(true)
+        return
+      }
+    }
+
     if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault()
       submit()
@@ -70,11 +124,20 @@ export function WelcomeComposer({
         <div className="inline-notice warning"><Icon name="key" /><span>还没有可用的模型配置。</span><button type="button" onClick={onOpenSettings}>添加模型</button></div>
       )}
       <SubmitForm className="hero-composer" onSubmit={submit}>
+        {isSlashActive && matchingSkills.length > 0 && (
+          <SlashCommandMenu
+            skills={matchingSkills}
+            query={slashQuery}
+            selectedIndex={slashIndex}
+            onSelect={handleSelectSkill}
+          />
+        )}
         <textarea
+          ref={textareaRef}
           value={prompt}
-          onChange={(event) => setPrompt(event.target.value)}
+          onChange={(event) => handlePromptChange(event.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="描述你想完成的工作（Enter 发送，Shift+Enter 换行）…"
+          placeholder="描述你想完成的工作（输入 / 快捷调用技能，Enter 发送）…"
           rows={4}
         />
         {attachments.length > 0 && <div className="composer-attachments">{attachments.map((attachment) => <span key={attachment.id}><Icon name="file" size={13} />{attachment.name}<button type="button" aria-label={`移除 ${attachment.name}`} onClick={() => setAttachments((items) => items.filter((item) => item.id !== attachment.id))}>×</button></span>)}</div>}

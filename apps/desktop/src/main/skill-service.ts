@@ -10,6 +10,7 @@ import {
   realpath,
   rename,
   rm,
+  stat,
 } from 'node:fs/promises'
 import { basename, isAbsolute, join, relative, resolve } from 'node:path'
 
@@ -88,11 +89,21 @@ const isWithin = (root: string, candidate: string, allowRoot = false): boolean =
 }
 
 const ensureValidName = (value: unknown, fallback: string): string => {
-  const name = typeof value === 'string' && value.trim() ? value.trim() : fallback
-  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name) || name.length > 64) {
-    throw new Error('Skill name 必须为不超过 64 个字符的小写字母、数字和单连字符组合')
+  if (typeof value === 'string' && value.trim()) {
+    const raw = value.trim()
+    if (/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(raw) && raw.length <= 64) {
+      return raw
+    }
+    const firstToken = raw.split(/\s+/)[0]
+    if (firstToken && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(firstToken) && firstToken.length <= 64) {
+      return firstToken
+    }
   }
-  return name
+  const fallbackClean = fallback.trim()
+  if (/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(fallbackClean) && fallbackClean.length <= 64) {
+    return fallbackClean
+  }
+  throw new Error('Skill name 必须为不超过 64 个字符的小写字母、数字和单连字符组合')
 }
 
 const readTextWithinLimit = async (filePath: string): Promise<string> => {
@@ -271,9 +282,15 @@ const toManifest = (row: SkillRow): SkillManifest => {
 
 export class SkillService {
   readonly skillsRoot: string
+  readonly globalRoots: string[]
 
-  constructor(private readonly database: AppDatabase, skillsRoot: string) {
+  constructor(
+    private readonly database: AppDatabase,
+    skillsRoot: string,
+    globalRoots: string[] = [],
+  ) {
     this.skillsRoot = resolve(skillsRoot)
+    this.globalRoots = globalRoots.map((candidate) => resolve(candidate))
   }
 
   private rows(): SkillRow[] {
@@ -296,45 +313,76 @@ export class SkillService {
     return row
   }
 
+  private async canonicalRoots(): Promise<string[]> {
+    const roots: string[] = []
+    try {
+      await mkdir(this.skillsRoot, { recursive: true, mode: 0o700 })
+      roots.push(await realpath(this.skillsRoot))
+    } catch {}
+    for (const globalRoot of this.globalRoots) {
+      try {
+        roots.push(await realpath(globalRoot))
+      } catch {}
+    }
+    return roots
+  }
+
   private async canonicalRoot(): Promise<string> {
     await mkdir(this.skillsRoot, { recursive: true, mode: 0o700 })
     return realpath(this.skillsRoot)
   }
 
   private async assertManagedDirectory(directory: string): Promise<string> {
-    const root = await this.canonicalRoot()
+    const lexical = resolve(directory)
     const canonical = await realpath(directory)
-    if (!isWithin(root, canonical)) throw new Error('Skill 路径不在受管目录中')
+    const roots = await this.canonicalRoots()
+    const allowed = roots.some((root) => isWithin(root, canonical, true) || isWithin(root, lexical, true))
+    if (!allowed) throw new Error('Skill 路径不在受管目录中')
     return canonical
   }
 
   /** Reconciles valid top-level skill directories with the database. */
   async scan(): Promise<SkillManifest[]> {
-    const root = await this.canonicalRoot()
-    const entries = await readdir(root, { withFileTypes: true })
+    const roots = await this.canonicalRoots()
     const discovered = new Set<string>()
 
-    for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-      if (entry.name.startsWith('.') || !entry.isDirectory() || entry.isSymbolicLink()) continue
-      const directory = join(root, entry.name)
+    for (const root of roots) {
+      let entries: any[] = []
       try {
-        const parsed = await parseSkillFile(directory)
-        const canonical = await this.assertManagedDirectory(directory)
-        discovered.add(canonical)
-        const existing = this.rows().find((row) => row.path === canonical)
-        this.database.upsertSkill({
-          ...(existing ? { id: existing.id } : {}),
-          name: parsed.name,
-          description: parsed.description,
-          version: parsed.version,
-          scope: 'user',
-          path: canonical,
-          permissions: parsed.permissions,
-          enabled: existing?.enabled ?? true,
-        })
+        entries = await readdir(root, { withFileTypes: true })
       } catch {
-        // A malformed manually-added directory must not prevent other skills
-        // from loading. It remains absent from the callable manifest list.
+        continue
+      }
+
+      for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+        if (entry.name.startsWith('.')) continue
+        const directory = join(root, entry.name)
+        try {
+          const s = await stat(directory)
+          if (!s.isDirectory()) continue
+          const parsed = await parseSkillFile(directory)
+          const canonical = await this.assertManagedDirectory(directory)
+          discovered.add(canonical)
+          const existing = this.rows().find((row) => row.path === canonical)
+          this.database.upsertSkill({
+            ...(existing ? { id: existing.id } : {}),
+            name: parsed.name,
+            description: parsed.description,
+            version: parsed.version,
+            scope: 'user',
+            path: canonical,
+            permissions: parsed.permissions,
+            enabled: existing?.enabled ?? true,
+            source: existing?.source ?? {
+              kind: 'folder',
+              path: canonical,
+              importedAt: new Date().toISOString(),
+            },
+          })
+        } catch {
+          // A malformed manually-added directory must not prevent other skills
+          // from loading. It remains absent from the callable manifest list.
+        }
       }
     }
 
@@ -452,13 +500,13 @@ export class SkillService {
     const row = this.rowById(id)
     const root = await this.canonicalRoot()
     const lexicalPath = resolve(row.path)
-    if (!isWithin(root, lexicalPath)) throw new Error('拒绝删除受管目录以外的路径')
-
-    try {
-      const directory = await this.assertManagedDirectory(lexicalPath)
-      await rm(directory, { recursive: true, force: true })
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    if (isWithin(root, lexicalPath)) {
+      try {
+        const directory = await this.assertManagedDirectory(lexicalPath)
+        await rm(directory, { recursive: true, force: true })
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      }
     }
     this.database.db.prepare('DELETE FROM skills WHERE id=?').run(id)
     return toManifest(row)

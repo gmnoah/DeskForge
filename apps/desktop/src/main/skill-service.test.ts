@@ -109,4 +109,31 @@ Never loaded.
     expect(detail.instructions).toContain('留出集或交叉验证')
     expect(detail.instructions).toContain('output_register')
   })
+
+  it('loads global skills and normalizes compound names', async () => {
+    const globalRoot = join(temporaryRoot, 'global-agents-skills')
+    const skillDir = join(globalRoot, 'codebase-design')
+    await mkdir(skillDir, { recursive: true })
+    await writeFile(join(skillDir, 'SKILL.md'), `---
+name: codebase-design 模块设计
+description: Shared vocabulary for designing deep modules.
+---
+Design deep modules.
+`)
+
+    const multiService = new SkillService(database, join(temporaryRoot, 'installed-skills'), [globalRoot])
+    const list = await multiService.scan()
+    expect(list).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: 'codebase-design',
+          description: 'Shared vocabulary for designing deep modules.',
+        }),
+      ]),
+    )
+
+    const skill = list.find((item) => item.name === 'codebase-design')!
+    const detail = await multiService.get(skill.id)
+    expect(detail.instructions).toContain('Design deep modules.')
+  })
 })

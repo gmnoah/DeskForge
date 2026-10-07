@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { app, BrowserWindow, ipcMain, Menu, nativeImage, Notification, session, shell, Tray } from 'electron'
 import { DesktopEventSchema, DesktopInvokeContracts, type DesktopInvokeChannel, type RunEvent } from '@deskforge/contracts'
@@ -224,8 +225,10 @@ async function initialize(): Promise<void> {
     host.stop(); runner.stop()
     coordinator.recoverAfterWorkerFailure(name, details.reason)
   }
-  app.on('child-process-gone', workerFailureHandler)
-  const skills = new SkillService(database, join(userData, 'skills'))
+  const globalSkillRoots = [
+    join(homedir(), '.agents', 'skills'),
+  ]
+  const skills = new SkillService(database, join(userData, 'skills'), globalSkillRoots)
   await skills.scan()
   const installedSkillNames = new Set((await skills.list()).map((skill) => skill.name))
   const removedBundled = new Set(database.getSetting<string[]>(REMOVED_BUNDLED_SKILLS_SETTING, []))
