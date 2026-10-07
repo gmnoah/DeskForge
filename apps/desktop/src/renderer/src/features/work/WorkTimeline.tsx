@@ -34,6 +34,64 @@ function safeHref(value: unknown): string | undefined {
   }
 }
 
+function CodeBlock({ children }: { children?: ReactNode }) {
+  const [copied, setCopied] = useState(false)
+  let language = ''
+  let rawCode = ''
+
+  if (children && typeof children === 'object' && 'props' in children) {
+    const props = (children as { props?: { className?: string; children?: unknown } }).props
+    if (props) {
+      const match = /language-([a-zA-Z0-9_-]+)/.exec(props.className || '')
+      if (match?.[1]) {
+        language = match[1]
+      }
+      if (typeof props.children === 'string') {
+        rawCode = props.children
+      } else if (Array.isArray(props.children)) {
+        rawCode = props.children.map((c) => (typeof c === 'string' ? c : '')).join('')
+      } else if (props.children) {
+        rawCode = String(props.children)
+      }
+    }
+  } else if (typeof children === 'string') {
+    rawCode = children
+  }
+
+  const handleCopy = async () => {
+    const textToCopy = rawCode.trimEnd()
+    if (!textToCopy) return
+    try {
+      await navigator.clipboard.writeText(textToCopy)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1600)
+    } catch {
+      // fallback if clipboard API unavailable
+    }
+  }
+
+  const displayLang = language ? language.toUpperCase() : 'CODE'
+
+  return (
+    <div className="code-block-wrapper">
+      <div className="code-block-header">
+        <span className="code-block-language">{displayLang}</span>
+        <button
+          type="button"
+          className={`code-block-copy-btn${copied ? ' is-copied' : ''}`}
+          onClick={handleCopy}
+          aria-label={copied ? '已复制' : '复制代码'}
+          title={copied ? '已复制到剪贴板' : '复制代码'}
+        >
+          <Icon name={copied ? 'check' : 'copy'} size={12} />
+          <span>{copied ? '已复制' : '复制代码'}</span>
+        </button>
+      </div>
+      <pre>{children}</pre>
+    </div>
+  )
+}
+
 function Markdown({ children, onOpenPath }: { children: string; onOpenPath?: ((path: string) => void) | undefined }) {
   return (
     <div className="markdown-content">
@@ -41,6 +99,7 @@ function Markdown({ children, onOpenPath }: { children: string; onOpenPath?: ((p
         remarkPlugins={[remarkGfm]}
         skipHtml
         components={{
+          pre: ({ children: preChildren }) => <CodeBlock>{preChildren}</CodeBlock>,
           a: ({ href, children: linkChildren, ...props }) => {
             if (href && onOpenPath && (href.startsWith('file://') || href.startsWith('/') || /^[a-zA-Z0-9_\u4e00-\u9fa5\s/.-]+\.(docx|doc|pdf|xlsx|xls|csv|png|jpg|jpeg|md|html|txt|json|zip)$/i.test(href))) {
               const cleanPath = href.startsWith('file://') ? decodeURIComponent(href.replace('file://', '')) : href

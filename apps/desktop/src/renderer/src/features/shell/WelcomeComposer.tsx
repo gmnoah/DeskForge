@@ -31,6 +31,18 @@ const SUGGESTIONS = [
   { icon: 'globe' as const, text: '通过 Chrome 调研资料并整理来源' },
 ]
 
+function extractMentions(text: string): string[] {
+  const regex = /(?:^|[\s\n])@([^\s@]+)/g
+  const matches: string[] = []
+  let match: RegExpExecArray | null
+  while ((match = regex.exec(text)) !== null) {
+    if (match[1] && !matches.includes(match[1])) {
+      matches.push(match[1])
+    }
+  }
+  return matches
+}
+
 export function WelcomeComposer({
   workspace,
   models,
@@ -54,6 +66,52 @@ export function WelcomeComposer({
   const [mentionLoading, setMentionLoading] = useState(false)
   const [mentionMatch, setMentionMatch] = useState<{ query: string; start: number } | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  const mentionedFiles = extractMentions(prompt)
+
+  const handleRemoveMention = (filePath: string) => {
+    const escaped = filePath.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')
+    const regex = new RegExp(`@${escaped}(?:\\s|$)`, 'g')
+    setPrompt((prev) => prev.replace(regex, '').trim())
+  }
+
+  const handleTriggerMention = () => {
+    if (!workspace) return
+    const cursor = textareaRef.current?.selectionStart ?? prompt.length
+    const before = prompt.slice(0, cursor)
+    const after = prompt.slice(cursor)
+    const needsSpace = before.length > 0 && !before.endsWith(' ') && !before.endsWith('\n')
+    const inserted = needsSpace ? ' @' : '@'
+    const nextPrompt = before + inserted + after
+    const nextCursor = before.length + inserted.length
+    setPrompt(nextPrompt)
+    setMentionDismissed(false)
+    checkMention(nextPrompt, nextCursor)
+    requestAnimationFrame(() => {
+      if (textareaRef.current) {
+        textareaRef.current.focus()
+        textareaRef.current.setSelectionRange(nextCursor, nextCursor)
+      }
+    })
+  }
+
+  const handleTriggerSlash = () => {
+    if (!prompt.startsWith('/')) {
+      const nextPrompt = `/${prompt}`
+      setPrompt(nextPrompt)
+      setSlashDismissed(false)
+      setSlashIndex(0)
+      requestAnimationFrame(() => {
+        if (textareaRef.current) {
+          textareaRef.current.focus()
+          textareaRef.current.setSelectionRange(nextPrompt.length, nextPrompt.length)
+        }
+      })
+    } else {
+      setSlashDismissed(false)
+      textareaRef.current?.focus()
+    }
+  }
 
   useEffect(() => {
     if (!models.some((model) => model.id === modelId)) {
@@ -266,7 +324,42 @@ export function WelcomeComposer({
           placeholder="描述你想完成的工作（输入 / 调用技能，@ 关联工作区文件，Enter 发送）…"
           rows={4}
         />
-        {attachments.length > 0 && <div className="composer-attachments">{attachments.map((attachment) => <span key={attachment.id}><Icon name="file" size={13} />{attachment.name}<button type="button" aria-label={`移除 ${attachment.name}`} onClick={() => setAttachments((items) => items.filter((item) => item.id !== attachment.id))}>×</button></span>)}</div>}
+        {(mentionedFiles.length > 0 || attachments.length > 0) && (
+          <div className="composer-context-chips" aria-label="已关联上下文">
+            <span className="context-chips-title">
+              <Icon name="layers" size={12} />
+              <span>上下文:</span>
+            </span>
+            {mentionedFiles.map((filePath) => (
+              <span key={filePath} className="composer-chip mention-chip" title={`引用工作区文件: ${filePath}`}>
+                <Icon name="file" size={12} />
+                <span className="composer-chip-text">@{filePath}</span>
+                <button
+                  type="button"
+                  aria-label={`移除引用 @${filePath}`}
+                  title="移除该文件引用"
+                  onClick={() => handleRemoveMention(filePath)}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+            {attachments.map((attachment) => (
+              <span key={attachment.id} className="composer-chip attachment-chip" title={`已添加附件: ${attachment.name}`}>
+                <Icon name="file" size={12} />
+                <span className="composer-chip-text">{attachment.name}</span>
+                <button
+                  type="button"
+                  aria-label={`移除附件 ${attachment.name}`}
+                  title="移除该附件"
+                  onClick={() => setAttachments((items) => items.filter((item) => item.id !== attachment.id))}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
         {attachmentError && <small className="composer-error">{attachmentError}</small>}
         <div className="composer-toolbar">
           <div className="composer-options">
@@ -280,6 +373,25 @@ export function WelcomeComposer({
               <option value="approval">请求批准</option>
               <option value="workspace_auto">工作区内自动处理</option>
             </select>
+            <button
+              type="button"
+              className="composer-action-btn"
+              title="引用工作区文件 (@)"
+              onClick={handleTriggerMention}
+              disabled={!workspace}
+            >
+              <span className="action-symbol">@</span>
+              <span>引用文件</span>
+            </button>
+            <button
+              type="button"
+              className="composer-action-btn"
+              title="调用技能 (/)"
+              onClick={handleTriggerSlash}
+            >
+              <Icon name="skill" size={13} />
+              <span>技能</span>
+            </button>
             <button type="button" className="attachment-button" onClick={async () => {
               try {
                 setAttachmentError(undefined)
@@ -293,7 +405,7 @@ export function WelcomeComposer({
               } catch (error) {
                 setAttachmentError(errorMessage(error))
               }
-            }}><Icon name="plus" size={14} />添加文件</button>
+            }}><Icon name="plus" size={14} />附件</button>
             <select value={mode} onChange={(event) => setMode(event.target.value as 'plan' | 'execute')} aria-label="执行模式">
               <option value="execute">直接处理</option>
               <option value="plan">先整理计划</option>

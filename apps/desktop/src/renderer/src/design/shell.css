@@ -303,6 +303,94 @@
 }
 .send-button:hover { background: var(--accent-hover); box-shadow: 0 4px 10px var(--accent-border); }
 .send-button:active { transform: scale(0.95); }
+.composer-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 32px;
+  padding: 0 10px;
+  color: var(--text-secondary);
+  background: var(--surface);
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-control);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all var(--motion-fast) ease;
+}
+.composer-action-btn:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--surface-hover);
+  border-color: var(--separator-strong);
+}
+.composer-action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.composer-action-btn .action-symbol {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--accent);
+}
+.composer-context-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 10px;
+}
+.composer-context-chips.compact {
+  margin: 6px 0 0;
+}
+.context-chips-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-weight: 600;
+}
+.composer-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  font-size: 11px;
+  border-radius: var(--radius-control);
+  background: var(--surface-muted);
+  border: 1px solid var(--separator);
+  color: var(--text-secondary);
+  max-width: 240px;
+}
+.composer-chip.mention-chip {
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+  color: var(--accent-hover);
+}
+.composer-chip-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 180px;
+}
+.composer-chip button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  width: 14px;
+  height: 14px;
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  border-radius: var(--radius-control);
+  font-size: 12px;
+}
+.composer-chip button:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
 .composer-attachments { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
 .composer-attachments span {
   display: inline-flex;

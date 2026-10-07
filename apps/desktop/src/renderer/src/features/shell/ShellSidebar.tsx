@@ -52,6 +52,7 @@ export interface ShellSidebarProps {
   refreshing: boolean
   onRefresh: () => void
   onHide: () => void
+  onOpenCommandPalette?: (() => void) | undefined
 }
 
 export function ShellSidebar({
@@ -68,6 +69,7 @@ export function ShellSidebar({
   refreshing,
   onRefresh,
   onHide,
+  onOpenCommandPalette,
 }: ShellSidebarProps) {
   const { hits, searching } = useSessionSearch(search, selectedWorkspaceId)
   const runs = snapshot.runs.filter((run) => {
@@ -119,7 +121,14 @@ export function ShellSidebar({
         <span>最近</span>
         <div>
           <IconButton icon="refresh" label="刷新工作台" className={refreshing ? 'is-spinning' : ''} onClick={onRefresh} />
-          <IconButton icon="search" label="搜索工作" onClick={() => document.getElementById('run-search')?.focus()} />
+          <IconButton
+            icon="search"
+            label="命令面板与搜索 (⌘K)"
+            onClick={() => {
+              if (onOpenCommandPalette) onOpenCommandPalette()
+              else document.getElementById('run-search')?.focus()
+            }}
+          />
         </div>
       </div>
       <div className="run-search-wrap">

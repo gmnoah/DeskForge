@@ -13,6 +13,8 @@ import { ShellSidebar } from './features/shell/ShellSidebar'
 import { WelcomeComposer } from './features/shell/WelcomeComposer'
 import { SlashCommandMenu } from './features/shell/SlashCommandMenu'
 import { FileMentionMenu } from './features/shell/FileMentionMenu'
+import { CommandPalette } from './features/shell/CommandPalette'
+import { formatTokenCount, readTokenUsage, tokenUsageLines, type TokenUsageView } from './features/work/run-insights'
 import { WorkTimeline } from './features/work/WorkTimeline'
 import { ApprovalDiff } from './features/work/ApprovalDiff'
 import { isUserVisibleArtifact, WorkInspector, type WorkInspectorTab } from './features/work/WorkInspector'
@@ -117,6 +119,31 @@ function ApprovalCard({ approval, onRespond }: { approval: ApprovalItem; onRespo
   )
 }
 
+function ContextUsageMeter({ usage }: { usage: TokenUsageView }) {
+  const budget = 128_000
+  const pct = Math.min(100, Math.round((usage.totalTokens / budget) * 100))
+  const isHigh = pct >= 80
+  const isMedium = pct >= 50
+
+  const lines = tokenUsageLines(usage)
+  const tooltipText = `上下文用量预算估算 (${pct}% / 128k tokens)\n` + lines.map((l) => `${l.label}: ${l.value}`).join('\n')
+
+  return (
+    <div
+      className={`context-usage-meter${isHigh ? ' is-high' : isMedium ? ' is-medium' : ''}`}
+      title={tooltipText}
+    >
+      <div className="context-usage-bar-track">
+        <div className="context-usage-bar-fill" style={{ width: `${Math.max(6, pct)}%` }} />
+      </div>
+      <span className="context-usage-label">
+        <Icon name="layers" size={11} />
+        {formatTokenCount(usage.totalTokens)}
+      </span>
+    </div>
+  )
+}
+
 function RunHeader({ detail, onPause, onResume, onCancel, onToggleInspector, inspectorOpen, onRename, onExport, onDelete }: {
   detail: RunDetailView
   onPause: () => void
@@ -129,6 +156,8 @@ function RunHeader({ detail, onPause, onResume, onCancel, onToggleInspector, ins
   onDelete: () => void
 }) {
   const active = ['understanding', 'planning', 'running', 'verifying', 'waiting_approval', 'waiting_user'].includes(detail.status)
+  const tokenUsage = readTokenUsage(detail.tokenUsage)
+
   return (
     <header className="run-header titlebar-drag">
       <div className="run-title-block">
@@ -136,6 +165,7 @@ function RunHeader({ detail, onPause, onResume, onCancel, onToggleInspector, ins
           <span className="run-forge-badge">工单</span>
           <h1>{detail.title}</h1>
           <StatusBadge status={detail.status} />
+          {tokenUsage && <ContextUsageMeter usage={tokenUsage} />}
         </div>
         <span>更新于 {formatDate(detail.updatedAt ?? detail.createdAt)}</span>
       </div>
@@ -160,6 +190,18 @@ function getMentionMatch(text: string, cursorPosition: number): { query: string;
   return { query, start: atIndex }
 }
 
+function extractMentions(text: string): string[] {
+  const regex = /(?:^|[\s\n])@([^\s@]+)/g
+  const matches: string[] = []
+  let match: RegExpExecArray | null
+  while ((match = regex.exec(text)) !== null) {
+    if (match[1] && !matches.includes(match[1])) {
+      matches.push(match[1])
+    }
+  }
+  return matches
+}
+
 function RunComposer({ runId, workspaceId, permissionMode, disabled, onSend, skills = [] }: {
   runId: string
   workspaceId?: string | undefined
@@ -179,6 +221,53 @@ function RunComposer({ runId, workspaceId, permissionMode, disabled, onSend, ski
   const [mentionLoading, setMentionLoading] = useState(false)
   const [mentionMatch, setMentionMatch] = useState<{ query: string; start: number } | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  const mentionedFiles = extractMentions(message)
+
+  const handleRemoveMention = (filePath: string) => {
+    const escaped = filePath.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')
+    const regex = new RegExp(`@${escaped}(?:\\s|$)`, 'g')
+    setMessage((prev) => prev.replace(regex, '').trim())
+  }
+
+  const handleTriggerMention = () => {
+    if (disabled || !workspaceId) return
+    const cursor = textareaRef.current?.selectionStart ?? message.length
+    const before = message.slice(0, cursor)
+    const after = message.slice(cursor)
+    const needsSpace = before.length > 0 && !before.endsWith(' ') && !before.endsWith('\n')
+    const inserted = needsSpace ? ' @' : '@'
+    const nextMessage = before + inserted + after
+    const nextCursor = before.length + inserted.length
+    setMessage(nextMessage)
+    setMentionDismissed(false)
+    checkMention(nextMessage, nextCursor)
+    requestAnimationFrame(() => {
+      if (textareaRef.current) {
+        textareaRef.current.focus()
+        textareaRef.current.setSelectionRange(nextCursor, nextCursor)
+      }
+    })
+  }
+
+  const handleTriggerSlash = () => {
+    if (disabled) return
+    if (!message.startsWith('/')) {
+      const nextMessage = `/${message}`
+      setMessage(nextMessage)
+      setSlashDismissed(false)
+      setSlashIndex(0)
+      requestAnimationFrame(() => {
+        if (textareaRef.current) {
+          textareaRef.current.focus()
+          textareaRef.current.setSelectionRange(nextMessage.length, nextMessage.length)
+        }
+      })
+    } else {
+      setSlashDismissed(false)
+      textareaRef.current?.focus()
+    }
+  }
 
   useEffect(() => { setDraftPermissionMode(permissionMode) }, [runId, permissionMode])
 
@@ -376,13 +465,38 @@ function RunComposer({ runId, workspaceId, permissionMode, disabled, onSend, ski
             placeholder={disabled ? '这项工作已停止' : '交代指令、追加要求（输入 / 调用技能，@ 关联工作区文件，Enter 发送）…'}
             disabled={disabled}
           />
-          {attachments.length > 0 && (
-            <div className="composer-attachments compact">
+          {(mentionedFiles.length > 0 || attachments.length > 0) && (
+            <div className="composer-context-chips compact" aria-label="已关联上下文">
+              <span className="context-chips-title">
+                <Icon name="layers" size={11} />
+                <span>上下文:</span>
+              </span>
+              {mentionedFiles.map((filePath) => (
+                <span key={filePath} className="composer-chip mention-chip" title={`引用工作区文件: ${filePath}`}>
+                  <Icon name="file" size={11} />
+                  <span className="composer-chip-text">@{filePath}</span>
+                  <button
+                    type="button"
+                    aria-label={`移除引用 @${filePath}`}
+                    title="移除该文件引用"
+                    onClick={() => handleRemoveMention(filePath)}
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
               {attachments.map((attachment) => (
-                <span key={attachment.id}>
-                  <Icon name="file" size={12} />
-                  {attachment.name}
-                  <button type="button" aria-label={`移除 ${attachment.name}`} onClick={() => setAttachments((items) => items.filter((item) => item.id !== attachment.id))}>×</button>
+                <span key={attachment.id} className="composer-chip attachment-chip" title={`已添加附件: ${attachment.name}`}>
+                  <Icon name="file" size={11} />
+                  <span className="composer-chip-text">{attachment.name}</span>
+                  <button
+                    type="button"
+                    aria-label={`移除附件 ${attachment.name}`}
+                    title="移除该附件"
+                    onClick={() => setAttachments((items) => items.filter((item) => item.id !== attachment.id))}
+                  >
+                    ×
+                  </button>
                 </span>
               ))}
             </div>
@@ -403,6 +517,26 @@ function RunComposer({ runId, workspaceId, permissionMode, disabled, onSend, ski
             </select>
             <button
               type="button"
+              className="composer-action-btn compact"
+              disabled={disabled || !workspaceId}
+              title="引用工作区文件 (@)"
+              onClick={handleTriggerMention}
+            >
+              <span className="action-symbol">@</span>
+              <span>文件</span>
+            </button>
+            <button
+              type="button"
+              className="composer-action-btn compact"
+              disabled={disabled}
+              title="调用技能 (/)"
+              onClick={handleTriggerSlash}
+            >
+              <Icon name="skill" size={12} />
+              <span>技能</span>
+            </button>
+            <button
+              type="button"
               className="attachment-button compact"
               disabled={disabled}
               onClick={async () => {
@@ -416,7 +550,7 @@ function RunComposer({ runId, workspaceId, permissionMode, disabled, onSend, ski
               }}
             >
               <Icon name="plus" size={13} />
-              添加文件
+              附件
             </button>
             <span className="composer-context">
               <Icon name="lock" size={12} />
@@ -635,6 +769,7 @@ export default function App() {
   const [cancelOpen, setCancelOpen] = useState(false)
   const [renameDraft, setRenameDraft] = useState<string>()
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
   const [onboardingDismissed, setOnboardingDismissed] = useState(false)
   useResolvedTheme(snapshot.settings.theme)
 
@@ -645,6 +780,10 @@ export default function App() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault()
+        setCommandPaletteOpen((value) => !value)
+      }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'n') {
         event.preventDefault()
         setSelectedRunId(undefined)
@@ -746,6 +885,7 @@ export default function App() {
         refreshing={refreshing}
         onRefresh={() => void refresh()}
         onHide={() => setSidebarOpen(false)}
+        onOpenCommandPalette={() => setCommandPaletteOpen(true)}
       />}
       <section className="content-shell">
         {!sidebarOpen && <div className="sidebar-reveal titlebar-drag"><IconButton icon="panelRight" label="显示侧栏" onClick={() => setSidebarOpen(true)} /></div>}
@@ -809,6 +949,31 @@ export default function App() {
         void perform(async () => { await bridge.removeRun(id); setSelectedRunId(undefined) }, '会话已删除')
       }} />
       <Onboarding open={shouldOnboard} snapshot={snapshot} perform={perform} onDone={() => { setOnboardingDismissed(true); void refresh() }} />
+      <CommandPalette
+        open={commandPaletteOpen}
+        onClose={() => setCommandPaletteOpen(false)}
+        runs={snapshot.runs}
+        workspaces={snapshot.workspaces}
+        currentWorkspaceId={selectedWorkspaceId}
+        skills={snapshot.skills}
+        onSelectRun={(runId) => {
+          setSelectedRunId(runId)
+          setView('tasks')
+        }}
+        onSelectWorkspace={(wsId) => {
+          void switchWorkspace(wsId)
+        }}
+        onNewRun={() => {
+          setSelectedRunId(undefined)
+          setView('tasks')
+        }}
+        onOpenSettings={() => {
+          setView('settings')
+        }}
+        onToggleSidebar={() => {
+          setSidebarOpen((v) => !v)
+        }}
+      />
       <Toasts items={toasts} onDismiss={dismissToast} />
     </div>
   )
