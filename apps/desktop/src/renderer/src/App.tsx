@@ -681,7 +681,7 @@ function TasksView({
   )
 }
 
-function Onboarding({
+export function Onboarding({
   open,
   snapshot,
   perform,
@@ -708,6 +708,8 @@ function Onboarding({
     const hasConnectedModel = snapshot.models.some((model) => model.hasSecret)
     if (open && step !== 0 && step < 3) setStep(hasConnectedModel ? snapshot.workspaces.length ? 3 : 2 : 1)
   }, [open, snapshot.models, snapshot.workspaces.length, step])
+  const onboardingRef = useRef<HTMLElement>(null)
+  useFocusTrap(open, onboardingRef)
   if (!open) return null
   const selectProvider = (nextProvider: ModelProvider) => {
     setKey('')
@@ -757,8 +759,6 @@ function Onboarding({
     await perform(() => bridge.updateSettings({ memoryEnabled, defaultExecutionMode }), '设置已完成')
     onDone()
   }
-  const onboardingRef = useRef<HTMLElement>(null)
-  useFocusTrap(open, onboardingRef)
 
   return (
     <div className="onboarding-backdrop">

@@ -26,7 +26,8 @@
     "package:mac:x64": "pnpm rebuild:electron:x64 && pnpm build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --config.npmRebuild=false --mac dir dmg zip --x64",
     "package:mac:signed:x64": "pnpm rebuild:electron:x64 && pnpm build && electron-builder --config.npmRebuild=false --mac dir dmg zip --x64",
     "package:mac:signed:arm64": "pnpm rebuild:electron:arm64 && pnpm build && electron-builder --config.npmRebuild=false --mac dir dmg zip --arm64",
-    "package:mac:signed:universal": "pnpm build && electron-builder --mac dir dmg zip --universal"
+    "package:mac:signed:universal": "pnpm build && electron-builder --mac dir dmg zip --universal",
+    "test:review": "playwright test --config tests/regressions/playwright.config.ts"
   },
   "dependencies": {
     "@deskforge/contracts": "workspace:*",
