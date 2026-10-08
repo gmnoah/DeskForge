@@ -15,6 +15,7 @@ import {
   IconButton,
   Modal,
   PageHeader,
+  SettingRow,
   Spinner,
   SubmitForm,
   Toggle,
@@ -278,9 +279,7 @@ function SettingsSection({ icon, title, description, action, children }: { icon:
   return <section className="settings-section"><div className="settings-section-heading"><span className="settings-icon"><Icon name={icon} /></span><div><h2>{title}</h2><p>{description}</p></div>{action && <div className="settings-action">{action}</div>}</div><div className="settings-section-body">{children}</div></section>
 }
 
-export function SettingRow({ title, detail, children }: { title: string; detail: string; children: ReactNode }) {
-  return <div className="setting-row"><div><strong>{title}</strong><span>{detail}</span></div><div>{children}</div></div>
-}
+export { SettingRow } from '../../ui'
 
 function LimitInput({ label, value, onSave }: { label: string; value: number; onSave: (value: number) => void }) {
   const [current, setCurrent] = useState(value)

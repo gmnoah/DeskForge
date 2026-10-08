@@ -229,30 +229,23 @@ export class ToolBroker {
     return this.completeTask(runId, { summary, evidence: [], unverified: [] })
   }
 
-  async handle(input: { runId: string; requestId: string; toolCallId: string; toolId: string; args: Record<string, unknown> }): Promise<unknown> {
-    const definition = TOOL_DEFINITIONS.find((candidate) => candidate.id === input.toolId)
-    if (!definition) throw new Error(`未知工具：${input.toolId}`)
-    // Arguments cross a trust boundary from the model worker. Validate before
-    // policy classification, persistence or any execution side effect.
-    assertToolArguments(definition.id, definition.parameters, input.args)
-    const tool: ToolDefinition = { ...definition, risk: effectiveRisk(definition, input.args) }
-    let rawRun = this.database.getRun(input.runId)
-    if (!rawRun) throw new Error('任务不存在')
-    if (rawRun.status === 'verifying' && input.toolId !== 'task_complete') {
-      this.database.transitionRun(input.runId, 'running', { outcome: null, summary: '', finishedAt: null })
-      rawRun = this.database.getRun(input.runId)
-    }
+  private assessToolCall(
+    rawRun: any,
+    definition: ToolDefinition,
+    args: unknown,
+    metadata: Pick<ToolCall, 'id' | 'runId' | 'status' | 'createdAt' | 'updatedAt'>,
+  ) {
+    // Both model parameters and approval edits cross a trust boundary. Keep
+    // the broker's mandatory checks behind this single policy seam.
+    assertToolArguments(definition.id, definition.parameters, args)
+    const tool: ToolDefinition = { ...definition, risk: effectiveRisk(definition, args) }
     const descriptor = descriptorFor(tool)
     const call: ToolCall = {
-      id: input.toolCallId,
-      runId: input.runId,
+      ...metadata,
       toolName: descriptor.name,
       source: descriptor.source,
-      arguments: asJson(input.args),
-      status: 'requested',
+      arguments: asJson(args),
       idempotent: tool.risk === 'read',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
     }
     // Workspace boundaries and security overrides are evaluated first.
     // The optional convenience mode can relax only reversible workspace
@@ -263,11 +256,11 @@ export class ToolBroker {
     const readOnlyViolation = readOnlyRun(rawRun) && (
       tool.risk !== 'read' ||
       tool.id === 'memory_propose' ||
-      (tool.id === 'agent_delegate' && input.args.role === 'general')
+      (tool.id === 'agent_delegate' && args.role === 'general')
     )
-    const destructiveEscape = this.destructiveShellEscape(rawRun, tool, input.args)
+    const destructiveEscape = this.destructiveShellEscape(rawRun, tool, args)
     const mcpBlocked = tool.id.startsWith('mcp_') && this.mcp
-      ? this.mcp.blockedReason(input.args.serverId, tool.id === 'mcp_call_tool' ? input.args.toolName : undefined)
+      ? this.mcp.blockedReason(args.serverId, tool.id === 'mcp_call_tool' ? args.toolName : undefined)
       : undefined
     const decision = memoryDisabled
       ? { ...baseDecision, effect: 'deny' as const, reason: 'Memory 已在设置中关闭。', ruleId: 'memory.disabled' }
@@ -275,9 +268,27 @@ export class ToolBroker {
         ? { ...baseDecision, effect: 'deny' as const, reason: mcpBlocked, ruleId: 'mcp.disabled' }
       : readOnlyViolation
         ? { ...baseDecision, effect: 'deny' as const, reason: '只读子 Agent 不允许执行该操作。', ruleId: 'run.readonly-capability' }
+        : destructiveEscape?.confirmOnly
+          ? { ...baseDecision, effect: 'require_approval' as const, riskLevel: 'high_risk_irreversible' as const, reason: `需要逐次确认：${destructiveEscape.executable} 的${destructiveEscape.reason}。`, ruleId: 'security.unverifiable-inline-script' }
         : destructiveEscape
           ? { ...baseDecision, effect: 'deny' as const, riskLevel: 'high_risk_irreversible' as const, reason: `已阻止：${destructiveEscape.executable} 的${destructiveEscape.reason}（${destructiveEscape.target}）。删除类命令只能作用于授权工作区内的路径。`, ruleId: 'security.destructive-outside-workspace' }
           : permissionDecision
+    return { tool, descriptor, call, decision }
+  }
+
+  async handle(input: { runId: string; requestId: string; toolCallId: string; toolId: string; args: Record<string, unknown> }): Promise<unknown> {
+    const definition = TOOL_DEFINITIONS.find((candidate) => candidate.id === input.toolId)
+    if (!definition) throw new Error(`未知工具：${input.toolId}`)
+    let rawRun = this.database.getRun(input.runId)
+    if (!rawRun) throw new Error('任务不存在')
+    const at = new Date().toISOString()
+    const { tool, descriptor, call, decision } = this.assessToolCall(rawRun, definition, input.args, {
+      id: input.toolCallId, runId: input.runId, status: 'requested', createdAt: at, updatedAt: at,
+    })
+    if (rawRun.status === 'verifying' && input.toolId !== 'task_complete') {
+      this.database.transitionRun(input.runId, 'running', { outcome: null, summary: '', finishedAt: null })
+      rawRun = this.database.getRun(input.runId)
+    }
     call.idempotent = decision.idempotent
     const providerCall: ToolCall = { ...call, arguments: loggedArguments(input.toolId, input.args) }
     // Provider call ids are scoped to a provider response and are routinely
@@ -408,6 +419,7 @@ export class ToolBroker {
   }
 
   private async waitForApproval(runId: string, call: ToolCall, receiptId: string, tool: ToolDefinition, decision: ReturnType<typeof evaluateToolPolicy>, args: Record<string, unknown>, candidate: SessionRuleCandidate): Promise<Record<string, unknown>> {
+    const executionArguments = asJson(args) as Record<string, unknown>
     const id = randomUUID()
     const created = createApprovalRequest({
       id, call, decision, title: tool.label,
@@ -428,7 +440,7 @@ export class ToolBroker {
     this.database.transitionRun(runId, 'waiting_approval', { outcome: null, finishedAt: null })
     this.emit({ id: randomUUID(), runId, sequence: Date.now(), at: new Date().toISOString(), kind: 'approval.requested', approval })
     const onceOnly = decision.riskLevel === 'external_side_effect' || decision.riskLevel === 'high_risk_irreversible' || decision.ruleId === 'security.sensitive-file-once'
-    return new Promise((resolve, reject) => this.pendingApprovals.set(id, { approval, receiptId, tool, args, resolve, reject, onceOnly, ...(eligibility.eligible ? { sessionSpec: eligibility.spec } : {}) }))
+    return new Promise((resolve, reject) => this.pendingApprovals.set(id, { approval, receiptId, tool, args: executionArguments, resolve, reject, onceOnly, ...(eligibility.eligible ? { sessionSpec: eligibility.spec } : {}) }))
   }
 
   private sessionCandidate(runId: string, tool: ToolDefinition, decision: ReturnType<typeof evaluateToolPolicy>, args: Record<string, unknown>): SessionRuleCandidate {
@@ -537,27 +549,28 @@ export class ToolBroker {
     // otherwise (or for edited arguments) the approval degrades to a one-shot.
     const sessionSpec = response.scope === 'session' && response.decision === 'approve' && !pending.onceOnly ? pending.sessionSpec : undefined
     const effectiveResponse = (pending.onceOnly && response.scope === 'run_tool') || (response.scope === 'session' && !sessionSpec) ? { ...response, scope: 'once' as const } : response
-    const resolution = resolveApproval(pending.approval, effectiveResponse, { grantId: randomUUID() })
+    // Display/log arguments may contain redaction placeholders. Resolve an
+    // unchanged approval against the private execution snapshot, never those
+    // placeholders. Edits still replace the arguments and pass full checks.
+    const resolution = resolveApproval({ ...pending.approval, arguments: asJson(pending.args) }, effectiveResponse, { grantId: randomUUID() })
     if (resolution.executionArguments !== undefined) {
-      // An edited approval is a second untrusted argument source. Keep the
-      // approval pending if validation fails so the user can correct it.
-      assertToolArguments(pending.tool.id, pending.tool.parameters, resolution.executionArguments)
-      const editedDecision = evaluateToolPolicy({
-        call: {
-          id: pending.approval.toolCallId,
-          runId: pending.approval.runId,
-          toolName: pending.approval.toolName,
-          source: descriptorFor(pending.tool).source,
-          arguments: resolution.executionArguments,
-          status: 'waiting_approval',
-          idempotent: pending.tool.risk === 'read',
-          createdAt: pending.approval.createdAt,
-          updatedAt: new Date().toISOString(),
-        },
-        descriptor: descriptorFor(pending.tool),
+      // Recheck current permissions even for an unchanged approval: a run or
+      // capability can be restricted while the card is waiting. Invalid edits
+      // leave the card pending so the user can correct or reject them.
+      const rawRun = this.database.getRun(pending.approval.runId)
+      if (!rawRun) throw new Error('任务不存在')
+      const { decision: editedDecision } = this.assessToolCall(rawRun, pending.tool, resolution.executionArguments, {
+        id: pending.approval.toolCallId,
+        runId: pending.approval.runId,
+        status: 'waiting_approval',
+        createdAt: pending.approval.createdAt,
+        updatedAt: new Date().toISOString(),
       })
+      if (editedDecision.effect === 'deny') {
+        throw Object.assign(new Error(editedDecision.reason), { code: editedDecision.ruleId })
+      }
       const riskRank = { readonly: 0, reversible_write: 1, external_side_effect: 2, high_risk_irreversible: 3 } as const
-      if (editedDecision.effect === 'deny' || riskRank[editedDecision.riskLevel] > riskRank[pending.approval.riskLevel]) {
+      if (riskRank[editedDecision.riskLevel] > riskRank[pending.approval.riskLevel]) {
         throw Object.assign(new Error('编辑后的参数改变了权限风险，请修改为同级操作后重试'), { code: 'APPROVAL_POLICY_CHANGED' })
       }
     }

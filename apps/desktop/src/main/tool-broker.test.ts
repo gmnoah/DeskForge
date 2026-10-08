@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from 'node
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { ToolBroker } from './tool-broker'
+import { ToolBroker, type McpBrokerBridge } from './tool-broker'
 
 const now = '2026-07-11T00:00:00.000Z'
 
@@ -32,6 +32,7 @@ class FakeDatabase {
 
   getRun = (id: string) => id === this.run.id ? this.run : undefined
   getWorkspace = () => ({ root_path: this.workspaceRoot })
+  getMcpServer = (id: string) => ({ id, name: id })
   getArtifact = (id: string) => this.artifactRows.find((artifact) => artifact.id === id)
   getSetting = <T>(key: string, fallback: T): T => (this.settings[key] ?? fallback) as T
   hasRunGrant = () => this.granted
@@ -47,6 +48,7 @@ class FakeDatabase {
   createApproval = (input: any) => { this.approvals.push({ ...input, status: 'pending' }); return input }
   resolveApproval = (id: string, decision: any) => { const approval = this.approvals.find((candidate) => candidate.id === id); if (approval) approval.status = decision.decision === 'reject' ? 'denied' : 'approved'; return { id, decision } }
   addGrant = () => undefined
+  createManagedProcess = () => undefined
   sessionRules: any[] = []
   auditEntries: any[] = []
   listSessionRules = (runId?: string) => this.sessionRules.filter((rule) => !rule.revoked_at && (!runId || rule.run_id === runId))
@@ -72,7 +74,7 @@ class FakeDatabase {
   }
 }
 
-function brokerFixture(database = new FakeDatabase(), execute?: (input: any, onProgress?: (progress: any) => void) => Promise<any>) {
+function brokerFixture(database = new FakeDatabase(), execute?: (input: any, onProgress?: (progress: any) => void) => Promise<any>, mcp?: McpBrokerBridge) {
   const stored: any[] = []
   const events: any[] = []
   const runner = { execute: execute ?? (async () => ({})) }
@@ -91,7 +93,7 @@ function brokerFixture(database = new FakeDatabase(), execute?: (input: any, onP
     },
     read: async (path: string) => readFile(path),
   }
-  const broker = new ToolBroker(database as any, runner as any, artifacts as any, {} as any, {} as any, (event) => events.push(event), async () => ({}))
+  const broker = new ToolBroker(database as any, runner as any, artifacts as any, {} as any, {} as any, (event) => events.push(event), async () => ({}), undefined, undefined, mcp)
   return { broker, database, stored, events }
 }
 
@@ -306,6 +308,57 @@ describe('ToolBroker research budget', () => {
 })
 
 describe('ToolBroker capability enforcement', () => {
+  it('executes the original file content after an unchanged approval while keeping the persisted preview redacted', async () => {
+    const database = new FakeDatabase()
+    database.granted = false
+    const executed: any[] = []
+    const fixture = brokerFixture(database, async (input) => {
+      executed.push(input)
+      if (input.toolId === 'file.read') throw Object.assign(new Error('not found'), { code: 'ENOENT' })
+      return { path: '/workspace/notes.txt', before: null, after: input.args.content, beforeSha256: null, sha256: 'new', created: true }
+    })
+    const pending = fixture.broker.handle({
+      runId: 'run-1', requestId: 'write-request', toolCallId: 'write-call', toolId: 'file_write',
+      args: { path: 'notes.txt', content: 'original document content' },
+    })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    const approval = fixture.events.find((event) => event.kind === 'approval.requested')?.approval
+    fixture.broker.respondToApproval({ requestId: approval.id, decision: 'approve', scope: 'once' })
+    await pending
+
+    expect(executed.find((input) => input.toolId === 'file.write')?.args.content).toBe('original document content')
+    expect(database.approvals[0].preview.arguments.content).toContain('[FILE CONTENT REDACTED:')
+  })
+
+  it.each(['shell_run', 'process_start'])('rejects an outside-workspace delete edited into %s and accepts a corrected edit', async (toolId) => {
+    const database = new FakeDatabase()
+    database.granted = false
+    const execute = vi.fn(async (_input: any) => ({ code: 0, processId: 'process-1' }))
+    const fixture = brokerFixture(database, execute)
+    const pending = fixture.broker.handle({
+      runId: 'run-1', requestId: 'delete-request', toolCallId: 'delete-call', toolId,
+      args: { command: 'rm -rf build' },
+    })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    const approval = fixture.events.find((event) => event.kind === 'approval.requested')?.approval
+    expect(approval).toBeDefined()
+
+    expect(() => fixture.broker.respondToApproval({
+      requestId: approval.id,
+      decision: 'edit',
+      editedArguments: { command: 'rm -rf ../sibling' },
+    })).toThrow(expect.objectContaining({ code: 'security.destructive-outside-workspace' }))
+    expect(execute).not.toHaveBeenCalled()
+
+    expect(database.approvals[0].status).toBe('pending')
+    fixture.broker.respondToApproval({
+      requestId: approval.id, decision: 'edit', editedArguments: { command: 'rm -rf other-build' },
+    })
+    await expect(pending).resolves.toMatchObject({ code: 0 })
+    expect(execute).toHaveBeenCalledTimes(1)
+    expect(execute.mock.calls[0]?.[0]?.args.command).toBe('rm -rf other-build')
+  })
+
   it('validates initial and approval-edited arguments before policy execution', async () => {
     const database = new FakeDatabase()
     const fixture = brokerFixture(database)
@@ -326,6 +379,100 @@ describe('ToolBroker capability enforcement', () => {
     expect(approval.toolCallId).toBe('write-approval')
     fixture.broker.rejectRunApprovals('run-1', 'test cleanup')
     await pendingRejection
+  })
+
+  it('denies a same-risk file edit aimed at a protected credential store', async () => {
+    const database = new FakeDatabase()
+    database.granted = false
+    const executed: any[] = []
+    const fixture = brokerFixture(database, async (input) => {
+      executed.push(input)
+      throw Object.assign(new Error('not found'), { code: 'ENOENT' })
+    })
+    const pending = fixture.broker.handle({
+      runId: 'run-1', requestId: 'write-request', toolCallId: 'write-call', toolId: 'file_write',
+      args: { path: 'notes.txt', content: 'safe' },
+    })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    const approval = fixture.events.find((event) => event.kind === 'approval.requested')?.approval
+
+    expect(() => fixture.broker.respondToApproval({
+      requestId: approval.id, decision: 'edit',
+      editedArguments: { path: '.ssh/id_ed25519', content: 'replacement' },
+    })).toThrow(expect.objectContaining({ code: 'security.protected-credential-store' }))
+    expect(executed.every((input) => input.toolId === 'file.read')).toBe(true)
+    fixture.broker.rejectRunApprovals('run-1', 'test cleanup')
+    await expect(pending).rejects.toThrow('test cleanup')
+  })
+
+  it('rechecks a run restricted to read-only while its write approval is pending', async () => {
+    const database = new FakeDatabase()
+    database.granted = false
+    const executed: any[] = []
+    const fixture = brokerFixture(database, async (input) => {
+      executed.push(input)
+      throw Object.assign(new Error('not found'), { code: 'ENOENT' })
+    })
+    const pending = fixture.broker.handle({
+      runId: 'run-1', requestId: 'write-request', toolCallId: 'write-call', toolId: 'file_write',
+      args: { path: 'notes.txt', content: 'safe' },
+    })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    const approval = fixture.events.find((event) => event.kind === 'approval.requested')?.approval
+    database.run.readOnly = true
+
+    expect(() => fixture.broker.respondToApproval({
+      requestId: approval.id, decision: 'approve', scope: 'once',
+    })).toThrow(expect.objectContaining({ code: 'run.readonly-capability' }))
+    expect(executed.every((input) => input.toolId === 'file.read')).toBe(true)
+    fixture.broker.rejectRunApprovals('run-1', 'test cleanup')
+    await expect(pending).rejects.toThrow('test cleanup')
+  })
+
+  it('denies an unchanged approval when its MCP tool has since been disabled', async () => {
+    const database = new FakeDatabase()
+    database.granted = false
+    let disabled = false
+    const execute = vi.fn(async () => ({}))
+    const fixture = brokerFixture(database, execute, {
+      blockedReason: () => disabled ? 'MCP 工具已停用' : undefined,
+      runtimeServer: async () => ({}),
+      disabledTools: () => [],
+    })
+    const pending = fixture.broker.handle({
+      runId: 'run-1', requestId: 'mcp-request', toolCallId: 'mcp-call', toolId: 'mcp_call_tool',
+      args: { serverId: 'server-1', toolName: 'lookup', arguments: {} },
+    })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    const approval = fixture.events.find((event) => event.kind === 'approval.requested')?.approval
+    disabled = true
+
+    expect(() => fixture.broker.respondToApproval({
+      requestId: approval.id, decision: 'approve', scope: 'once',
+    })).toThrow(expect.objectContaining({ code: 'mcp.disabled' }))
+    expect(execute).not.toHaveBeenCalled()
+    fixture.broker.rejectRunApprovals('run-1', 'test cleanup')
+    await expect(pending).rejects.toThrow('test cleanup')
+  })
+
+  it('does not let an approval edit increase the command risk', async () => {
+    const database = new FakeDatabase()
+    database.granted = false
+    const execute = vi.fn(async () => ({ code: 0 }))
+    const fixture = brokerFixture(database, execute)
+    const pending = fixture.broker.handle({
+      runId: 'run-1', requestId: 'install-request', toolCallId: 'install-call', toolId: 'shell_run',
+      args: { command: 'npm install' },
+    })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    const approval = fixture.events.find((event) => event.kind === 'approval.requested')?.approval
+
+    expect(() => fixture.broker.respondToApproval({
+      requestId: approval.id, decision: 'edit', editedArguments: { command: 'rm -rf build' },
+    })).toThrow(expect.objectContaining({ code: 'APPROVAL_POLICY_CHANGED' }))
+    expect(execute).not.toHaveBeenCalled()
+    fixture.broker.rejectRunApprovals('run-1', 'test cleanup')
+    await expect(pending).rejects.toThrow('test cleanup')
   })
 
   it('rejects Memory writes when Memory is disabled', async () => {

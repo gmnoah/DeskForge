@@ -23,6 +23,6 @@ if [[ "$CONFIRMED" -ne 1 ]]; then
 fi
 
 echo ">> 正在清理 DeskForge 构建产物与缓存..."
-rm -rf apps/desktop/dist apps/desktop/build dist out
+rm -rf apps/desktop/dist outputs/release dist out
 rm -rf apps/desktop/node_modules packages/*/node_modules node_modules .pnpm-store
 echo ">> 清理完成。"

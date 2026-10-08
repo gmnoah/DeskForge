@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentMessage } from '@earendil-works/pi-agent-core'
-import { assertModelRequestReady, prepareModelRequestMessages } from './model-request-pipeline'
+import {
+  assertModelRequestReady,
+  estimateReservedContextTokens,
+  prepareModelRequestMessages,
+} from './model-request-pipeline'
 
 const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }
 const assistant = (content: any[]): AgentMessage => ({ role: 'assistant', content, api: 'openai-responses', provider: 'deepseek', model: 'test', usage, stopReason: 'toolUse', timestamp: 1 } as AgentMessage)
@@ -40,5 +44,28 @@ describe('model request integrity pipeline', () => {
     ], new Set(['file_read']))
     expect(prepared.messages).toHaveLength(0)
     expect(prepared.report.removed).toBe(2)
+  })
+})
+
+describe('context budget tool schema estimation', () => {
+  it('reserves tokens only for active tools instead of full deferred tool schemas', () => {
+    const systemPrompt = '你是一个敏捷工程师。'
+    const catalog = '\n\n按需工具目录：\n- heavy_tool_1：描述1\n- heavy_tool_2：描述2'
+    const fullHeavyTools = [
+      { id: 'light_tool', label: '轻量工具', parameters: { type: 'object', properties: { q: { type: 'string' } } } },
+      { id: 'heavy_tool_1', label: '重量级1', parameters: { type: 'object', properties: Object.fromEntries(Array.from({ length: 50 }, (_, i) => [`p${i}`, { type: 'string', description: 'very long description '.repeat(5) }])) } },
+      { id: 'heavy_tool_2', label: '重量级2', parameters: { type: 'object', properties: Object.fromEntries(Array.from({ length: 50 }, (_, i) => [`p${i}`, { type: 'string', description: 'very long description '.repeat(5) }])) } },
+    ]
+
+    const allToolsTokens = estimateReservedContextTokens(systemPrompt, '', fullHeavyTools)
+    const activeToolsOnly = [fullHeavyTools[0]]
+    const activeToolsTokens = estimateReservedContextTokens(systemPrompt, catalog, activeToolsOnly)
+
+    expect(activeToolsTokens).toBeLessThan(allToolsTokens / 2)
+
+    const expandedTools = [fullHeavyTools[0], fullHeavyTools[1]]
+    const expandedTokens = estimateReservedContextTokens(systemPrompt, catalog, expandedTools)
+    expect(expandedTokens).toBeGreaterThan(activeToolsTokens)
+    expect(expandedTokens).toBeLessThan(allToolsTokens)
   })
 })

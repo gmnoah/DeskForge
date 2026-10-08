@@ -1,12 +1,13 @@
 # DeskForge
 
-本地优先的 macOS 桌面工作 Agent。界面跑在沙箱里，审批、策略和密钥留在主进程，模型调用和工具执行分别放在独立进程。文件和 Shell 只作用于你选中的工作区，授权根默认不会设成磁盘根目录 `/`。
+本地优先的 macOS 桌面工作 Agent。界面跑在沙箱里，审批、策略和密钥留在主进程，模型调用和工具执行分别放在独立进程。文件工具校验授权工作区，授权根默认不会设成磁盘根目录 `/`。Shell 的工作目录限定在工作区，并经过命令策略和审批；Shell 进程本身不是操作系统级沙箱，不能据此保证任意命令都无法访问工作区外的文件。
 
 DeskForge 是独立项目，不是 WorkBuddy，也不是腾讯的产品。桌面实现改编自 [OpenWorkbuddy](https://github.com/chenin0931/OpenWorkbuddy)（MIT，Copyright (c) 2026 OpenWorkbuddy contributors），详见 [`NOTICE`](NOTICE)。
 
 DeskForge is an independent local-first macOS work agent. It is not WorkBuddy and it is not a Tencent product.
 
 - 路线图：[docs/ROADMAP.md](docs/ROADMAP.md)
+- 优化评估与执行计划：[docs/OPTIMIZATION_PLAN.md](docs/OPTIMIZATION_PLAN.md)
 - 参与开发：[CONTRIBUTING.md](CONTRIBUTING.md)
 - 手动验收清单：[docs/TESTING.md](docs/TESTING.md)
 - 保留全部功能的独立重建：[实施记录](docs/rebuild/STATUS.md)、[功能验收矩阵](docs/rebuild/ACCEPTANCE.md)、[新内核原型](independent/README.md)。新内核尚未接入当前桌面版。
@@ -90,6 +91,7 @@ API Key 在设置或引导里填写。macOS 上由系统钥匙串（Electron `sa
   - 删除类命令（`rm`、`rmdir`、`shred`、`find … -delete` 等）只要目标是主目录、磁盘根目录、工作区外的绝对路径，或用 `..` 跳出工作区，就直接拒绝，不会出现审批卡。
 - **执行确认方式**：新工作默认「请求批准」。可切换到「工作区内自动处理」，仅自动放行授权工作区内可撤销的文件写入和严格白名单中的验证命令（如 `pnpm test`）；删除、敏感文件、网络外发、MCP 调用和其它命令仍需逐次批准或直接拒绝。两种方式都受同一工作区路径边界约束；「直接处理」表示立即开始任务，不代表自动批准。
 - **审批卡里的 diff**：写入、精确编辑、提交长文草稿和移入废纸篓之前，审批卡会显示统一 diff，可以切换为并排对比。新建文件全部显示为新增行，删除全部显示为删除行；超过 400 行时截断并注明省略了多少行。`.env` 等敏感配置只显示增删行数，不显示内容。
+- **审批参数复核**：首次工具请求和审批卡修改后的参数共用同一套主进程安全检查。确认时重新检查当前只读权限、敏感目标、已知工作区外删除命令及 MCP 启停状态；编辑不能绕过硬性拒绝规则，也不能提升原审批的风险等级。校验失败后审批保持待处理，可修正参数或拒绝。
 - **批准范围**：
   - 「仅批准本次」。
   - 「本工作相同参数操作」：只放行参数完全相同的同一操作。

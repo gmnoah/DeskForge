@@ -147,3 +147,17 @@ export function assertModelRequestReady(result: PreparedModelMessages): void {
     diagnostics: result.report.diagnostics,
   })
 }
+
+/**
+ * Calculates reserved tokens for context budgeting, including only
+ * system prompt, capability catalog, and schemas of currently active/loaded tools.
+ */
+export function estimateReservedContextTokens(
+  systemPrompt: string,
+  capabilityCatalog: string,
+  activeTools: readonly unknown[],
+): number {
+  const content = `${systemPrompt}${capabilityCatalog}${JSON.stringify(activeTools)}`
+  return Math.ceil(Buffer.byteLength(content, 'utf8') / 4)
+}
+

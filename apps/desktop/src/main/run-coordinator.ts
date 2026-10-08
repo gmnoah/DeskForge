@@ -609,7 +609,9 @@ export class RunCoordinator {
   }
 
   emitRun(runId: string): void {
-    const run = this.getRun(runId)
+    const raw = this.database.getRunSummaryRow(runId)
+    if (!raw) return
+    const run = presentRun(raw, this.profileForDisplay(raw))
     this.emit({ id: randomUUID(), runId, sequence: this.nextSequence(runId), at: new Date().toISOString(), kind: 'run.updated', run })
   }
   private clearTransientEventState(runId: string): void {

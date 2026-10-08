@@ -22,7 +22,8 @@ export function evaluateUpdateEligibility(input: { packaged: boolean; platform: 
 }
 
 function configuredFeedUrl(): string | undefined {
-  if (process.env.WORKBUDDY_UPDATE_FEED_URL?.trim()) return process.env.WORKBUDDY_UPDATE_FEED_URL.trim()
+  const envUrl = process.env.DESKFORGE_UPDATE_FEED_URL?.trim() || process.env.WORKBUDDY_UPDATE_FEED_URL?.trim()
+  if (envUrl) return envUrl
   try {
     const metadata = JSON.parse(readFileSync(join(app.getAppPath(), 'package.json'), 'utf8')) as Record<string, unknown>
     return typeof metadata.deskforgeUpdateFeed === 'string' && metadata.deskforgeUpdateFeed.trim()

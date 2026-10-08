@@ -13,7 +13,12 @@ import {
 } from './agent-host-runtime'
 import { compactMessagesWithCheckpoint } from './context-checkpoint'
 import { TextDeltaBuffer } from './event-buffer'
-import { assertModelRequestReady, prepareModelRequestMessages, type DurableToolReceipt } from './model-request-pipeline'
+import {
+  assertModelRequestReady,
+  estimateReservedContextTokens,
+  prepareModelRequestMessages,
+  type DurableToolReceipt,
+} from './model-request-pipeline'
 
 type ProviderName = RuntimeProviderName
 
@@ -207,7 +212,15 @@ async function startRun(command: StartCommand): Promise<void> {
   const capabilityCatalog = deferredTools.length
     ? `\n\n按需工具目录（这里只是名称与简介；需要使用时先调用 capability_load 加载完整 schema）：\n${deferredTools.map((descriptor) => `- ${descriptor.id}：${descriptor.label}。${descriptor.description}`).join('\n')}`
     : ''
-  const reservedContextTokens = Math.ceil(Buffer.byteLength(`${command.systemPrompt}${capabilityCatalog}${JSON.stringify(command.tools)}`, 'utf8') / 4)
+  const getActiveToolsForBudget = () => [
+    ...(deferredTools.length ? [{
+      name: capabilityLoader.name,
+      description: capabilityLoader.description,
+      parameters: capabilityLoader.parameters,
+    }] : []),
+    ...command.tools.filter((descriptor) => loadedToolIds.has(descriptor.id)),
+  ]
+  const getReservedContextTokens = (): number => estimateReservedContextTokens(command.systemPrompt, capabilityCatalog, getActiveToolsForBudget())
   let turns = 0
   let budgetExhausted = false
   let checkpointState: import('./context-checkpoint').MessageCheckpoint | undefined
@@ -250,7 +263,7 @@ async function startRun(command: StartCommand): Promise<void> {
     },
     convertToLlm: toLlm,
     transformContext: async (messages) => {
-      const compacted = compactMessagesWithCheckpoint(messages, command.contextWindow ?? model.contextWindow, reservedContextTokens, checkpointState)
+      const compacted = compactMessagesWithCheckpoint(messages, command.contextWindow ?? model.contextWindow, getReservedContextTokens(), checkpointState)
       checkpointState = compacted.state ?? checkpointState
       if (compacted.checkpoint) {
         const { content, sourceRefs, signature, estimatedTokens } = compacted.checkpoint

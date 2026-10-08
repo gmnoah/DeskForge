@@ -11,17 +11,19 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "typecheck": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.web.json --noEmit",
-    "pretest": "node ../../scripts/rebuild-better-sqlite3.mjs",
-    "test": "vitest run",
+    "test": "node scripts/vitest-electron.mjs run",
     "smoke": "electron-rebuild -v 43.1.0 -a $(node -p process.arch) -m . -o better-sqlite3 --force && DESKFORGE_SMOKE=1 electron .",
     "test:online:kimi": "node scripts/kimi-online-smoke.mjs",
     "test:online:kimi:existing": "node scripts/kimi-online-smoke.mjs --existing-profile --packaged",
     "test:online:kimi:app": "electron-rebuild -v 43.1.0 -a $(node -p process.arch) -m . -o better-sqlite3 --force && pnpm build && node scripts/kimi-online-smoke.mjs --app",
     "pretest:e2e": "electron-rebuild -v 43.1.0 -a $(node -p process.arch) -m . -o better-sqlite3 --force",
     "test:e2e": "playwright test --config playwright.config.ts",
+    "rebuild:electron": "electron-rebuild -v 43.1.0 -a $(node -p process.arch) -m . -o better-sqlite3 --force",
     "rebuild:electron:x64": "electron-rebuild -v 43.1.0 -a x64 -m . -o better-sqlite3 --force",
     "rebuild:electron:arm64": "electron-rebuild -v 43.1.0 -a arm64 -m . -o better-sqlite3 --force",
-    "package:mac": "pnpm rebuild:electron:x64 && pnpm build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --config.npmRebuild=false --mac dir dmg zip --x64",
+    "package:mac": "node scripts/package-mac.mjs",
+    "package:mac:arm64": "pnpm rebuild:electron:arm64 && pnpm build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --config.npmRebuild=false --mac dir dmg zip --arm64",
+    "package:mac:x64": "pnpm rebuild:electron:x64 && pnpm build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --config.npmRebuild=false --mac dir dmg zip --x64",
     "package:mac:signed:x64": "pnpm rebuild:electron:x64 && pnpm build && electron-builder --config.npmRebuild=false --mac dir dmg zip --x64",
     "package:mac:signed:arm64": "pnpm rebuild:electron:arm64 && pnpm build && electron-builder --config.npmRebuild=false --mac dir dmg zip --arm64",
     "package:mac:signed:universal": "pnpm build && electron-builder --mac dir dmg zip --universal"
@@ -42,8 +44,7 @@
     "react-dom": "19.2.7",
     "react-markdown": "10.1.0",
     "remark-gfm": "4.0.1",
-    "zod": "4.1.13",
-    "zustand": "5.0.8"
+    "zod": "4.1.13"
   },
   "devDependencies": {
     "@electron/rebuild": "4.2.0",

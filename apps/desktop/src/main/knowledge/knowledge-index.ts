@@ -30,6 +30,9 @@ export const KNOWLEDGE_LIMITS = {
   embedInputChars: 2_000,
   defaultResults: 8,
   maxResults: 20,
+  indexBatchSize: 200,
+  /** Caps text held in memory per transaction; 200 large files would otherwise pin GBs. */
+  indexBatchChars: 16 * 1024 * 1024,
 } as const
 
 export interface KnowledgeEmbedder {
@@ -41,6 +44,13 @@ export interface KnowledgeEmbedder {
 
 export interface KnowledgeWorkspace { id: string; name: string; path: string }
 
+export interface KnowledgeIndexProgressEvent {
+  workspaceId: string
+  phase: 'scan' | 'index' | 'embed'
+  processed: number
+  total: number
+}
+
 export interface KnowledgeIndexOptions {
   directory: string
   resolveWorkspace(id: string): KnowledgeWorkspace | undefined
@@ -48,6 +58,7 @@ export interface KnowledgeIndexOptions {
   embedder?: () => Promise<KnowledgeEmbedder | undefined>
   embeddingsEnabled?: () => boolean
   onEgress?: (event: { workspaceId: string; host: string; purpose: 'index' | 'query'; items: number }) => void
+  onProgress?: (event: KnowledgeIndexProgressEvent) => void
   limits?: Partial<typeof KNOWLEDGE_LIMITS>
 }
 
@@ -211,7 +222,6 @@ export class KnowledgeIndexService {
     const started = Date.now()
     const skipped = emptySkipped()
     const counters = { added: 0, updated: 0, unchanged: 0, removed: 0 }
-    let truncated = false
     let limitReason: string | undefined
     let root: string
     try {
@@ -238,8 +248,9 @@ export class KnowledgeIndexService {
     })
     skipped.ignored = walkStats.ignored
     skipped.symlinks = walkStats.symlinksSkipped
-    if (walkStats.limitReason && walkStats.limitReason !== 'max_results') limitReason = walkStats.limitReason
-    truncated = Boolean(limitReason)
+    const limitReasonFound = walkStats.limitReason && walkStats.limitReason !== 'max_results' ? walkStats.limitReason : limitReason
+    const truncated = Boolean(limitReasonFound)
+    limitReason = limitReasonFound
 
     // 2. Index new and changed files; unchanged size+mtime is skipped without reading.
     const existing = new Map((db.prepare('SELECT path,size,mtime_ms,sha256 FROM files').all() as Array<{ path: string; size: number; mtime_ms: number; sha256: string }>).map((row) => [row.path, row]))
@@ -247,12 +258,53 @@ export class KnowledgeIndexService {
     const insertChunk = db.prepare('INSERT INTO chunks(path,ordinal,start_line,end_line,content) VALUES(?,?,?,?,?)')
     const upsertFile = db.prepare(`INSERT INTO files(path,kind,size,mtime_ms,sha256,chunk_count,indexed_at) VALUES(?,?,?,?,?,?,?)
       ON CONFLICT(path) DO UPDATE SET kind=excluded.kind,size=excluded.size,mtime_ms=excluded.mtime_ms,sha256=excluded.sha256,chunk_count=excluded.chunk_count,indexed_at=excluded.indexed_at`)
-    const replaceFile = db.transaction((path: string, kind: KnowledgeFileKind, size: number, mtimeMs: number, sha: string, text: string) => {
-      db.prepare('DELETE FROM chunks WHERE path=?').run(path)
-      const chunks = chunkText(text)
-      for (const chunk of chunks) insertChunk.run(path, chunk.ordinal, chunk.startLine, chunk.endLine, chunk.text)
-      upsertFile.run(path, kind, size, mtimeMs, sha, chunks.length, new Date().toISOString())
+    const deleteChunks = db.prepare('DELETE FROM chunks WHERE path=?')
+
+    interface PendingIndexItem {
+      path: string
+      kind: KnowledgeFileKind
+      size: number
+      mtimeMs: number
+      sha: string
+      text: string
+      prior: boolean
+    }
+
+    const batchCommit = db.transaction((items: PendingIndexItem[]) => {
+      for (const item of items) {
+        deleteChunks.run(item.path)
+        const chunks = chunkText(item.text)
+        for (const chunk of chunks) insertChunk.run(item.path, chunk.ordinal, chunk.startLine, chunk.endLine, chunk.text)
+        upsertFile.run(item.path, item.kind, item.size, item.mtimeMs, item.sha, chunks.length, new Date().toISOString())
+      }
     })
+
+    const indexBatchSize = this.limits.indexBatchSize
+    const indexBatchChars = this.limits.indexBatchChars
+    let pendingBatch: PendingIndexItem[] = []
+    let pendingChars = 0
+    let processedFiles = 0
+
+    const flushIndexBatch = async () => {
+      if (pendingBatch.length === 0) return
+      batchCommit(pendingBatch)
+      for (const item of pendingBatch) {
+        seen.add(item.path)
+        if (item.prior) counters.updated += 1
+        else counters.added += 1
+      }
+      processedFiles += pendingBatch.length
+      this.options.onProgress?.({
+        workspaceId,
+        phase: 'index',
+        processed: processedFiles,
+        total: candidates.length,
+      })
+      pendingBatch = []
+      pendingChars = 0
+      await new Promise((resolve) => setImmediate(resolve))
+    }
+
     for (const candidate of candidates) {
       let info
       try {
@@ -265,7 +317,12 @@ export class KnowledgeIndexService {
       if (info.size > sizeLimit) { skipped.tooLarge += 1; continue }
       const mtimeMs = Math.floor(info.mtimeMs)
       const prior = existing.get(candidate.path)
-      if (prior && prior.size === info.size && prior.mtime_ms === mtimeMs) { seen.add(candidate.path); counters.unchanged += 1; continue }
+      if (prior && prior.size === info.size && prior.mtime_ms === mtimeMs) {
+        seen.add(candidate.path)
+        counters.unchanged += 1
+        processedFiles += 1
+        continue
+      }
       let raw: Buffer
       try { raw = await readFile(candidate.absolute) } catch { skipped.unreadable += 1; continue }
       const sha = createHash('sha256').update(raw).digest('hex')
@@ -273,6 +330,7 @@ export class KnowledgeIndexService {
         db.prepare('UPDATE files SET size=?,mtime_ms=? WHERE path=?').run(info.size, mtimeMs, candidate.path)
         seen.add(candidate.path)
         counters.unchanged += 1
+        processedFiles += 1
         continue
       }
       let text: string
@@ -283,24 +341,46 @@ export class KnowledgeIndexService {
           text = raw.toString('utf8').replace(/^\uFEFF/, '')
         }
       } catch { skipped.unreadable += 1; continue }
-      replaceFile(candidate.path, candidate.kind, info.size, mtimeMs, sha, text)
-      seen.add(candidate.path)
-      if (prior) counters.updated += 1
-      else counters.added += 1
+
+      pendingBatch.push({
+        path: candidate.path,
+        kind: candidate.kind,
+        size: info.size,
+        mtimeMs,
+        sha,
+        text,
+        prior: Boolean(prior),
+      })
+
+      pendingChars += text.length
+      if (pendingBatch.length >= indexBatchSize || pendingChars >= indexBatchChars) {
+        await flushIndexBatch()
+      }
     }
 
+    await flushIndexBatch()
+
     // 3. Drop files that disappeared (or became ignored). On a truncated walk only drop files that no longer exist.
+    const toDrop: string[] = []
     for (const path of existing.keys()) {
       if (seen.has(path)) continue
       if (truncated) {
         const stillThere = await lstat(join(root, path)).then(() => true, () => false)
         if (stillThere) continue
       }
-      db.transaction(() => {
-        db.prepare('DELETE FROM chunks WHERE path=?').run(path)
-        db.prepare('DELETE FROM files WHERE path=?').run(path)
-      })()
-      counters.removed += 1
+      toDrop.push(path)
+    }
+
+    if (toDrop.length > 0) {
+      db.transaction((paths: string[]) => {
+        const delChunks = db.prepare('DELETE FROM chunks WHERE path=?')
+        const delFiles = db.prepare('DELETE FROM files WHERE path=?')
+        for (const path of paths) {
+          delChunks.run(path)
+          delFiles.run(path)
+        }
+      })(toDrop)
+      counters.removed += toDrop.length
     }
 
     // 4. Optional embeddings for chunks that do not have a vector in the current space.

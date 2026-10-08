@@ -16,6 +16,10 @@ const mimeFor = (name: string): string => {
 export class ArtifactStore {
   constructor(private root: string, private database: AppDatabase) {}
 
+  get directory(): string {
+    return this.root
+  }
+
   async putBuffer(input: { runId?: string; name: string; kind: string; data: Buffer; mime?: string; metadata?: Record<string, unknown> }): Promise<any> {
     const sha256 = createHash('sha256').update(input.data).digest('hex')
     const directory = join(this.root, sha256.slice(0, 2))

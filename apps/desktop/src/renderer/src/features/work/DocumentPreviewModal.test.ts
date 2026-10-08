@@ -44,4 +44,27 @@ describe('Document preview format resolution', () => {
     expect(canRenderDualMode('image')).toBe(false)
     expect(canRenderDualMode('source')).toBe(false)
   })
+
+  it('enforces secure sandbox attributes on preview iframe without allow-same-origin (S2)', async () => {
+    const { readFile } = await import('node:fs/promises')
+    const { join } = await import('node:path')
+    const modalSrc = await readFile(join(__dirname, 'DocumentPreviewModal.tsx'), 'utf8')
+
+    const sandboxMatch = modalSrc.match(/sandbox="([^"]+)"/)
+    expect(sandboxMatch).not.toBeNull()
+    const sandboxValue = sandboxMatch![1]
+
+    expect(sandboxValue).not.toContain('allow-same-origin')
+    expect(sandboxValue).toContain('allow-scripts')
+    expect(sandboxValue).toContain('allow-forms')
+  })
+
+  it('renders SVG via data URI without dangerouslySetInnerHTML (S2)', async () => {
+    const { readFile } = await import('node:fs/promises')
+    const { join } = await import('node:path')
+    const modalSrc = await readFile(join(__dirname, 'DocumentPreviewModal.tsx'), 'utf8')
+
+    expect(modalSrc).not.toContain('dangerouslySetInnerHTML')
+    expect(modalSrc).toContain('data:image/svg+xml;utf8')
+  })
 })

@@ -73,3 +73,43 @@ describe('built-in file search fallback', () => {
     await rm(root, { recursive: true, force: true })
   })
 })
+
+describe('shell environment and PATH caching', () => {
+  it('captures PATH and sanitizes startup-hook environment variables', async () => {
+    const { getCachedShellPath, sanitizeEnv } = await import('./tool-runner')
+    const path = getCachedShellPath()
+    expect(typeof path).toBe('string')
+    expect(path.length).toBeGreaterThan(0)
+
+    const env = sanitizeEnv()
+    expect(env.PATH).toBe(path)
+    expect(env.ENV).toBeUndefined()
+    expect(env.BASH_ENV).toBeUndefined()
+    expect(env.ZDOTDIR).toBeUndefined()
+  })
+})
+
+describe('runProcess progress buffering', () => {
+  it('aggregates rapid stdout lines into fewer progress messages and flushes all content', async () => {
+    const { runProcess, setTestMessageSink } = await import('./tool-runner')
+    const messages: Array<Record<string, unknown>> = []
+    setTestMessageSink((msg) => messages.push(msg))
+
+    try {
+      const script = "for(let i=0; i<50; i++) console.log('line-' + i);"
+      const result = await runProcess('req-1', 'run-1', process.execPath, ['-e', script], process.cwd(), 5000)
+
+      expect(result.code).toBe(0)
+      const progressMessages = messages.filter((m) => m.type === 'progress' && m.channel === 'stdout')
+      expect(progressMessages.length).toBeLessThan(15)
+      const fullProgressText = progressMessages.map((m) => String(m.text)).join('')
+      expect(fullProgressText).toContain('line-0')
+      expect(fullProgressText).toContain('line-49')
+      expect(result.stdout).toContain('line-0')
+      expect(result.stdout).toContain('line-49')
+    } finally {
+      setTestMessageSink(undefined)
+    }
+  })
+})
+

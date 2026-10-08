@@ -87,12 +87,23 @@ export class AgentHostBridge {
     this.worker.send({ protocolVersion: WORKER_PROTOCOL_VERSION, type: 'test-provider', requestId, ...input })
     return promise
   }
-  stop(): void { this.worker.stop() }
+  stop(): void {
+    const error = new Error('Agent Host 已停止')
+    for (const pending of this.tests.values()) { clearTimeout(pending.timer); pending.reject(error) }
+    this.tests.clear()
+    this.worker.stop()
+  }
 }
 
 export class ToolRunnerBridge {
   private worker = new ManagedWorker('tool-runner')
-  private pending = new Map<string, { runId?: string; resolve: (value: any) => void; reject: (error: Error) => void; onProgress?: (event: any) => void }>()
+  private pending = new Map<string, {
+    runId?: string
+    timer?: NodeJS.Timeout
+    resolve: (value: any) => void
+    reject: (error: Error) => void
+    onProgress?: (event: any) => void
+  }>()
 
   constructor() {
     this.worker.onMessage((raw) => {
@@ -102,34 +113,72 @@ export class ToolRunnerBridge {
       if (!pending) return
       if (message.type === 'progress') { pending.onProgress?.(message); return }
       if (message.type !== 'result') return
+      if (pending.timer) clearTimeout(pending.timer)
       this.pending.delete(message.requestId)
       if (message.ok) pending.resolve(message.result)
       else pending.reject(Object.assign(new Error(message.error ?? '工具执行失败'), { code: message.code, details: message.details }))
     })
     this.worker.onExit((code) => {
       const error = new Error(`Tool Runner 进程意外退出${code === null ? '' : `（退出码 ${code}）`}`)
-      for (const pending of this.pending.values()) pending.reject(error)
+      for (const pending of this.pending.values()) {
+        if (pending.timer) clearTimeout(pending.timer)
+        pending.reject(error)
+      }
       this.pending.clear()
     })
   }
 
   execute(input: any, onProgress?: (event: any) => void): Promise<any> {
     const requestId = input.requestId ?? randomUUID()
-    const promise = new Promise((resolve, reject) => this.pending.set(requestId, {
-      ...(typeof input.runId === 'string' ? { runId: input.runId } : {}),
-      resolve,
-      reject,
-      ...(onProgress ? { onProgress } : {}),
-    }))
+    // The runner enforces a tool's own timeoutMs and reports a precise error;
+    // the bridge deadline is a backstop that fires only if that reply never arrives.
+    const toolTimeoutMs = Number(input.args?.timeoutMs ?? input.mcpServer?.timeoutMs)
+    const requestedMs = Number.isFinite(Number(input.timeoutMs))
+      ? Number(input.timeoutMs)
+      : Number.isFinite(toolTimeoutMs) && toolTimeoutMs > 0 ? toolTimeoutMs + 15_000 : 180_000
+    const timeoutMs = Math.min(Math.max(requestedMs, 1_000), 615_000)
+    const promise = new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        const item = this.pending.get(requestId)
+        if (!item) return
+        this.pending.delete(requestId)
+        this.worker.send({ protocolVersion: WORKER_PROTOCOL_VERSION, type: 'cancel', requestId })
+        reject(Object.assign(new Error(`工具执行超时（${timeoutMs} ms）`), { code: 'TOOL_TIMEOUT' }))
+      }, timeoutMs)
+
+      this.pending.set(requestId, {
+        ...(typeof input.runId === 'string' ? { runId: input.runId } : {}),
+        timer,
+        resolve,
+        reject,
+        ...(onProgress ? { onProgress } : {}),
+      })
+    })
     this.worker.send({ protocolVersion: WORKER_PROTOCOL_VERSION, type: 'execute', ...input, requestId })
     return promise
   }
-  cancel(requestId: string): void { this.worker.send({ protocolVersion: WORKER_PROTOCOL_VERSION, type: 'cancel', requestId }) }
+
+  // Cancelled requests stay pending: the runner still replies (usually with a
+  // cancellation error) and callers awaiting execute() must observe that reply.
+  // The deadline timer remains the backstop if the reply never comes.
+  cancel(requestId: string): void {
+    this.worker.send({ protocolVersion: WORKER_PROTOCOL_VERSION, type: 'cancel', requestId })
+  }
+
   cancelRun(runId: string): void {
     for (const [requestId, pending] of this.pending) {
       if (pending.runId === runId) this.cancel(requestId)
     }
     this.worker.send({ protocolVersion: WORKER_PROTOCOL_VERSION, type: 'cancel-run', runId })
   }
-  stop(): void { this.worker.stop() }
+
+  stop(): void {
+    const error = new Error('Tool Runner 已停止')
+    for (const pending of this.pending.values()) {
+      if (pending.timer) clearTimeout(pending.timer)
+      pending.reject(error)
+    }
+    this.pending.clear()
+    this.worker.stop()
+  }
 }

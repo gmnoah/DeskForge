@@ -41,12 +41,12 @@ export function shouldFallbackToSse(error: unknown): boolean {
   return /\b(404|405|406|415)\b|method not allowed|not found|unexpected content type/i.test(message)
 }
 
-async function withTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
+export async function withTimeout<T>(promise: Promise<T>, label: string, timeoutMs: number = CONNECT_TIMEOUT_MS): Promise<T> {
   let timer: NodeJS.Timeout | undefined
   try {
     return await Promise.race([
       promise,
-      new Promise<never>((_resolve, reject) => { timer = setTimeout(() => reject(new Error(`${label}超时（${CONNECT_TIMEOUT_MS / 1000} 秒）`)), CONNECT_TIMEOUT_MS) }),
+      new Promise<never>((_resolve, reject) => { timer = setTimeout(() => reject(new Error(`${label}超时（${timeoutMs / 1000} 秒）`)), timeoutMs) }),
     ])
   } finally {
     if (timer) clearTimeout(timer)
@@ -121,24 +121,36 @@ async function withConnection<T>(server: Record<string, any>, action: (connectio
 }
 
 export async function listMcpTools(server: Record<string, any>): Promise<{ serverId: string; tools: unknown[]; serverVersion: unknown; connectedVia: McpConnectedVia }> {
-  return withConnection(server, (connection) => listWith(connection, String(server.id)))
+  return withConnection(server, (connection) => listWith(connection, server))
 }
 
-async function listWith(connection: CachedMcpConnection, serverId: string): Promise<{ serverId: string; tools: unknown[]; serverVersion: unknown; connectedVia: McpConnectedVia }> {
+async function listWith(connection: CachedMcpConnection, server: Record<string, any>): Promise<{ serverId: string; tools: unknown[]; serverVersion: unknown; connectedVia: McpConnectedVia }> {
   const tools: unknown[] = []
   let cursor: string | undefined
+  const timeoutMs = Math.min(Math.max(Number(server.timeoutMs ?? server.toolTimeoutMs ?? 60_000), 1_000), 600_000)
   // Follow pagination, bounded so a misbehaving server cannot loop forever.
   for (let page = 0; page < 20; page += 1) {
-    const result = await connection.client.listTools(cursor ? { cursor } : undefined)
+    const result = await withTimeout(
+      connection.client.listTools(cursor ? { cursor } : undefined),
+      'MCP 获取工具列表',
+      timeoutMs,
+    )
     tools.push(...result.tools)
     cursor = result.nextCursor
     if (!cursor || tools.length >= 2_000) break
   }
-  return { serverId, tools, serverVersion: connection.client.getServerVersion(), connectedVia: connection.via }
+  return { serverId: String(server.id), tools, serverVersion: connection.client.getServerVersion(), connectedVia: connection.via }
 }
 
 export async function callMcpTool(server: Record<string, any>, toolName: string, args: Record<string, unknown>): Promise<unknown> {
-  return withConnection(server, (connection) => connection.client.callTool({ name: toolName, arguments: args }))
+  const timeoutMs = Math.min(Math.max(Number(server.timeoutMs ?? server.toolTimeoutMs ?? 60_000), 1_000), 600_000)
+  return withConnection(server, (connection) =>
+    withTimeout(
+      connection.client.callTool({ name: toolName, arguments: args }),
+      `MCP 工具调用 [${toolName}]`,
+      timeoutMs,
+    ),
+  )
 }
 
 export function disconnectMcp(serverId: string): Promise<boolean> {

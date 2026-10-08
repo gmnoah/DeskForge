@@ -127,7 +127,7 @@ function receiptTarget(toolId: string, rawArguments: unknown): string {
   return safeLabel(toolId)
 }
 
-const toolLabel = (value: unknown): string => String(value ?? '').replace(/[^A-Za-z0-9_.:\-]/g, '').slice(0, 80)
+const toolLabel = (value: unknown): string => String(value ?? '').replace(/[^A-Za-z0-9_.:-]/g, '').slice(0, 80)
 
 /** Enabled MCP servers and their enabled tools, so the Agent knows which serverId to use. */
 export function renderMcpCatalog(rows: any[]): string {

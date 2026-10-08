@@ -18,7 +18,14 @@ SQLITE_DIR="$(find node_modules/.pnpm -type d -name "better-sqlite3@*" 2>/dev/nu
 if [[ -n "$ELECTRON_BIN" && -n "$SQLITE_DIR" ]]; then
   if ! ELECTRON_RUN_AS_NODE=1 "$ELECTRON_BIN" -e "new (require('$SQLITE_DIR/node_modules/better-sqlite3'))(':memory:')" >/dev/null 2>&1; then
     echo ">> 同步原生模块至 Electron ABI..."
-    pnpm --filter @deskforge/desktop exec electron-rebuild -f -w better-sqlite3 >/dev/null 2>&1 || true
+    REBUILD_LOG="$(mktemp -t deskforge-rebuild-XXXXXX.log 2>/dev/null || echo "/tmp/deskforge-rebuild.log")"
+    if ! pnpm --filter @deskforge/desktop exec electron-rebuild -f -w better-sqlite3 >"$REBUILD_LOG" 2>&1; then
+      echo "!! 原生模块 better-sqlite3 重编译失败，请检查编译环境：" >&2
+      tail -n 25 "$REBUILD_LOG" >&2
+      rm -f "$REBUILD_LOG"
+      exit 1
+    fi
+    rm -f "$REBUILD_LOG"
   fi
 fi
 

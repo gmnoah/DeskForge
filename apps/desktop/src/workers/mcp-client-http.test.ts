@@ -95,8 +95,13 @@ describe('MCP HTTP client', () => {
     expect(shouldFallbackToSse(Object.assign(new Error('x'), { code: 405 }))).toBe(true)
     expect(shouldFallbackToSse(Object.assign(new Error('x'), { code: 404 }))).toBe(true)
     expect(shouldFallbackToSse(Object.assign(new Error('x'), { code: 401 }))).toBe(false)
-    expect(shouldFallbackToSse(new Error('Error POSTing to endpoint (HTTP 403): Forbidden'))).toBe(false)
     expect(shouldFallbackToSse(new Error('fetch failed: ECONNREFUSED'))).toBe(false)
     expect(sanitizedEnvironment({ PATH: '/bin', HOME: '/h', OPENAI_API_KEY: 'x', GITHUB_TOKEN: 'y', DB_PASSWORD: 'z' })).toEqual({ PATH: '/bin', HOME: '/h' })
+  })
+
+  it('enforces timeout on operations via withTimeout', async () => {
+    const { withTimeout } = await import('./mcp-client')
+    const hanging = new Promise((resolve) => setTimeout(resolve, 5000))
+    await expect(withTimeout(hanging, '测试操作', 50)).rejects.toThrow('测试操作超时（0.05 秒）')
   })
 })

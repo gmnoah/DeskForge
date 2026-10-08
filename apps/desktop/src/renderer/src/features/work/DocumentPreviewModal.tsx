@@ -2,7 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { bridge } from '../../bridge'
 import { Icon } from '../../icons'
 import type { DocumentPreviewTarget, JsonRecord } from '../../types'
-import { Spinner } from '../../ui'
+import { Spinner, useFocusTrap } from '../../ui'
 import { Markdown } from './WorkTimeline'
 
 export interface DocumentPreviewModalProps {
@@ -26,6 +26,7 @@ export function DocumentPreviewModal({
   const [viewport, setViewport] = useState<'desktop' | 'mobile'>('desktop')
   const [copied, setCopied] = useState(false)
   const [iframeKey, setIframeKey] = useState(0)
+  const [imageDataUrl, setImageDataUrl] = useState<string | undefined>()
 
   const titleId = useId()
   const modalRef = useRef<HTMLDivElement>(null)
@@ -72,12 +73,14 @@ export function DocumentPreviewModal({
       setText('')
       setError(undefined)
       setTruncated(false)
+      setImageDataUrl(undefined)
       return
     }
 
     if (target.content !== undefined) {
       setText(target.content)
       setTruncated(target.truncated === true)
+      setImageDataUrl(undefined)
       setLoading(false)
       setError(undefined)
       return
@@ -86,6 +89,7 @@ export function DocumentPreviewModal({
     let active = true
     setLoading(true)
     setError(undefined)
+    setImageDataUrl(undefined)
 
     const fetchContent = async () => {
       try {
@@ -94,6 +98,7 @@ export function DocumentPreviewModal({
           if (!active) return
           setText(result.text ?? '')
           setTruncated(result.truncated === true)
+          setImageDataUrl(result.dataUrl)
           setLoading(false)
         } else if (target.artifactId) {
           const result = await bridge.getArtifactText(target.artifactId)
@@ -121,18 +126,7 @@ export function DocumentPreviewModal({
     }
   }, [target])
 
-  // Handle ESC key to close modal
-  useEffect(() => {
-    if (!target) return
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault()
-        onClose()
-      }
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [target, onClose])
+  useFocusTrap(Boolean(target), modalRef, onClose)
 
   if (!target) return null
 
@@ -300,16 +294,20 @@ export function DocumentPreviewModal({
             <>
               {isImage ? (
                 <div className="document-preview-image-wrapper">
-                  <img
-                    src={target.path ? `file://${target.path}` : target.content}
-                    alt={filename}
-                  />
+                  {target.content ?? imageDataUrl ? (
+                    <img
+                      src={target.content ?? imageDataUrl}
+                      alt={filename}
+                    />
+                  ) : (
+                    <p className="document-preview-note">图片超过 10 MB，无法内置预览，请在系统默认程序中打开。</p>
+                  )}
                 </div>
               ) : mode === 'rendered' && isHtml ? (
                 <div className={`document-preview-viewport-wrapper viewport-${viewport}`}>
                   <iframe
                     key={iframeKey}
-                    sandbox="allow-scripts allow-forms allow-same-origin"
+                    sandbox="allow-scripts allow-forms"
                     srcDoc={text}
                     title={filename}
                     className="document-preview-iframe"
@@ -320,10 +318,13 @@ export function DocumentPreviewModal({
                   <Markdown onOpenPath={onOpenExternalPath}>{text}</Markdown>
                 </div>
               ) : mode === 'rendered' && isSvg ? (
-                <div
-                  className="document-preview-svg-wrapper"
-                  dangerouslySetInnerHTML={{ __html: text }}
-                />
+                <div className="document-preview-svg-wrapper">
+                  <img
+                    src={`data:image/svg+xml;utf8,${encodeURIComponent(text)}`}
+                    alt={filename}
+                    className="document-preview-svg-image"
+                  />
+                </div>
               ) : (
                 <div className="document-preview-source-wrapper">
                   <pre>

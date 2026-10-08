@@ -1,8 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { spawn, type ChildProcess } from 'node:child_process'
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { readFile, readdir, stat } from 'node:fs/promises'
-import { join, relative } from 'node:path'
 import process from 'node:process'
 import { parseToolRunnerCommand, WORKER_PROTOCOL_VERSION, type ToolRunnerCommand } from '@deskforge/contracts'
 
@@ -18,6 +17,7 @@ import {
 } from './runner-security'
 import { findFiles, resolveSearchScope, searchContents } from './workspace-search'
 import { callMcpTool, closeAllMcp, disconnectMcp, listMcpTools, sanitizedEnvironment } from './mcp-client'
+import { TextDeltaBuffer } from './event-buffer'
 
 type Command = ToolRunnerCommand
 
@@ -26,7 +26,11 @@ type ResultMessage = { type: 'result'; requestId: string; ok: true; result: any 
 const parent = process.parentPort
 if (!parent && process.env.NODE_ENV !== 'test') throw new Error('Tool Runner 必须由 Electron utilityProcess 启动')
 
-const processes = new Map<string, ChildProcess>()
+interface ForegroundProcessEntry {
+  child: ChildProcess
+  runId?: string
+}
+const processes = new Map<string, ForegroundProcessEntry>()
 interface ManagedProcessEntry {
   id: string
   runId: string
@@ -47,13 +51,65 @@ const MAX_BINARY_BYTES = 50 * 1024 * 1024
 const MAX_MANAGED_PROCESS_OUTPUT_BYTES = 25 * 1024 * 1024
 const MAX_MANAGED_PROCESS_POLL_BYTES = 128 * 1024
 
+let testSink: ((message: Record<string, unknown>) => void) | undefined
+export function setTestMessageSink(sink?: (message: Record<string, unknown>) => void): void {
+  testSink = sink
+}
+
 const send = (message: Record<string, unknown>): void => {
-  if (!parent) throw new Error('Tool Runner IPC 不可用')
+  if (testSink) {
+    testSink({ protocolVersion: WORKER_PROTOCOL_VERSION, ...message })
+    return
+  }
+  if (!parent) {
+    if (process.env.NODE_ENV === 'test') return
+    throw new Error('Tool Runner IPC 不可用')
+  }
   parent.postMessage({ protocolVersion: WORKER_PROTOCOL_VERSION, ...message })
 }
 const hash = (content: Buffer | string): string => createHash('sha256').update(content).digest('hex')
-function sanitizeEnv(): Record<string, string> {
-  return sanitizedEnvironment()
+let cachedLoginPath: string | undefined
+
+export function getCachedShellPath(): string {
+  if (cachedLoginPath) return cachedLoginPath
+  const initialPath = process.env.PATH || '/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin'
+  if (process.platform !== 'darwin' && process.platform !== 'linux') {
+    cachedLoginPath = initialPath
+    return cachedLoginPath
+  }
+
+  try {
+    const shell = loginShell()
+    const result = spawnSync(shell, ['-lc', 'echo "__DESKFORGE_PATH_START__${PATH}__DESKFORGE_PATH_END__"'], {
+      encoding: 'utf8',
+      timeout: 3000,
+      env: { HOME: process.env.HOME, USER: process.env.USER },
+    })
+    const match = result.stdout?.match(/__DESKFORGE_PATH_START__([\s\S]*?)__DESKFORGE_PATH_END__/)
+    if (match && match[1]?.trim()) {
+      cachedLoginPath = match[1].trim()
+      return cachedLoginPath
+    }
+  } catch {
+    // fallback
+  }
+
+  const commonPaths = ['/opt/homebrew/bin', '/opt/homebrew/sbin', '/usr/local/bin', `${process.env.HOME}/.cargo/bin`, `${process.env.HOME}/.local/bin`]
+  const pathSet = new Set(initialPath.split(':'))
+  for (const p of commonPaths) {
+    if (existsSync(p)) pathSet.add(p)
+  }
+  cachedLoginPath = Array.from(pathSet).join(':')
+  return cachedLoginPath
+}
+
+export function sanitizeEnv(): Record<string, string> {
+  const env = sanitizedEnvironment()
+  env.PATH = getCachedShellPath()
+  delete env.ENV
+  delete env.BASH_ENV
+  delete env.ZDOTDIR
+  return env
 }
 
 export interface BoundedTextSnapshot {
@@ -172,7 +228,7 @@ async function execute(command: Extract<Command, { type: 'execute' }>): Promise<
         maxResults: args.maxResults,
         maxFileBytes: args.maxFileBytes,
         env: sanitizeEnv(),
-        onChild: (child) => { processes.set(command.requestId, child); return () => { processes.delete(command.requestId) } },
+        onChild: (child) => { processes.set(command.requestId, { child, runId: command.runId }); return () => { processes.delete(command.requestId) } },
       })
     }
     case 'file.write': {
@@ -196,7 +252,7 @@ async function execute(command: Extract<Command, { type: 'execute' }>): Promise<
     }
     case 'shell.run': {
       const cwd = (await resolveAuthorizedPath(authorizationRoot, args.cwd ?? '.', false, workspacePath)).target
-      return runProcess(command.requestId, loginShell(), ['-lc', String(args.command)], cwd, Math.min(Number(args.timeoutMs ?? 120_000), 600_000))
+      return runProcess(command.requestId, command.runId, loginShell(), ['-c', String(args.command)], cwd, Math.min(Number(args.timeoutMs ?? 120_000), 600_000))
     }
     case 'process.start': {
       const cwd = (await resolveAuthorizedPath(authorizationRoot, args.cwd ?? '.', false, workspacePath)).target
@@ -248,7 +304,7 @@ export function startManagedProcess(runId: string, command: string, cwd: string,
     if (entry.status !== 'running' && entry.finishedAt && Date.now() - Date.parse(entry.finishedAt) > 10 * 60_000) managedProcesses.delete(id)
   }
   const processId = randomUUID()
-  const child = spawn(loginShell(), ['-lc', command], { cwd, env: sanitizeEnv(), detached: true, stdio: ['ignore', 'pipe', 'pipe'] })
+  const child = spawn(loginShell(), ['-c', command], { cwd, env: sanitizeEnv(), detached: true, stdio: ['ignore', 'pipe', 'pipe'] })
   const entry: ManagedProcessEntry = {
     id: processId, runId, child, output: Buffer.alloc(0), status: 'running', startedAt: new Date().toISOString(),
     timer: setTimeout(() => {
@@ -308,30 +364,56 @@ export function stopManagedProcess(runId: string, processId: string): Record<str
   return { processId, status: 'stopped', stoppedAt: entry.finishedAt }
 }
 
-function runProcess(requestId: string, executable: string, args: string[], cwd: string, timeoutMs: number): Promise<any> {
+export function runProcess(requestId: string, runId: string, executable: string, args: string[], cwd: string, timeoutMs: number): Promise<any> {
   return new Promise((resolvePromise, reject) => {
     const child = spawn(executable, args, { cwd, env: sanitizeEnv(), detached: true, stdio: ['ignore', 'pipe', 'pipe'] })
-    processes.set(requestId, child)
+    processes.set(requestId, { child, runId })
     const stdout = new BoundedTextCapture()
     const stderr = new BoundedTextCapture()
     let settled = false
+
+    const stdoutBuffer = new TextDeltaBuffer((delta) => {
+      send({ type: 'progress', requestId, channel: 'stdout', text: delta })
+    }, 50, 8192)
+    const stderrBuffer = new TextDeltaBuffer((delta) => {
+      send({ type: 'progress', requestId, channel: 'stderr', text: delta })
+    }, 50, 8192)
+
     const timer = setTimeout(() => {
+      stdoutBuffer.flush()
+      stderrBuffer.flush()
       try { process.kill(-child.pid!, 'SIGTERM') } catch { /* The process may have exited between timeout and signal delivery. */ }
       reject(new Error(`命令超时（${timeoutMs} ms）`))
     }, timeoutMs)
-    const collect = (stream: NodeJS.ReadableStream | null, channel: 'stdout' | 'stderr'): void => {
+
+    const collect = (stream: NodeJS.ReadableStream | null, channel: 'stdout' | 'stderr', buffer: TextDeltaBuffer): void => {
       stream?.on('data', (chunk: Buffer) => {
         if (channel === 'stdout') stdout.append(chunk); else stderr.append(chunk)
-        const progressChunk = chunk.subarray(Math.max(0, chunk.length - 16_384))
-        send({ type: 'progress', requestId, channel, text: progressChunk.toString('utf8') })
+        buffer.push(chunk.toString('utf8'))
       })
     }
-    collect(child.stdout, 'stdout'); collect(child.stderr, 'stderr')
-    child.on('error', (error) => { if (!settled) { settled = true; clearTimeout(timer); processes.delete(requestId); reject(error) } })
+    collect(child.stdout, 'stdout', stdoutBuffer)
+    collect(child.stderr, 'stderr', stderrBuffer)
+
+    child.on('error', (error) => {
+      if (!settled) {
+        settled = true
+        clearTimeout(timer)
+        stdoutBuffer.flush()
+        stderrBuffer.flush()
+        processes.delete(requestId)
+        reject(error)
+      }
+    })
     child.on('close', (code, signal) => {
       if (settled) return
-      settled = true; clearTimeout(timer); processes.delete(requestId)
-      const out = stdout.snapshot(); const err = stderr.snapshot()
+      settled = true
+      clearTimeout(timer)
+      stdoutBuffer.flush()
+      stderrBuffer.flush()
+      processes.delete(requestId)
+      const out = stdout.snapshot()
+      const err = stderr.snapshot()
       if (code !== 0) reject(Object.assign(new Error(`命令退出码 ${code}${signal ? ` (${signal})` : ''}\n${err.text || out.text}`), { code: 'COMMAND_FAILED', details: { code, signal, stdout: out, stderr: err } }))
       else resolvePromise({
         code: code ?? 0,
@@ -352,15 +434,23 @@ parent?.on('message', async (event: { data: unknown }) => {
   let command: Command
   try { command = parseToolRunnerCommand(event.data) } catch (error) { console.error('Invalid Tool Runner IPC', error); return }
   if (command.type === 'cancel') {
-    const child = processes.get(command.requestId)
-    if (child?.pid) {
-      try { process.kill(-child.pid, 'SIGTERM') } catch { /* The process may already be gone. */ }
+    const entry = processes.get(command.requestId)
+    if (entry?.child?.pid) {
+      try { process.kill(-entry.child.pid, 'SIGTERM') } catch { /* The process may already be gone. */ }
     }
     return
   }
   if (command.type === 'cancel-run') {
     for (const entry of managedProcesses.values()) {
       if (entry.runId === command.runId && entry.status === 'running') stopManagedProcess(command.runId, entry.id)
+    }
+    for (const [reqId, entry] of processes.entries()) {
+      if (entry.runId === command.runId) {
+        if (entry.child.pid) {
+          try { process.kill(-entry.child.pid, 'SIGTERM') } catch { /* The process may already be gone. */ }
+        }
+        processes.delete(reqId)
+      }
     }
     return
   }
@@ -375,6 +465,9 @@ parent?.on('message', async (event: { data: unknown }) => {
 process.on('exit', () => {
   for (const entry of managedProcesses.values()) {
     clearTimeout(entry.timer)
+    try { if (entry.child.pid) process.kill(-entry.child.pid, 'SIGTERM') } catch { /* already exited */ }
+  }
+  for (const entry of processes.values()) {
     try { if (entry.child.pid) process.kill(-entry.child.pid, 'SIGTERM') } catch { /* already exited */ }
   }
   void closeAllMcp()

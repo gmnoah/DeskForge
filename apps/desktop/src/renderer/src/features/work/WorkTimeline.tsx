@@ -1,11 +1,15 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import ReactMarkdown from 'react-markdown'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { BrandMark, Icon } from '../../icons'
-import type { DocumentPreviewTarget, JsonRecord, RunDetailView } from '../../types'
+import type { DocumentPreviewTarget, RunDetailView } from '../../types'
 import { buildWorkTurns, type ResultEvidence } from '../../work-turn'
+import type { WorkTurnViewModel } from '../../work-turn.types'
 import { ProcessDisclosure } from './ProcessDisclosure'
 import { failureMessage, failureTechnicalDetail, readTokenUsage, tokenUsageSummary } from './run-insights'
+
+const REMARK_PLUGINS = [remarkGfm]
+const PRE_COMPONENT = ({ children }: { children?: ReactNode }) => <CodeBlock>{children}</CodeBlock>
 
 interface WorkTimelineProps {
   detail: RunDetailView
@@ -93,7 +97,7 @@ export function CodeBlock({ children }: { children?: ReactNode }) {
   )
 }
 
-export function Markdown({
+export const Markdown = memo(function Markdown({
   children,
   onOpenPath,
   onPreviewDocument,
@@ -102,49 +106,51 @@ export function Markdown({
   onOpenPath?: ((path: string) => void) | undefined
   onPreviewDocument?: ((target: DocumentPreviewTarget) => void) | undefined
 }) {
+  const components = useMemo<Components>(() => ({
+    pre: PRE_COMPONENT,
+    a: ({ href, children: linkChildren, ...props }) => {
+      if (href && (href.startsWith('file://') || href.startsWith('/') || /^[a-zA-Z0-9_\u4e00-\u9fa5\s/.-]+\.(docx|doc|pdf|xlsx|xls|csv|png|jpg|jpeg|md|html|htm|txt|json|zip)$/i.test(href))) {
+        const cleanPath = href.startsWith('file://') ? decodeURIComponent(href.replace('file://', '')) : href
+        const isHtml = cleanPath.toLowerCase().endsWith('.html') || cleanPath.toLowerCase().endsWith('.htm')
+        const isPreviewable = /\.(html|htm|md|txt|json|css|js|ts|svg|png|jpg|jpeg)$/i.test(cleanPath)
+        return (
+          <button
+            type="button"
+            className="inline-file-link"
+            title={isPreviewable ? `点击内置预览：${cleanPath}` : `点击使用默认程序打开：${cleanPath}`}
+            onClick={(e) => {
+              e.preventDefault()
+              if (isPreviewable && onPreviewDocument) {
+                onPreviewDocument({ title: cleanPath.split('/').at(-1) ?? cleanPath, path: cleanPath })
+              } else if (onOpenPath) {
+                onOpenPath(cleanPath)
+              }
+            }}
+          >
+            <Icon name={isHtml ? 'globe' : 'file'} size={12} />
+            {linkChildren}
+          </button>
+        )
+      }
+      const target = safeHref(href)
+      return target
+        ? <a {...props} href={target} target="_blank" rel="noreferrer noopener">{linkChildren}</a>
+        : <span>{linkChildren}</span>
+    },
+  }), [onOpenPath, onPreviewDocument])
+
   return (
     <div className="markdown-content">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={REMARK_PLUGINS}
         skipHtml
-        components={{
-          pre: ({ children: preChildren }) => <CodeBlock>{preChildren}</CodeBlock>,
-          a: ({ href, children: linkChildren, ...props }) => {
-            if (href && (href.startsWith('file://') || href.startsWith('/') || /^[a-zA-Z0-9_\u4e00-\u9fa5\s/.-]+\.(docx|doc|pdf|xlsx|xls|csv|png|jpg|jpeg|md|html|htm|txt|json|zip)$/i.test(href))) {
-              const cleanPath = href.startsWith('file://') ? decodeURIComponent(href.replace('file://', '')) : href
-              const isHtml = cleanPath.toLowerCase().endsWith('.html') || cleanPath.toLowerCase().endsWith('.htm')
-              const isPreviewable = /\.(html|htm|md|txt|json|css|js|ts|svg|png|jpg|jpeg)$/i.test(cleanPath)
-              return (
-                <button
-                  type="button"
-                  className="inline-file-link"
-                  title={isPreviewable ? `点击内置预览：${cleanPath}` : `点击使用默认程序打开：${cleanPath}`}
-                  onClick={(e) => {
-                    e.preventDefault()
-                    if (isPreviewable && onPreviewDocument) {
-                      onPreviewDocument({ title: cleanPath.split('/').at(-1) ?? cleanPath, path: cleanPath })
-                    } else if (onOpenPath) {
-                      onOpenPath(cleanPath)
-                    }
-                  }}
-                >
-                  <Icon name={isHtml ? 'globe' : 'file'} size={12} />
-                  {linkChildren}
-                </button>
-              )
-            }
-            const target = safeHref(href)
-            return target
-              ? <a {...props} href={target} target="_blank" rel="noreferrer noopener">{linkChildren}</a>
-              : <span>{linkChildren}</span>
-          },
-        }}
+        components={components}
       >
         {children}
       </ReactMarkdown>
     </div>
   )
-}
+})
 
 function ResultSummary({
   result,
@@ -236,12 +242,113 @@ function ResultSummary({
   )
 }
 
+interface TurnRowProps {
+  turn: WorkTurnViewModel
+  isOptimistic: boolean
+  approvals?: ReactNode
+  processOpen: boolean
+  onToggleProcess: (turnId: string) => void
+  onOpenDetails: () => void
+  onOpenChanges: () => void
+  onOpenArtifact?: ((id: string) => void) | undefined
+  onOpenPath?: ((path: string) => void) | undefined
+  onPreviewDocument?: ((target: DocumentPreviewTarget) => void) | undefined
+}
+
+const TurnRow = memo(function TurnRow({
+  turn,
+  isOptimistic,
+  approvals,
+  processOpen,
+  onToggleProcess,
+  onOpenDetails,
+  onOpenChanges,
+  onOpenArtifact,
+  onOpenPath,
+  onPreviewDocument,
+}: TurnRowProps) {
+  return (
+    <section className="work-turn">
+      <article className={`message user-message${isOptimistic ? ' is-optimistic' : ''}`}>
+        <div className="message-content">
+          <div className="message-meta">
+            <strong>你</strong>
+            <span>{formatTime(turn.prompt.createdAt)}</span>
+          </div>
+          <Markdown onOpenPath={onOpenPath} onPreviewDocument={onPreviewDocument}>
+            {turn.prompt.content}
+          </Markdown>
+        </div>
+      </article>
+      <article className="message agent-message agent-turn">
+        <div className="message-avatar agent">
+          <BrandMark size={17} />
+        </div>
+        <div className="message-content">
+          <div className="message-meta">
+            <strong>DeskForge</strong>
+            <span>{formatTime(turn.response.updatedAt ?? turn.updatedAt)}</span>
+          </div>
+          <div className="agent-turn-entries">
+            {turn.process && (
+              <ProcessDisclosure
+                timeline={turn.process}
+                open={processOpen}
+                onToggle={() => onToggleProcess(turn.id)}
+              />
+            )}
+            {turn.response.content && (
+              <div className="agent-turn-text">
+                <Markdown onOpenPath={onOpenPath} onPreviewDocument={onPreviewDocument}>
+                  {turn.response.content}
+                </Markdown>
+              </div>
+            )}
+            {turn.result && (
+              <ResultSummary
+                result={turn.result}
+                onOpenDetails={onOpenDetails}
+                onOpenChanges={onOpenChanges}
+                onOpenArtifact={onOpenArtifact}
+                onOpenPath={onOpenPath}
+                onPreviewDocument={onPreviewDocument}
+              />
+            )}
+          </div>
+        </div>
+      </article>
+      {approvals}
+    </section>
+  )
+})
+
 export function WorkTimeline({ detail, approvals, onOpenDetails, onOpenChanges, onOpenArtifact, onOpenPath, onPreviewDocument }: WorkTimelineProps) {
   const tailRef = useRef<HTMLDivElement>(null)
   const followTailRef = useRef(true)
   const [openProcessTurnId, setOpenProcessTurnId] = useState<string>()
   const turns = useMemo(() => buildWorkTurns(detail), [detail])
   const tokenUsage = readTokenUsage(detail.tokenUsage)
+
+  const onToggleProcess = useCallback((turnId: string) => {
+    setOpenProcessTurnId((current) => current === turnId ? undefined : turnId)
+  }, [])
+
+  // Callers pass inline arrows; route them through a ref so memoized rows and
+  // Markdown blocks are not re-parsed on every streamed delta.
+  const handlersRef = useRef({ onOpenDetails, onOpenChanges, onOpenArtifact, onOpenPath, onPreviewDocument })
+  useLayoutEffect(() => {
+    handlersRef.current = { onOpenDetails, onOpenChanges, onOpenArtifact, onOpenPath, onPreviewDocument }
+  })
+  const hasArtifact = Boolean(onOpenArtifact)
+  const hasPath = Boolean(onOpenPath)
+  const hasPreview = Boolean(onPreviewDocument)
+  const handlers = useMemo(() => ({
+    onOpenDetails: () => handlersRef.current.onOpenDetails(),
+    onOpenChanges: () => handlersRef.current.onOpenChanges(),
+    onOpenArtifact: hasArtifact ? (id: string) => handlersRef.current.onOpenArtifact?.(id) : undefined,
+    onOpenPath: hasPath ? (path: string) => handlersRef.current.onOpenPath?.(path) : undefined,
+    onPreviewDocument: hasPreview ? (target: DocumentPreviewTarget) => handlersRef.current.onPreviewDocument?.(target) : undefined,
+  }), [hasArtifact, hasPath, hasPreview])
 
   useEffect(() => {
     const scroller = tailRef.current?.closest('.run-scroll')
@@ -264,29 +371,15 @@ export function WorkTimeline({ detail, approvals, onOpenDetails, onOpenChanges, 
       {turns.map((turn, index) => {
         const optimistic = turn.prompt.messageIds.some((id) => detail.events.some((event) => event.id === id && event.optimistic))
         return (
-          <section key={turn.id} className="work-turn">
-            <article className={`message user-message${optimistic ? ' is-optimistic' : ''}`}>
-              <div className="message-content"><div className="message-meta"><strong>你</strong><span>{formatTime(turn.prompt.createdAt)}</span></div><Markdown onOpenPath={onOpenPath} onPreviewDocument={onPreviewDocument}>{turn.prompt.content}</Markdown></div>
-            </article>
-            <article className="message agent-message agent-turn">
-              <div className="message-avatar agent"><BrandMark size={17} /></div>
-              <div className="message-content">
-                <div className="message-meta"><strong>DeskForge</strong><span>{formatTime(turn.response.updatedAt ?? turn.updatedAt)}</span></div>
-                <div className="agent-turn-entries">
-                  {turn.process && (
-                    <ProcessDisclosure
-                      timeline={turn.process}
-                      open={openProcessTurnId === turn.id}
-                      onToggle={() => setOpenProcessTurnId((current) => current === turn.id ? undefined : turn.id)}
-                    />
-                  )}
-                  {turn.response.content && <div className="agent-turn-text"><Markdown onOpenPath={onOpenPath} onPreviewDocument={onPreviewDocument}>{turn.response.content}</Markdown></div>}
-                  {turn.result && <ResultSummary result={turn.result} onOpenDetails={onOpenDetails} onOpenChanges={onOpenChanges} onOpenArtifact={onOpenArtifact} onOpenPath={onOpenPath} onPreviewDocument={onPreviewDocument} />}
-                </div>
-              </div>
-            </article>
-            {index === turns.length - 1 ? approvals : null}
-          </section>
+          <TurnRow
+            key={turn.id}
+            turn={turn}
+            isOptimistic={optimistic}
+            approvals={index === turns.length - 1 ? approvals : undefined}
+            processOpen={openProcessTurnId === turn.id}
+            onToggleProcess={onToggleProcess}
+            {...handlers}
+          />
         )
       })}
       {detail.status === 'failed' && <FailureNotice lastError={detail.lastError} />}

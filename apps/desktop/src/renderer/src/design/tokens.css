@@ -25,6 +25,12 @@
   --danger: #b91c1c;
   --danger-soft: #fef2f2;
   --link: #c25410;
+  --on-accent: #ffffff;
+  --onboarding-side: #181615;
+  --onboarding-side-text: #f7f6f3;
+  --onboarding-side-muted: #9e968c;
+  --onboarding-side-border: rgba(30, 24, 16, 0.12);
+  --onboarding-step-border: #3c3944;
 
   --radius-control: 8px;
   --radius-surface: 12px;
@@ -72,6 +78,12 @@
   --danger: #f87171;
   --danger-soft: rgba(239, 68, 68, 0.16);
   --link: #fb923c;
+  --on-accent: #ffffff;
+  --onboarding-side: #101014;
+  --onboarding-side-text: #f7f6f3;
+  --onboarding-side-muted: #a0988c;
+  --onboarding-side-border: rgba(255, 240, 220, 0.08);
+  --onboarding-step-border: rgba(255, 240, 220, 0.20);
   --shadow-floating: 0 24px 64px -12px rgba(0, 0, 0, 0.72), 0 8px 24px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 240, 220, 0.08);
   --shadow-composer: 0 16px 40px -8px rgba(0, 0, 0, 0.6), 0 4px 16px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 240, 220, 0.09);
 }

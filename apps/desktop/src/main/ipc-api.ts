@@ -1,9 +1,9 @@
 import { basename, dirname, extname, isAbsolute, join, relative } from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
-import { lstat, mkdir, readFile, realpath, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, open, readFile, realpath, writeFile } from 'node:fs/promises'
 import { app, dialog, shell } from 'electron'
 import { McpServerInputSchema, type AppSettings, type McpServerInput, type DesktopInvokeChannel, type InstalledCapabilityPackage, type ModelConnectionTest, type ModelProfile } from '@deskforge/contracts'
-import { classifyModelError, redactSecrets } from '@deskforge/core'
+import { classifyModelError, createPathGuard, redactSecrets } from '@deskforge/core'
 import { walkWorkspace, type SearchScope } from '../workers/workspace-search'
 import type { AppDatabase } from './database'
 import type { SecretStore } from './secret-store'
@@ -26,10 +26,62 @@ import { auditExportFileName, presentAuditRecord, renderAuditExport } from './au
 import { CapabilityPackageService, type ParsedCapabilityPackage } from './capability-package-service'
 import { getModelCatalog } from './model-providers'
 
+const DANGEROUS_EXTENSIONS = new Set([
+  '.app', '.command', '.sh', '.bash', '.zsh', '.bat', '.cmd', '.exe', '.com', '.vbs', '.js', '.mjs', '.bin', '.workflow',
+])
+
+const IMAGE_MIMES: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.bmp': 'image/bmp',
+  '.ico': 'image/x-icon',
+}
+
 type Handler = (input: any) => Promise<any> | any
 
 export class IpcApi {
   readonly handlers: Record<DesktopInvokeChannel, Handler>
+  private async getAuthorizedRoots(): Promise<string[]> {
+    const candidates: string[] = []
+    const workspaces = this.database.listWorkspaces()
+    for (const ws of workspaces) {
+      const p = ws.root_path ?? ws.rootPath ?? ws.path
+      if (p) candidates.push(p)
+    }
+    if (this.artifacts?.directory) candidates.push(this.artifacts.directory)
+    try {
+      if (typeof app?.getPath === 'function') {
+        const userData = app.getPath('userData')
+        if (userData) {
+          candidates.push(join(userData, 'artifacts'))
+          candidates.push(join(userData, 'attachments'))
+        }
+      }
+    } catch {
+      // In tests app may not be initialized
+    }
+    const existingRoots: string[] = []
+    for (const candidate of candidates) {
+      try {
+        const s = await lstat(candidate)
+        if (s.isDirectory()) existingRoots.push(candidate)
+      } catch {
+        // Root does not exist on disk yet
+      }
+    }
+    return existingRoots
+  }
+
+  private async assertPathAuthorized(candidatePath: string): Promise<string> {
+    const roots = await this.getAuthorizedRoots()
+    if (!roots.length) throw new Error('未授权的文件路径：没有可用工作区或存储目录')
+    const guard = await createPathGuard(roots)
+    const guarded = await guard.authorize(candidatePath, 'read')
+    return guarded.canonicalPath
+  }
   private queryAudit(filters: { runId?: string; category?: string; outcome?: string; from?: string; to?: string; text?: string; limit?: number }) {
     const { rows, total } = this.database.queryAudit(filters)
     const report = this.database.auditChainReport()
@@ -203,25 +255,53 @@ export class IpcApi {
         }
         return rows
       },
-      'app:reveal-path': async ({ path }) => { shell.showItemInFolder(path) },
+      'app:reveal-path': async ({ path }) => {
+        if (!path || typeof path !== 'string') throw new Error('文件路径无效')
+        const canonical = await this.assertPathAuthorized(path)
+        shell.showItemInFolder(canonical)
+      },
       'app:open-path': async ({ path }) => {
-        const errorMessage = await shell.openPath(path)
-        if (errorMessage) return { success: false, error: errorMessage }
-        return { success: true }
+        if (!path || typeof path !== 'string') return { success: false, error: '文件路径无效' }
+        try {
+          const canonical = await this.assertPathAuthorized(path)
+          const ext = extname(canonical).toLowerCase()
+          if (DANGEROUS_EXTENSIONS.has(ext)) {
+            return { success: false, error: '安全限制：禁止直接打开可执行程序或脚本文件' }
+          }
+          const errorMessage = await shell.openPath(canonical)
+          if (errorMessage) return { success: false, error: errorMessage }
+          return { success: true }
+        } catch (error) {
+          return { success: false, error: error instanceof Error ? error.message : String(error) }
+        }
       },
       'app:read-file-content': async ({ path, maxBytes }) => {
         if (!path || typeof path !== 'string') throw new Error('文件路径无效')
-        const canonical = await realpath(path)
+        const canonical = await this.assertPathAuthorized(path)
         const stat = await lstat(canonical)
         if (stat.isDirectory()) throw new Error('不能直接预览目录')
-        const limit = maxBytes ?? 2 * 1024 * 1024
-        const buffer = await readFile(canonical)
-        return {
-          path: canonical,
-          name: basename(canonical),
-          size: stat.size,
-          text: buffer.subarray(0, limit).toString('utf8'),
-          truncated: buffer.length > limit,
+        const mime = IMAGE_MIMES[extname(canonical).toLowerCase()]
+        const maxLimit = 10 * 1024 * 1024
+        const limit = Math.min(Math.max(maxBytes ?? (mime ? maxLimit : 2 * 1024 * 1024), 1), maxLimit)
+        const bytesToRead = Math.min(stat.size, limit)
+        const handle = await open(canonical, 'r')
+        try {
+          const buffer = Buffer.alloc(bytesToRead)
+          const { bytesRead } = await handle.read(buffer, 0, bytesToRead, 0)
+          const content = buffer.subarray(0, bytesRead)
+          const truncated = stat.size > bytesRead
+          // A partial image cannot be decoded, so only whole files get a data URL.
+          const dataUrl = mime && !truncated ? `data:${mime};base64,${content.toString('base64')}` : undefined
+          return {
+            path: canonical,
+            name: basename(canonical),
+            size: stat.size,
+            text: mime ? '' : content.toString('utf8'),
+            truncated,
+            ...(dataUrl ? { dataUrl } : {}),
+          }
+        } finally {
+          await handle.close()
         }
       },
 
@@ -248,9 +328,11 @@ export class IpcApi {
 
       'runs:list': (input) => {
         const profiles = this.modelProfiles()
-        let rows = this.database.listRuns(Math.min(input?.limit ?? 50, 100))
-        if (input?.workspaceId) rows = rows.filter((row) => row.workspaceId === input.workspaceId)
-        if (input?.status) rows = rows.filter((row) => row.status === input.status)
+        const rows = this.database.listRunSummaries({
+          workspaceId: input?.workspaceId,
+          status: input?.status,
+          limit: input?.limit,
+        })
         return { items: rows.map((row) => presentRunSummary(row, profiles.find((profile) => profile.id === row.modelProfileId) ?? this.snapshotProfile(row))) }
       },
       'runs:get': ({ id }) => this.coordinator.getDetail(id),

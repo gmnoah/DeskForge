@@ -12,6 +12,11 @@ const bundledRuntimeDependencies = [
 
 export default defineConfig({
   main: {
+    resolve: {
+      alias: [
+        { find: '@earendil-works/pi-ai/compat', replacement: resolve(__dirname, 'src/pi-ai-compat-stub.ts') },
+      ],
+    },
     plugins: [externalizeDepsPlugin({ exclude: bundledRuntimeDependencies })],
     build: {
       outDir: 'dist/main',
@@ -36,6 +41,31 @@ export default defineConfig({
       },
     },
     plugins: [react()],
-    build: { outDir: 'dist/renderer' },
+    build: {
+      outDir: 'dist/renderer',
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (id.includes('node_modules/react/') || id.includes('node_modules/react-dom/') || id.includes('node_modules/scheduler/')) {
+              return 'vendor-react'
+            }
+            if (
+              id.includes('node_modules/react-markdown/') ||
+              id.includes('node_modules/remark-gfm/') ||
+              id.includes('node_modules/micromark') ||
+              id.includes('node_modules/unist') ||
+              id.includes('node_modules/mdast') ||
+              id.includes('node_modules/vfile') ||
+              id.includes('node_modules/devlop')
+            ) {
+              return 'vendor-markdown'
+            }
+            if (id.includes('node_modules/@phosphor-icons/')) {
+              return 'vendor-icons'
+            }
+          },
+        },
+      },
+    },
   },
 })

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { bridge, errorMessage, getRunDetail, loadWorkbench } from './bridge'
-import type { RunDetailView, ToastMessage, WorkbenchSnapshot } from './types'
+import { StreamDeltaBuffer } from './stream-delta-buffer'
+import type { EventItem, RunDetailView, ToastMessage, WorkbenchSnapshot } from './types'
 
 const EMPTY_SNAPSHOT: WorkbenchSnapshot = {
   workspaces: [],
@@ -103,7 +104,47 @@ export function useWorkbench() {
     void refresh(true)
   }, [refresh])
 
+  const deltaBufferRef = useRef<StreamDeltaBuffer | null>(null)
+  if (!deltaBufferRef.current) {
+    deltaBufferRef.current = new StreamDeltaBuffer((batches) => {
+      setRunDetail((current) => {
+        if (!current) return current
+        let updatedEvents: EventItem[] = current.events
+        for (const batch of batches) {
+          if (batch.runId !== current.id) continue
+          const existingIdx = updatedEvents.findIndex((item) => item.id === batch.streamId)
+          if (existingIdx !== -1) {
+            const existing = updatedEvents[existingIdx]
+            if (existing) {
+              const nextItem: EventItem = {
+                ...existing,
+                id: existing.id,
+                type: existing.type,
+                title: existing.title,
+                content: `${existing.content ?? ''}${batch.delta}`,
+              }
+              updatedEvents = [...updatedEvents.slice(0, existingIdx), nextItem, ...updatedEvents.slice(existingIdx + 1)]
+            }
+          } else {
+            const nextItem: EventItem = {
+              id: batch.streamId,
+              type: 'message.delta',
+              title: 'DeskForge',
+              content: batch.delta,
+              actor: 'agent',
+              createdAt: typeof batch.at === 'string' ? batch.at : new Date().toISOString(),
+            }
+            updatedEvents = [...updatedEvents, nextItem]
+          }
+        }
+        if (updatedEvents === current.events) return current
+        return { ...current, events: updatedEvents }
+      })
+    })
+  }
+
   useEffect(() => {
+    deltaBufferRef.current?.clear()
     if (!selectedRunId) {
       setRunDetail(undefined)
       return
@@ -111,22 +152,31 @@ export function useWorkbench() {
     void reloadRun(selectedRunId)
   }, [reloadRun, selectedRunId])
 
+  useEffect(() => {
+    return () => {
+      deltaBufferRef.current?.clear()
+    }
+  }, [])
+
   useEffect(() => bridge.subscribe((event) => {
     if (event && typeof event === 'object') {
       const value = event as Record<string, unknown>
       if (value.kind === 'message.delta' && value.runId === selectedRunId && typeof value.delta === 'string') {
         const messageId = typeof value.messageId === 'string' ? value.messageId : 'active'
-        const streamId = `stream-${messageId}`
-        setRunDetail((current) => {
-          if (!current || current.id !== selectedRunId) return current
-          const existing = current.events.find((item) => item.id === streamId)
-          const events = existing
-            ? current.events.map((item) => item.id === streamId ? { ...item, content: `${item.content ?? ''}${value.delta as string}` } : item)
-            : [...current.events, { id: streamId, type: 'message.delta', title: 'DeskForge', content: value.delta as string, actor: 'agent' as const, createdAt: typeof value.at === 'string' ? value.at : new Date().toISOString() }]
-          return { ...current, events }
-        })
+        const runId = typeof value.runId === 'string' ? value.runId : selectedRunId
+        if (runId) {
+          deltaBufferRef.current?.append(
+            runId,
+            messageId,
+            value.delta,
+            typeof value.at === 'string' ? value.at : undefined,
+          )
+        }
         return
       }
+      // Commit buffered text before any other event so completion and reload
+      // handlers never see (or get overwritten by) a stale partial stream.
+      deltaBufferRef.current?.flush()
       if (value.kind === 'progress.updated' && value.runId === selectedRunId && value.progress && typeof value.progress === 'object') {
         const progress = value.progress as Record<string, unknown>
         if (typeof progress.message === 'string' && progress.message) {

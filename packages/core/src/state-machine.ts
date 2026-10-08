@@ -9,7 +9,7 @@ const RUN_TRANSITIONS: Readonly<Record<RunStatus, ReadonlySet<RunStatus>>> = {
   verifying: new Set(['running', 'completed', 'waiting_approval', 'waiting_user', 'paused', 'failed', 'cancelled']),
   waiting_approval: new Set(['running', 'verifying', 'waiting_user', 'paused', 'failed', 'cancelled']),
   waiting_user: new Set(['understanding', 'planning', 'running', 'verifying', 'paused', 'failed', 'cancelled']),
-  paused: new Set(['understanding', 'planning', 'running', 'verifying', 'waiting_approval', 'waiting_user', 'cancelled']),
+  paused: new Set(['understanding', 'planning', 'running', 'verifying', 'waiting_approval', 'waiting_user', 'failed', 'cancelled']),
   completed: new Set(),
   failed: new Set(),
   cancelled: new Set(),

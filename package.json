@@ -11,16 +11,26 @@
     "dev": "pnpm --filter @deskforge/desktop dev",
     "build": "pnpm --filter @deskforge/desktop build",
     "typecheck": "pnpm -r typecheck",
+    "lint": "eslint .",
     "test": "pnpm -r test",
     "smoke": "pnpm --filter @deskforge/desktop build && pnpm --filter @deskforge/desktop smoke",
+    "check:size": "node scripts/check-bundle-size.mjs",
     "package": "pnpm --filter @deskforge/desktop package:mac"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/node": "^24.10.1",
+    "eslint": "^10.12.0",
+    "globals": "^17.13.0",
     "typescript": "^5.9.3",
+    "typescript-eslint": "^8.71.1",
     "vitest": "^4.0.15"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["better-sqlite3", "electron", "esbuild"]
+    "onlyBuiltDependencies": [
+      "better-sqlite3",
+      "electron",
+      "esbuild"
+    ]
   }
 }

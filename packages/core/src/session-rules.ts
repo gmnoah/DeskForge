@@ -72,7 +72,7 @@ export function tokenizeSimpleCommand(command: string): string[] | undefined {
 }
 
 function stripDirectoryChangePrefix(command: string): string {
-  const match = command.match(/^\s*cd\s+(?:"[^"]+"|\'[^\']+\'|\S+)\s*(?:&&|;)\s*/i)
+  const match = command.match(/^\s*cd\s+(?:"[^"]+"|'[^']+'|\S+)\s*(?:&&|;)\s*/i)
   return match ? command.slice(match[0].length).trim() : command.trim()
 }
 

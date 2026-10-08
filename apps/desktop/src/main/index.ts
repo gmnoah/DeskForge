@@ -144,13 +144,19 @@ async function initialize(): Promise<void> {
   database.interruptOpenTraces()
   database.interruptManagedProcesses()
   const startupRecovery = database.recoverInterruptedWork()
-  const storedSettings = database.getSetting<any>('appSettings', {})
-  const retentionDays = Number(storedSettings.detailedLogRetentionDays)
-  const retentionBytes = Number(storedSettings.detailedLogMaxBytes)
-  database.pruneDetailedLogs(
-    Number.isFinite(retentionDays) && retentionDays > 0 ? retentionDays : 90,
-    Number.isFinite(retentionBytes) && retentionBytes > 0 ? retentionBytes : 500 * 1024 * 1024,
-  )
+  setImmediate(() => {
+    try {
+      const storedSettings = database.getSetting<any>('appSettings', {})
+      const retentionDays = Number(storedSettings.detailedLogRetentionDays)
+      const retentionBytes = Number(storedSettings.detailedLogMaxBytes)
+      database.pruneDetailedLogs(
+        Number.isFinite(retentionDays) && retentionDays > 0 ? retentionDays : 90,
+        Number.isFinite(retentionBytes) && retentionBytes > 0 ? retentionBytes : 500 * 1024 * 1024,
+      )
+    } catch (error) {
+      console.warn('后台日志清理失败', error)
+    }
+  })
   const secrets = new SecretStore()
   const artifacts = new ArtifactStore(join(userData, 'artifacts'), database)
   const runner = new ToolRunnerBridge()
@@ -225,6 +231,7 @@ async function initialize(): Promise<void> {
     host.stop(); runner.stop()
     coordinator.recoverAfterWorkerFailure(name, details.reason)
   }
+  app.on('child-process-gone', workerFailureHandler)
   const globalSkillRoots = [
     join(homedir(), '.agents', 'skills'),
   ]

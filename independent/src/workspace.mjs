@@ -20,7 +20,7 @@ function statOrNull(path) {
   try { return lstatSync(path); } catch (error) { if (error.code === 'ENOENT') return null; throw error; }
 }
 function glob(pattern) {
-  if (typeof pattern !== 'string' || !pattern || pattern.length > 512 || /[\[\]\\\0]/.test(pattern)) throw new Error('Unsupported glob');
+  if (typeof pattern !== 'string' || !pattern || pattern.length > 512 || /[[\]\\\0]/.test(pattern)) throw new Error('Unsupported glob');
   let expression = '';
   for (let i = 0; i < pattern.length; i++) {
     const char = pattern[i];

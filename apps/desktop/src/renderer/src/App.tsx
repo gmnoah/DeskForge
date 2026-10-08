@@ -1,11 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { bridge, resultId } from './bridge'
 import { useResolvedTheme, useWorkbench } from './hooks'
 import { BrandMark, Icon, type IconName } from './icons'
-import { AutomationsPage } from './features/automations/AutomationsPage'
-import { LibraryPage, type LibraryView } from './features/library/LibraryPage'
-import { AuditPage } from './features/settings/AuditPage'
-import { SettingsPage, SettingRow } from './features/settings/SettingsPage'
+import type { LibraryView } from './features/library/LibraryPage'
 import { MODEL_PROVIDER_META } from './features/settings/model-meta'
 import { connectionTestFailure, describeConnectionTest, type ConnectionTestView } from './features/settings/connection-test'
 import { ConnectionTestNotice } from './features/settings/ConnectionTestNotice'
@@ -18,7 +15,21 @@ import { formatTokenCount, readTokenUsage, tokenUsageLines, type TokenUsageView 
 import { WorkTimeline } from './features/work/WorkTimeline'
 import { ApprovalDiff } from './features/work/ApprovalDiff'
 import { isUserVisibleArtifact, WorkInspector, type WorkInspectorTab } from './features/work/WorkInspector'
-import { DocumentPreviewModal } from './features/work/DocumentPreviewModal'
+
+const AutomationsPage = lazy(() => import('./features/automations/AutomationsPage').then((m) => ({ default: m.AutomationsPage })))
+const LibraryPage = lazy(() => import('./features/library/LibraryPage').then((m) => ({ default: m.LibraryPage })))
+const AuditPage = lazy(() => import('./features/settings/AuditPage').then((m) => ({ default: m.AuditPage })))
+const SettingsPage = lazy(() => import('./features/settings/SettingsPage').then((m) => ({ default: m.SettingsPage })))
+const DocumentPreviewModal = lazy(() => import('./features/work/DocumentPreviewModal').then((m) => ({ default: m.DocumentPreviewModal })))
+
+function ViewLoadingPlaceholder() {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', minHeight: 200 }}>
+      <Spinner size={24} />
+    </div>
+  )
+}
+
 import type {
   ApprovalItem,
   ApprovalScopeChoice,
@@ -38,11 +49,13 @@ import {
   Field,
   IconButton,
   Modal,
+  SettingRow,
   Spinner,
   StatusBadge,
   SubmitForm,
   Toasts,
   Toggle,
+  useFocusTrap,
 } from './ui'
 
 type Perform = <T>(
@@ -654,12 +667,16 @@ function TasksView({
         />
       </main>
       {inspectorOpen && <WorkInspector detail={detail} snapshot={snapshot} requestedTab={inspectorTab} onBindChrome={onBindChrome} onOpenSettings={onSettings} onRevealArtifact={onRevealArtifact} onOpenArtifact={onOpenArtifact} onOpenPath={onOpenPath} onUndoChange={onUndoChange} onPreviewDocument={setPreviewTarget} />}
-      <DocumentPreviewModal
-        target={previewTarget}
-        onClose={() => setPreviewTarget(undefined)}
-        onOpenExternalPath={onOpenPath}
-        onOpenExternalArtifact={onOpenArtifact}
-      />
+      <Suspense fallback={null}>
+        {previewTarget && (
+          <DocumentPreviewModal
+            target={previewTarget}
+            onClose={() => setPreviewTarget(undefined)}
+            onOpenExternalPath={onOpenPath}
+            onOpenExternalArtifact={onOpenArtifact}
+          />
+        )}
+      </Suspense>
     </div>
   )
 }
@@ -740,9 +757,12 @@ function Onboarding({
     await perform(() => bridge.updateSettings({ memoryEnabled, defaultExecutionMode }), '设置已完成')
     onDone()
   }
+  const onboardingRef = useRef<HTMLElement>(null)
+  useFocusTrap(open, onboardingRef)
+
   return (
     <div className="onboarding-backdrop">
-      <section className="onboarding-card" role="dialog" aria-modal="true" aria-label="欢迎使用 DeskForge">
+      <section ref={onboardingRef} className="onboarding-card" role="dialog" aria-modal="true" aria-label="欢迎使用 DeskForge">
         <div className="onboarding-side">
           <div className="onboarding-brand"><div className="brand-mark"><BrandMark size={19} /></div><strong>DeskForge</strong></div>
           <div className="setup-steps">
@@ -932,10 +952,12 @@ export default function App() {
           }, undefined, { refresh: false })}
           onUndoChange={(id) => void perform(() => bridge.undoChange(id), '文件变更已撤销', { refreshRun: true })}
         />}
-        {(['memory', 'mcp', 'skills'] as ViewKey[]).includes(view) && <LibraryPage view={view as LibraryView} snapshot={snapshot} workspaceId={selectedWorkspaceId} perform={perform} onView={setView} />}
-        {view === 'automations' && <AutomationsPage snapshot={snapshot} workspaceId={selectedWorkspaceId} perform={perform} onRunCreated={handleAutomationRun} />}
-        {view === 'settings' && <SettingsPage snapshot={snapshot} selectedWorkspaceId={selectedWorkspaceId} perform={perform} onWorkspaceAdded={() => void refresh()} onWorkspaceSelected={(id) => void switchWorkspace(id)} onOpenAudit={() => setView('audit')} />}
-        {view === 'audit' && <AuditPage snapshot={snapshot} perform={perform} />}
+        <Suspense fallback={<ViewLoadingPlaceholder />}>
+          {(['memory', 'mcp', 'skills'] as ViewKey[]).includes(view) && <LibraryPage view={view as LibraryView} snapshot={snapshot} workspaceId={selectedWorkspaceId} perform={perform} onView={setView} />}
+          {view === 'automations' && <AutomationsPage snapshot={snapshot} workspaceId={selectedWorkspaceId} perform={perform} onRunCreated={handleAutomationRun} />}
+          {view === 'settings' && <SettingsPage snapshot={snapshot} selectedWorkspaceId={selectedWorkspaceId} perform={perform} onWorkspaceAdded={() => void refresh()} onWorkspaceSelected={(id) => void switchWorkspace(id)} onOpenAudit={() => setView('audit')} />}
+          {view === 'audit' && <AuditPage snapshot={snapshot} perform={perform} />}
+        </Suspense>
       </section>
       <ConfirmDialog open={cancelOpen} title="停止当前工作？" description="正在运行的操作会收到停止信号，已经完成的本地变更不会自动撤销。" confirmLabel="停止工作" danger onCancel={() => setCancelOpen(false)} onConfirm={() => { setCancelOpen(false); if (selectedRunId) void perform(() => bridge.cancelRun(selectedRunId), '已停止', { refreshRun: true }) }} />
       <Modal open={renameDraft !== undefined} title="重命名会话" description="新名称会同步到侧栏和会话搜索。" onClose={() => setRenameDraft(undefined)}>

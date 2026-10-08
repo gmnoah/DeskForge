@@ -60,13 +60,92 @@ const FOCUSABLE_SELECTOR = [
   '[tabindex]:not([tabindex="-1"])',
 ].join(',')
 
-function focusableElements(container: HTMLElement): HTMLElement[] {
+export function focusableElements(container: HTMLElement): HTMLElement[] {
   return Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter((element) => {
     if (element.closest('[hidden], [inert], [aria-hidden="true"]')) return false
     if (element.tabIndex < 0) return false
     const style = window.getComputedStyle(element)
     return style.display !== 'none' && style.visibility !== 'hidden'
   })
+}
+
+export function useFocusTrap<T extends HTMLElement = HTMLElement>(
+  active: boolean,
+  containerRef: React.RefObject<T | null>,
+  onClose?: () => void,
+) {
+  const closeRef = useRef(onClose)
+  const previouslyFocusedRef = useRef<HTMLElement | null>(null)
+
+  useEffect(() => {
+    closeRef.current = onClose
+  }, [onClose])
+
+  useEffect(() => {
+    if (!active) return undefined
+
+    const dialog = containerRef.current
+    if (!dialog) return undefined
+
+    if (
+      !previouslyFocusedRef.current &&
+      document.activeElement instanceof HTMLElement &&
+      !dialog.contains(document.activeElement)
+    ) {
+      previouslyFocusedRef.current = document.activeElement
+    }
+    const previousBodyOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+
+    const focusFrame = window.requestAnimationFrame(() => {
+      const preferredTarget = dialog.querySelector<HTMLElement>('[data-autofocus], [autofocus]')
+      const target = preferredTarget ?? focusableElements(dialog)[0] ?? dialog
+      target.focus()
+    })
+
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape' && !event.isComposing) {
+        if (closeRef.current) {
+          event.preventDefault()
+          event.stopImmediatePropagation()
+          closeRef.current()
+        }
+        return
+      }
+
+      if (event.key !== 'Tab') return
+
+      const focusable = focusableElements(dialog)
+      if (focusable.length === 0) {
+        event.preventDefault()
+        dialog.focus()
+        return
+      }
+
+      const first = focusable[0]!
+      const last = focusable[focusable.length - 1]!
+      const activeElement = document.activeElement
+
+      if (event.shiftKey && (activeElement === first || !dialog.contains(activeElement))) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && (activeElement === last || !dialog.contains(activeElement))) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+
+    return () => {
+      window.cancelAnimationFrame(focusFrame)
+      document.removeEventListener('keydown', handleKeyDown)
+      document.body.style.overflow = previousBodyOverflow
+      const previouslyFocused = previouslyFocusedRef.current
+      previouslyFocusedRef.current = null
+      if (previouslyFocused?.isConnected) previouslyFocused.focus()
+    }
+  }, [active, containerRef])
 }
 
 const STATUS_LABELS: Record<Exclude<RunStatus, 'completed'>, string> = {
@@ -184,78 +263,10 @@ export function Modal({
   wide?: boolean
 }) {
   const dialogRef = useRef<HTMLElement>(null)
-  const closeRef = useRef(onClose)
-  const previouslyFocusedRef = useRef<HTMLElement | null>(null)
   const titleId = useId()
   const descriptionId = useId()
 
-  useEffect(() => {
-    closeRef.current = onClose
-  }, [onClose])
-
-  useEffect(() => {
-    if (!open) return undefined
-
-    const dialog = dialogRef.current
-    if (!dialog) return undefined
-
-    if (
-      !previouslyFocusedRef.current
-      && document.activeElement instanceof HTMLElement
-      && !dialog.contains(document.activeElement)
-    ) {
-      previouslyFocusedRef.current = document.activeElement
-    }
-    const previousBodyOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-
-    const focusFrame = window.requestAnimationFrame(() => {
-      const preferredTarget = dialog.querySelector<HTMLElement>('[data-autofocus], [autofocus]')
-      const target = preferredTarget ?? focusableElements(dialog)[0] ?? dialog
-      target.focus()
-    })
-
-    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key === 'Escape' && !event.isComposing) {
-        event.preventDefault()
-        event.stopImmediatePropagation()
-        closeRef.current()
-        return
-      }
-
-      if (event.key !== 'Tab') return
-
-      const focusable = focusableElements(dialog)
-      if (focusable.length === 0) {
-        event.preventDefault()
-        dialog.focus()
-        return
-      }
-
-      const first = focusable[0]!
-      const last = focusable[focusable.length - 1]!
-      const activeElement = document.activeElement
-
-      if (event.shiftKey && (activeElement === first || !dialog.contains(activeElement))) {
-        event.preventDefault()
-        last.focus()
-      } else if (!event.shiftKey && (activeElement === last || !dialog.contains(activeElement))) {
-        event.preventDefault()
-        first.focus()
-      }
-    }
-
-    document.addEventListener('keydown', handleKeyDown)
-
-    return () => {
-      window.cancelAnimationFrame(focusFrame)
-      document.removeEventListener('keydown', handleKeyDown)
-      document.body.style.overflow = previousBodyOverflow
-      const previouslyFocused = previouslyFocusedRef.current
-      previouslyFocusedRef.current = null
-      if (previouslyFocused?.isConnected) previouslyFocused.focus()
-    }
-  }, [open])
+  useFocusTrap(open, dialogRef, onClose)
 
   if (!open) return null
   return (
@@ -269,16 +280,6 @@ export function Modal({
         aria-describedby={description ? descriptionId : undefined}
         tabIndex={-1}
         onClick={(event) => event.stopPropagation()}
-        onFocusCapture={(event) => {
-          const previousTarget = event.relatedTarget
-          if (
-            !previouslyFocusedRef.current
-            && previousTarget instanceof HTMLElement
-            && !event.currentTarget.contains(previousTarget)
-          ) {
-            previouslyFocusedRef.current = previousTarget
-          }
-        }}
       >
         <div className="modal-header">
           <div>
@@ -477,3 +478,24 @@ export function Field({
     </label>
   )
 }
+
+export function SettingRow({
+  title,
+  detail,
+  children,
+}: {
+  title: string
+  detail: string
+  children: ReactNode
+}) {
+  return (
+    <div className="setting-row">
+      <div>
+        <strong>{title}</strong>
+        <span>{detail}</span>
+      </div>
+      <div>{children}</div>
+    </div>
+  )
+}
+

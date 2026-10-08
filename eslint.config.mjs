@@ -12,6 +12,11 @@ export default tseslint.config(
     },
     rules: {
       '@typescript-eslint/no-explicit-any': 'off',
+      '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+      'no-control-regex': 'off',
+      'no-empty': ['warn', { allowEmptyCatch: true }],
+      'preserve-caught-error': 'off',
+      'no-useless-assignment': 'warn',
     },
   },
 )

@@ -197,7 +197,7 @@ describe('public web search boundary', () => {
     await expect(safeWebSearch('query', 1.5, { request })).rejects.toMatchObject({ code: 'INVALID_SEARCH_LIMIT' })
   })
 
-  it.skipIf(process.env.WORKBUDDY_ONLINE_SEARCH !== '1')('returns parseable results from the live best-effort backend', async () => {
+  it.skipIf(process.env.DESKFORGE_ONLINE_SEARCH !== '1' && process.env.WORKBUDDY_ONLINE_SEARCH !== '1')('returns parseable results from the live best-effort backend', async () => {
     const result = await safeWebSearch('Moonshot AI Kimi K2.7 Code', 3) as any
     expect(result.engine).toBe('bing-html')
     expect(result.resultCount).toBeGreaterThan(0)

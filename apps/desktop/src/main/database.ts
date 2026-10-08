@@ -98,6 +98,12 @@ export class AppDatabase {
         model_turns INTEGER NOT NULL DEFAULT 0,
         active_duration_ms INTEGER NOT NULL DEFAULT 0,
         active_segment_started_at TEXT,
+        prompt_tokens INTEGER NOT NULL DEFAULT 0,
+        completion_tokens INTEGER NOT NULL DEFAULT 0,
+        total_tokens INTEGER NOT NULL DEFAULT 0,
+        cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+        reasoning_tokens INTEGER NOT NULL DEFAULT 0,
+        model_calls INTEGER NOT NULL DEFAULT 0,
         parent_run_id TEXT REFERENCES runs(id) ON DELETE CASCADE,
         goal TEXT NOT NULL DEFAULT '',
         summary TEXT NOT NULL DEFAULT '',
@@ -139,6 +145,7 @@ export class AppDatabase {
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
+      CREATE INDEX IF NOT EXISTS task_steps_run_idx ON task_steps(run_id, ordinal);
       CREATE TABLE IF NOT EXISTS run_events (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
@@ -174,6 +181,7 @@ export class AppDatabase {
         created_at TEXT NOT NULL,
         resolved_at TEXT
       );
+      CREATE INDEX IF NOT EXISTS approvals_run_idx ON approvals(run_id, status, created_at);
       CREATE TABLE IF NOT EXISTS approval_grants (
         id TEXT PRIMARY KEY,
         run_id TEXT,
@@ -211,6 +219,7 @@ export class AppDatabase {
         metadata_json TEXT NOT NULL DEFAULT '{}',
         created_at TEXT NOT NULL
       );
+      CREATE INDEX IF NOT EXISTS artifacts_run_idx ON artifacts(run_id, created_at);
       CREATE TABLE IF NOT EXISTS memory_entries (
         id TEXT PRIMARY KEY,
         scope TEXT NOT NULL,
@@ -389,6 +398,17 @@ export class AppDatabase {
       encrypted BLOB NOT NULL,
       updated_at TEXT NOT NULL
     )`)
+    const runCols = this.db.pragma('table_info(runs)') as Array<{ name: string }>
+    if (!runCols.some((c) => c.name === 'prompt_tokens')) this.db.exec('ALTER TABLE runs ADD COLUMN prompt_tokens INTEGER NOT NULL DEFAULT 0')
+    if (!runCols.some((c) => c.name === 'completion_tokens')) this.db.exec('ALTER TABLE runs ADD COLUMN completion_tokens INTEGER NOT NULL DEFAULT 0')
+    if (!runCols.some((c) => c.name === 'total_tokens')) this.db.exec('ALTER TABLE runs ADD COLUMN total_tokens INTEGER NOT NULL DEFAULT 0')
+    if (!runCols.some((c) => c.name === 'cache_read_tokens')) this.db.exec('ALTER TABLE runs ADD COLUMN cache_read_tokens INTEGER NOT NULL DEFAULT 0')
+    if (!runCols.some((c) => c.name === 'reasoning_tokens')) this.db.exec('ALTER TABLE runs ADD COLUMN reasoning_tokens INTEGER NOT NULL DEFAULT 0')
+    if (!runCols.some((c) => c.name === 'model_calls')) this.db.exec('ALTER TABLE runs ADD COLUMN model_calls INTEGER NOT NULL DEFAULT 0')
+    this.db.exec('CREATE INDEX IF NOT EXISTS task_steps_run_idx ON task_steps(run_id, ordinal)')
+    this.db.exec('CREATE INDEX IF NOT EXISTS approvals_run_idx ON approvals(run_id, status, created_at)')
+    this.db.exec('CREATE INDEX IF NOT EXISTS artifacts_run_idx ON artifacts(run_id, created_at)')
+    this.backfillRunTokenUsage()
     this.migrateRunSearch()
   }
 
@@ -616,29 +636,166 @@ export class AppDatabase {
   listRuns(limit = 100): any[] { return (this.db.prepare('SELECT * FROM runs ORDER BY updated_at DESC LIMIT ?').all(limit) as any[]).map((r) => this.hydrateRun(r)) }
   deleteRun(id: string): void { this.db.prepare('DELETE FROM runs WHERE id=?').run(id) }
 
+  accumulateRunTokens(runId: string, usage: any): void {
+    if (!usage || typeof usage !== 'object') return
+    const input = Math.max(0, Math.round(Number(usage.input ?? usage.prompt_tokens ?? 0)) || 0)
+    const output = Math.max(0, Math.round(Number(usage.output ?? usage.completion_tokens ?? 0)) || 0)
+    const cacheRead = Math.max(0, Math.round(Number(usage.cacheRead ?? usage.cache_read ?? 0)) || 0)
+    const reasoning = Math.max(0, Math.round(Number(usage.reasoning ?? 0)) || 0)
+    const total = Math.max(0, Math.round(Number(usage.totalTokens ?? usage.total_tokens ?? 0)) || (input + output + cacheRead))
+
+    this.db.prepare(`
+      UPDATE runs SET
+        prompt_tokens = prompt_tokens + ?,
+        completion_tokens = completion_tokens + ?,
+        cache_read_tokens = cache_read_tokens + ?,
+        reasoning_tokens = reasoning_tokens + ?,
+        total_tokens = total_tokens + ?,
+        model_calls = model_calls + 1,
+        updated_at = ?
+      WHERE id = ?
+    `).run(input, output, cacheRead, reasoning, total, now(), runId)
+  }
+
+  backfillRunTokenUsage(): void {
+    this.db.exec(`
+      UPDATE runs SET
+        prompt_tokens = (
+          SELECT COALESCE(SUM(json_extract(payload_json, '$.usage.input')), 0)
+          FROM audit_events WHERE run_id = runs.id AND category = 'model' AND action = 'completion'
+            AND json_type(payload_json, '$.usage') = 'object'
+        ),
+        completion_tokens = (
+          SELECT COALESCE(SUM(json_extract(payload_json, '$.usage.output')), 0)
+          FROM audit_events WHERE run_id = runs.id AND category = 'model' AND action = 'completion'
+            AND json_type(payload_json, '$.usage') = 'object'
+        ),
+        cache_read_tokens = (
+          SELECT COALESCE(SUM(json_extract(payload_json, '$.usage.cacheRead')), 0)
+          FROM audit_events WHERE run_id = runs.id AND category = 'model' AND action = 'completion'
+            AND json_type(payload_json, '$.usage') = 'object'
+        ),
+        reasoning_tokens = (
+          SELECT COALESCE(SUM(json_extract(payload_json, '$.usage.reasoning')), 0)
+          FROM audit_events WHERE run_id = runs.id AND category = 'model' AND action = 'completion'
+            AND json_type(payload_json, '$.usage') = 'object'
+        ),
+        total_tokens = (
+          SELECT COALESCE(SUM(
+            CASE
+              WHEN json_extract(payload_json, '$.usage.totalTokens') IS NOT NULL
+              THEN json_extract(payload_json, '$.usage.totalTokens')
+              ELSE COALESCE(json_extract(payload_json, '$.usage.input'), 0) + COALESCE(json_extract(payload_json, '$.usage.output'), 0) + COALESCE(json_extract(payload_json, '$.usage.cacheRead'), 0)
+            END
+          ), 0)
+          FROM audit_events WHERE run_id = runs.id AND category = 'model' AND action = 'completion'
+            AND json_type(payload_json, '$.usage') = 'object'
+        ),
+        model_calls = (
+          SELECT COUNT(*)
+          FROM audit_events WHERE run_id = runs.id AND category = 'model' AND action = 'completion'
+            AND json_type(payload_json, '$.usage') = 'object'
+        )
+      WHERE model_calls = 0 AND EXISTS (
+        SELECT 1 FROM audit_events WHERE run_id = runs.id AND category = 'model' AND action = 'completion'
+          AND json_type(payload_json, '$.usage') = 'object'
+      );
+    `)
+  }
+
   /** Sum provider-reported usage of every model call in a run; undefined when none reported usage. */
   getRunTokenUsage(runId: string): RunTokenUsage | undefined {
-    const row = this.db.prepare(`SELECT
-        COUNT(*) AS calls,
-        COALESCE(SUM(json_extract(payload_json,'$.usage.input')),0) AS input,
-        COALESCE(SUM(json_extract(payload_json,'$.usage.output')),0) AS output,
-        COALESCE(SUM(json_extract(payload_json,'$.usage.cacheRead')),0) AS cache_read,
-        COALESCE(SUM(json_extract(payload_json,'$.usage.reasoning')),0) AS reasoning,
-        COALESCE(SUM(json_extract(payload_json,'$.usage.totalTokens')),0) AS total
-      FROM audit_events WHERE run_id=? AND category='model' AND action='completion'
-        AND json_type(payload_json,'$.usage') = 'object'`).get(runId) as Record<string, number | null>
+    const row = this.db.prepare('SELECT prompt_tokens, completion_tokens, cache_read_tokens, reasoning_tokens, total_tokens, model_calls FROM runs WHERE id=?').get(runId) as Record<string, number | null> | undefined
+    if (!row || !row.model_calls) return undefined
     const count = (value: number | null | undefined): number => Math.max(0, Math.round(Number(value ?? 0)) || 0)
     const usage: RunTokenUsage = {
-      inputTokens: count(row.input),
-      outputTokens: count(row.output),
-      cacheReadTokens: count(row.cache_read),
-      reasoningTokens: count(row.reasoning),
-      totalTokens: count(row.total),
-      modelCalls: count(row.calls),
+      inputTokens: count(row.prompt_tokens),
+      outputTokens: count(row.completion_tokens),
+      cacheReadTokens: count(row.cache_read_tokens),
+      reasoningTokens: count(row.reasoning_tokens),
+      totalTokens: count(row.total_tokens) || (count(row.prompt_tokens) + count(row.completion_tokens) + count(row.cache_read_tokens)),
+      modelCalls: count(row.model_calls),
     }
-    if (!usage.modelCalls || (!usage.totalTokens && !usage.inputTokens && !usage.outputTokens)) return undefined
-    if (!usage.totalTokens) usage.totalTokens = usage.inputTokens + usage.outputTokens + usage.cacheReadTokens
     return usage
+  }
+
+  getRunSummaryRow(id: string): any | undefined {
+    const r = this.db.prepare('SELECT * FROM runs WHERE id=?').get(id) as any
+    return r ? this.summarizeRun(r) : undefined
+  }
+
+  /** Run columns plus the few rows presentRun needs; never the full history. */
+  private summarizeRun(r: any): any {
+    const tokenUsage = r.model_calls > 0 ? {
+      inputTokens: r.prompt_tokens ?? 0,
+      outputTokens: r.completion_tokens ?? 0,
+      cacheReadTokens: r.cache_read_tokens ?? 0,
+      reasoningTokens: r.reasoning_tokens ?? 0,
+      totalTokens: r.total_tokens || ((r.prompt_tokens ?? 0) + (r.completion_tokens ?? 0) + (r.cache_read_tokens ?? 0)),
+      modelCalls: r.model_calls,
+    } : undefined
+
+    return {
+      ...r,
+      workspaceId: r.workspace_id,
+      modelProfileId: r.model_profile_id,
+      modelSnapshot: parse(r.model_snapshot_json, {}),
+      limits: parse(r.limits_json, {}),
+      modelTurns: r.model_turns ?? 0,
+      activeDurationMs: r.active_duration_ms ?? 0,
+      activeSegmentStartedAt: r.active_segment_started_at ?? undefined,
+      parentRunId: r.parent_run_id,
+      readOnly: Boolean(r.read_only),
+      accessMode: 'approval',
+      permissionMode: r.permission_mode === 'workspace_auto' ? 'workspace_auto' : 'approval',
+      startedAt: r.started_at,
+      finishedAt: r.finished_at,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+      ...(tokenUsage ? { tokenUsage } : {}),
+      ...this.verificationEvidence(r),
+    }
+  }
+
+  /**
+   * presentRun derives completionStatus from the current turn's start event,
+   * one operational tool call or artifact, and the matching verification event.
+   * Fetch exactly those rows instead of hydrating events, tool calls and artifacts.
+   */
+  private verificationEvidence(r: any): Record<string, unknown> {
+    if (r.status !== 'completed' || (r.outcome !== 'verified' && r.outcome !== 'partial')) return {}
+    const asEvent = (row: any): any[] => row ? [{ ...row, payload: parse(row.payload_json, {}), createdAt: row.created_at }] : []
+    const turnStarted = this.db.prepare("SELECT * FROM run_events WHERE run_id=? AND type='run.turn_started' ORDER BY id DESC LIMIT 1").get(r.id) as any
+    const since = String(turnStarted?.created_at ?? '')
+    const verification = this.db.prepare("SELECT * FROM run_events WHERE run_id=? AND type='verification.completed' AND created_at>=? ORDER BY id DESC LIMIT 1").get(r.id, since) as any
+    const toolCall = this.db.prepare(`SELECT tool_id, created_at FROM tool_calls WHERE run_id=? AND created_at>=?
+      AND tool_id NOT IN ('task_complete','task_plan','task_step_update','memory_propose','skill_read') LIMIT 1`).get(r.id, since) as any
+    const artifact = this.db.prepare("SELECT kind, created_at FROM artifacts WHERE run_id=? AND created_at>=? AND kind IN ('diff','final_output') LIMIT 1").get(r.id, since) as any
+    return {
+      events: [...asEvent(turnStarted), ...asEvent(verification)],
+      toolCalls: toolCall ? [{ ...toolCall, createdAt: toolCall.created_at }] : [],
+      artifacts: artifact ? [{ ...artifact, createdAt: artifact.created_at }] : [],
+    }
+  }
+
+  listRunSummaries(filter: { workspaceId?: string; status?: string; limit?: number } = {}): any[] {
+    const clauses: string[] = []
+    const params: unknown[] = []
+    if (filter.workspaceId) {
+      clauses.push('workspace_id = ?')
+      params.push(filter.workspaceId)
+    }
+    if (filter.status) {
+      clauses.push('status = ?')
+      params.push(filter.status)
+    }
+    const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : ''
+    const limit = Math.min(filter.limit ?? 50, 100)
+    params.push(limit)
+
+    const sql = `SELECT * FROM runs ${where} ORDER BY updated_at DESC LIMIT ?`
+    const rows = this.db.prepare(sql).all(...params) as any[]
+    return rows.map((r) => this.summarizeRun(r))
   }
 
   private hydrateRun(run: any): any {
@@ -661,6 +818,7 @@ export class AppDatabase {
       finishedAt: run.finished_at,
       createdAt: run.created_at,
       updatedAt: run.updated_at,
+      // Unbounded on purpose: model history and Markdown export read this list.
       messages: this.db.prepare('SELECT id,role,content,metadata_json,created_at FROM messages WHERE run_id=? ORDER BY created_at').all(run.id).map((m: any) => ({ ...m, metadata: parse(m.metadata_json, {}), createdAt: m.created_at })),
       steps: this.db.prepare('SELECT * FROM task_steps WHERE run_id=? ORDER BY ordinal').all(run.id).map((s: any) => {
         const evidence = parse<string[]>(s.evidence_json, [])
@@ -1157,6 +1315,12 @@ export class AppDatabase {
     const entryHash = createHash('sha256').update(prevHash).update('\n').update(canonical).digest('hex')
     this.db.prepare('INSERT INTO audit_events(category,action,run_id,summary,payload_json,prev_hash,entry_hash,created_at) VALUES(?,?,?,?,?,?,?,?)')
       .run(category, action, runId ?? null, summary, json(payload), prevHash, entryHash, createdAt)
+    if (category === 'model' && action === 'completion' && runId && payload && typeof payload === 'object') {
+      const p = payload as Record<string, unknown>
+      if (p.usage && typeof p.usage === 'object') {
+        this.accumulateRunTokens(runId, p.usage)
+      }
+    }
   }
   listAudit(limit = 5000): any[] { return (this.db.prepare('SELECT * FROM audit_events ORDER BY id DESC LIMIT ?').all(limit) as any[]).map((a) => ({ ...a, payload: parse(a.payload_json, {}), createdAt: a.created_at })) }
 
@@ -1375,9 +1539,18 @@ export class AppDatabase {
 
   interruptManagedProcesses(runId?: string): number {
     const rows = (runId
-      ? this.db.prepare("SELECT id FROM managed_processes WHERE run_id=? AND status='running'").all(runId)
-      : this.db.prepare("SELECT id FROM managed_processes WHERE status='running'").all()) as Array<{ id: string }>
-    for (const row of rows) this.updateManagedProcess(row.id, { status: 'interrupted' })
+      ? this.db.prepare("SELECT id, pid FROM managed_processes WHERE run_id=? AND status='running'").all(runId)
+      : this.db.prepare("SELECT id, pid FROM managed_processes WHERE status='running'").all()) as Array<{ id: string; pid: number | null }>
+    for (const row of rows) {
+      // Only signal processes started in this app session (run-scoped calls).
+      // At startup the stored PIDs may have been reused by unrelated programs.
+      if (runId && row.pid) {
+        try { process.kill(-row.pid, 'SIGTERM') } catch {
+          try { process.kill(row.pid, 'SIGTERM') } catch { /* already exited */ }
+        }
+      }
+      this.updateManagedProcess(row.id, { status: 'interrupted' })
+    }
     return rows.length
   }
 

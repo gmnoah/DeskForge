@@ -339,6 +339,7 @@ export interface FileContentResult {
   size: number
   text: string
   truncated: boolean
+  dataUrl?: string
 }
 
 export interface ArtifactRestoreResult {
@@ -880,7 +881,7 @@ export const DesktopInvokeContracts: Record<DesktopInvokeChannel, { input: z.Zod
   'app:open-path': { input: z.object({ path: z.string().min(1) }).strict(), output: z.object({ success: z.boolean(), error: z.string().optional() }).strict() },
   'app:read-file-content': {
     input: z.object({ path: z.string().min(1), maxBytes: z.number().int().positive().max(16 * 1024 * 1024).optional() }).strict(),
-    output: z.object({ path: z.string().min(1), name: z.string().min(1), size: z.number().int().nonnegative(), text: z.string(), truncated: z.boolean() }).strict(),
+    output: z.object({ path: z.string().min(1), name: z.string().min(1), size: z.number().int().nonnegative(), text: z.string(), truncated: z.boolean(), dataUrl: z.string().optional() }).strict(),
   },
   'workspaces:list': { input: VoidSchema, output: z.array(WorkspaceSchema) },
   'workspaces:create': { input: z.object({ path: z.string().min(1), name: z.string().min(1).optional() }).strict(), output: WorkspaceSchema },

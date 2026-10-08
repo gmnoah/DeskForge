@@ -18,5 +18,10 @@ jobs:
           cache: pnpm
       - run: npm --prefix independent test
       - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
+      - run: pnpm build
+      - run: pnpm check:size
+      - name: Smoke test with virtual display
+        run: xvfb-run -a pnpm smoke

@@ -30,12 +30,28 @@ describe('bundled skills', () => {
   })
 
   it('keeps skills/examples identical to the bundled copies', async () => {
-    const mirrored = (await readdir(examples, { withFileTypes: true })).filter((entry) => entry.isDirectory()).map((entry) => entry.name)
-    expect(mirrored.length).toBeGreaterThanOrEqual(5)
-    for (const name of mirrored) {
-      expect(BUNDLED_SKILL_NAMES, name).toContain(name)
-      const [example, bundled] = await Promise.all([readFile(join(examples, name, 'SKILL.md'), 'utf8'), readFile(join(resources, name, 'SKILL.md'), 'utf8')])
-      expect(example, name).toBe(bundled)
+    const getEntries = async (baseDir: string) => {
+      const dirents = await readdir(baseDir, { recursive: true, withFileTypes: true })
+      return dirents.map((dirent) => {
+        const parent = dirent.parentPath ? dirent.parentPath.slice(baseDir.length).replace(/^[/\\]/, '') : ''
+        return {
+          relPath: parent ? join(parent, dirent.name) : dirent.name,
+          isFile: dirent.isFile(),
+        }
+      }).sort((a, b) => a.relPath.localeCompare(b.relPath))
+    }
+
+    const [bundledEntries, exampleEntries] = await Promise.all([getEntries(resources), getEntries(examples)])
+    expect(exampleEntries.map((e) => e.relPath)).toEqual(bundledEntries.map((e) => e.relPath))
+
+    for (const entry of bundledEntries) {
+      if (entry.isFile) {
+        const [example, bundled] = await Promise.all([
+          readFile(join(examples, entry.relPath), 'utf8'),
+          readFile(join(resources, entry.relPath), 'utf8'),
+        ])
+        expect(example, entry.relPath).toBe(bundled)
+      }
     }
   })
 })
