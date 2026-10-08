@@ -21,7 +21,17 @@ jobs:
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
+      - name: Install browser for UI regression tests
+        run: pnpm --filter @deskforge/desktop exec playwright install --with-deps chromium
+      - run: pnpm --filter @deskforge/desktop test:review
       - run: pnpm build
       - run: pnpm check:size
+      - name: Configure Electron sandbox on Linux
+        working-directory: apps/desktop
+        run: |
+          sandbox_path="$(node -p "require('node:path').join(require('node:path').dirname(require('electron')), 'chrome-sandbox')")"
+          test -f "$sandbox_path"
+          sudo chown root:root "$sandbox_path"
+          sudo chmod 4755 "$sandbox_path"
       - name: Smoke test with virtual display
         run: xvfb-run -a pnpm smoke

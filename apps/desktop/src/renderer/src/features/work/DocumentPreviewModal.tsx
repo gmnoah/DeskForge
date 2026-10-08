@@ -176,7 +176,7 @@ export function DocumentPreviewModal({
               {filename}
             </strong>
             <span className="document-preview-tag">{formatLabel}</span>
-            {truncated && <span className="document-preview-tag warning">已截取前 2MB</span>}
+            {truncated && <span className="document-preview-tag warning">{isImage ? '图片超过 10 MB' : '已截取前 2 MB'}</span>}
           </div>
 
           <div className="document-preview-toolbar">

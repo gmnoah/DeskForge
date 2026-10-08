@@ -1290,9 +1290,9 @@ export const bridge = {
     { path: 'app.openPath', args: [{ path }] },
     { path: 'openPath', args: [path] },
   ]),
-  readFileContent: (path: string, maxBytes = 2 * 1024 * 1024) => call<{ path: string; name: string; size: number; text: string; truncated: boolean; dataUrl?: string }>([
-    { path: 'app.readFileContent', args: [{ path, maxBytes }] },
-    { path: 'app:read-file-content', args: [{ path, maxBytes }] },
+  readFileContent: (path: string, maxBytes?: number) => call<{ path: string; name: string; size: number; text: string; truncated: boolean; dataUrl?: string }>([
+    { path: 'app.readFileContent', args: [{ path, ...(maxBytes === undefined ? {} : { maxBytes }) }] },
+    { path: 'app:read-file-content', args: [{ path, ...(maxBytes === undefined ? {} : { maxBytes }) }] },
   ]),
   getArtifactText: (id: string, maxBytes = 2 * 1024 * 1024) => call<unknown>([
     { path: 'artifacts.getText', args: [{ id, maxBytes }] },
