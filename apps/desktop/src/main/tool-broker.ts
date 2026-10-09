@@ -1108,7 +1108,13 @@ export class ToolBroker {
         name: output.label?.trim() || basename(canonical),
         kind: 'final_output',
         data,
-        metadata: { sourcePath: canonical, sha256, registeredBy: 'output_register' },
+        metadata: {
+          sourcePath: canonical,
+          fileName: basename(canonical),
+          ...(output.label?.trim() ? { label: output.label.trim() } : {}),
+          sha256,
+          registeredBy: 'output_register',
+        },
       })
       registered.push({ ...this.publicArtifactRef(artifact), path: canonical, deduplicated: false })
     }

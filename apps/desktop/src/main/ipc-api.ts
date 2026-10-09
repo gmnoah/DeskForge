@@ -1,5 +1,6 @@
 import { basename, dirname, extname, isAbsolute, join, relative } from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
+import { existsSync } from 'node:fs'
 import { lstat, mkdir, open, readFile, realpath, writeFile } from 'node:fs/promises'
 import { app, dialog, shell } from 'electron'
 import { McpServerInputSchema, type AppSettings, type McpServerInput, type DesktopInvokeChannel, type InstalledCapabilityPackage, type ModelConnectionTest, type ModelProfile } from '@deskforge/contracts'
@@ -630,11 +631,21 @@ export class IpcApi {
         const buffer = await readFile(row.path); const limit = maxBytes ?? 2 * 1024 * 1024
         return { artifact: presentArtifact(row), text: buffer.subarray(0, limit).toString('utf8'), truncated: buffer.length > limit }
       },
-      'artifacts:reveal': ({ id }) => { const row = this.database.getArtifact(id); if (!row) throw new Error('产物不存在'); shell.showItemInFolder(row.path) },
+      'artifacts:reveal': ({ id }) => {
+        const row = this.database.getArtifact(id)
+        if (!row) throw new Error('产物不存在')
+        const metadata = this.parseObject(row.metadata_json)
+        const sourcePath = typeof metadata.sourcePath === 'string' ? metadata.sourcePath : ''
+        const targetPath = sourcePath && existsSync(sourcePath) ? sourcePath : row.path
+        shell.showItemInFolder(targetPath)
+      },
       'artifacts:open': async ({ id }) => {
         const row = this.database.getArtifact(id)
         if (!row) throw new Error('产物不存在')
-        const errorMessage = await shell.openPath(row.path)
+        const metadata = this.parseObject(row.metadata_json)
+        const sourcePath = typeof metadata.sourcePath === 'string' ? metadata.sourcePath : ''
+        const targetPath = sourcePath && existsSync(sourcePath) ? sourcePath : row.path
+        const errorMessage = await shell.openPath(targetPath)
         if (errorMessage) return { success: false, error: errorMessage }
         return { success: true }
       },

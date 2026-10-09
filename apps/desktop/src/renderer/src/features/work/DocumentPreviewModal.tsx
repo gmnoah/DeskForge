@@ -34,27 +34,33 @@ export function DocumentPreviewModal({
   const filename = useMemo(() => {
     if (!target) return ''
     if (target.title) return target.title
-    if (target.path) return target.path.split('/').at(-1) ?? target.path
+    const candidatePath = target.sourcePath || target.path
+    if (candidatePath) return candidatePath.split(/[/\\]/).filter(Boolean).at(-1) ?? candidatePath
     return '文件预览'
   }, [target])
 
   const { isHtml, isMarkdown, isSvg, isImage, formatLabel } = useMemo(() => {
     const name = filename.toLowerCase()
+    const targetPath = (target?.sourcePath ?? target?.path ?? '').toLowerCase()
     const mime = target?.mime?.toLowerCase() ?? ''
-    const isHtml = name.endsWith('.html') || name.endsWith('.htm') || name.endsWith('.xhtml') || mime === 'text/html'
-    const isMarkdown = name.endsWith('.md') || name.endsWith('.markdown') || mime === 'text/markdown'
-    const isSvg = name.endsWith('.svg') || mime === 'image/svg+xml'
-    const isImage = (/\.(png|jpe?g|gif|webp|bmp|ico)$/i.test(name) || mime.startsWith('image/')) && !isSvg
+    const isHtml = name.endsWith('.html') || name.endsWith('.htm') || name.endsWith('.xhtml')
+      || targetPath.endsWith('.html') || targetPath.endsWith('.htm') || targetPath.endsWith('.xhtml')
+      || mime === 'text/html'
+    const isMarkdown = name.endsWith('.md') || name.endsWith('.markdown')
+      || targetPath.endsWith('.md') || targetPath.endsWith('.markdown')
+      || mime === 'text/markdown'
+    const isSvg = name.endsWith('.svg') || targetPath.endsWith('.svg') || mime === 'image/svg+xml'
+    const isImage = (/\.(png|jpe?g|gif|webp|bmp|ico)$/i.test(name) || /\.(png|jpe?g|gif|webp|bmp|ico)$/i.test(targetPath) || mime.startsWith('image/')) && !isSvg
     let formatLabel = 'CODE'
     if (isHtml) formatLabel = 'HTML'
     else if (isMarkdown) formatLabel = 'MARKDOWN'
     else if (isSvg) formatLabel = 'SVG'
     else if (isImage) formatLabel = 'IMAGE'
-    else if (name.endsWith('.json')) formatLabel = 'JSON'
-    else if (name.endsWith('.css')) formatLabel = 'CSS'
-    else if (name.endsWith('.js') || name.endsWith('.ts') || name.endsWith('.tsx') || name.endsWith('.jsx')) formatLabel = 'SCRIPT'
+    else if (name.endsWith('.json') || targetPath.endsWith('.json')) formatLabel = 'JSON'
+    else if (name.endsWith('.css') || targetPath.endsWith('.css')) formatLabel = 'CSS'
+    else if (name.endsWith('.js') || name.endsWith('.ts') || name.endsWith('.tsx') || name.endsWith('.jsx') || targetPath.endsWith('.js') || targetPath.endsWith('.ts') || targetPath.endsWith('.tsx') || targetPath.endsWith('.jsx')) formatLabel = 'SCRIPT'
     return { isHtml, isMarkdown, isSvg, isImage, formatLabel }
-  }, [filename, target?.mime])
+  }, [filename, target?.mime, target?.sourcePath, target?.path])
 
   const canRender = isHtml || isMarkdown || isSvg
 
@@ -93,14 +99,21 @@ export function DocumentPreviewModal({
 
     const fetchContent = async () => {
       try {
-        if (target.path) {
-          const result = await bridge.readFileContent(target.path)
-          if (!active) return
-          setText(result.text ?? '')
-          setTruncated(result.truncated === true)
-          setImageDataUrl(result.dataUrl)
-          setLoading(false)
-        } else if (target.artifactId) {
+        const primaryPath = target.sourcePath || target.path
+        if (primaryPath) {
+          try {
+            const result = await bridge.readFileContent(primaryPath)
+            if (!active) return
+            setText(result.text ?? '')
+            setTruncated(result.truncated === true)
+            setImageDataUrl(result.dataUrl)
+            setLoading(false)
+            return
+          } catch (readErr) {
+            if (!target.artifactId) throw readErr
+          }
+        }
+        if (target.artifactId) {
           const result = await bridge.getArtifactText(target.artifactId)
           if (!active) return
           const record = result && typeof result === 'object' ? (result as JsonRecord) : {}

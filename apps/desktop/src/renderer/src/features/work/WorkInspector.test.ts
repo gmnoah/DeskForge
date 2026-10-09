@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import { isUserVisibleArtifact, latestTraceSpans, redactDiagnosticText, traceDiagnosticHeadline } from './WorkInspector'
+import { isHtmlArtifact, isUserVisibleArtifact } from './artifact-utils'
+import { latestTraceSpans, redactDiagnosticText, traceDiagnosticHeadline } from './WorkInspector'
 
 describe('WorkInspector artifact shelf', () => {
   it('shows user-facing outputs and screenshots', () => {
@@ -14,6 +15,14 @@ describe('WorkInspector artifact shelf', () => {
     expect(isUserVisibleArtifact({ kind: 'checkpoint', mime: 'text/markdown' })).toBe(false)
     expect(isUserVisibleArtifact({ kind: 'tool_result', mime: 'application/json' })).toBe(false)
     expect(isUserVisibleArtifact({ kind: 'diff', mime: 'text/x-diff' })).toBe(false)
+  })
+
+  it('identifies html artifacts through multiple path and filename indicators', () => {
+    expect(isHtmlArtifact({ name: '昭山 · 山市晴岚', sourcePath: '/Users/mac/NOAH/NOAH知识/网页产出/昭山风景区介绍.html' })).toBe(true)
+    expect(isHtmlArtifact({ fileName: '昭山风景区介绍.html' })).toBe(true)
+    expect(isHtmlArtifact({ path: '/tmp/test.htm' })).toBe(true)
+    expect(isHtmlArtifact({ name: 'page', mime: 'text/html' })).toBe(true)
+    expect(isHtmlArtifact({ name: 'readme.md' })).toBe(false)
   })
 })
 

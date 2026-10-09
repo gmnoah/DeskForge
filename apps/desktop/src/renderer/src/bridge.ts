@@ -915,16 +915,27 @@ function normalizeApprovalHistory(value: unknown, index: number): ApprovalHistor
   return item
 }
 
-function normalizeArtifact(value: unknown, index: number): ArtifactItem {
+export function normalizeArtifact(value: unknown, index: number): ArtifactItem {
   const source = record(value)
+  const metadata = record(source.metadata)
+  const sourcePath = textValue(metadata, ['sourcePath']) || undefined
+  const rawPath = textValue(metadata, ['path']) || textValue(source, ['path'])
+  const fileNameFromSource = sourcePath ? sourcePath.split(/[/\\]/).filter(Boolean).at(-1) : undefined
+  const fileName = textValue(metadata, ['fileName']) || fileNameFromSource || undefined
+  const rawName = textValue(source, ['name', 'filename', 'displayName']) || ''
+  const label = textValue(metadata, ['label']) || (rawName && rawName !== fileName ? rawName : undefined)
+  const name = fileName || rawName || '输出'
+
   const item: ArtifactItem = {
     ...source,
     id: idValue(source, 'artifact', index),
-    name: textValue(source, ['name', 'filename', 'path', 'displayName'], '输出'),
+    name,
+    ...(fileName ? { fileName } : {}),
+    ...(label ? { label } : {}),
+    ...(sourcePath ? { sourcePath } : {}),
   }
   const kind = textValue(source, ['kind', 'type'])
-  const metadata = record(source.metadata)
-  const path = textValue(source, ['path']) || textValue(metadata, ['path'])
+  const path = sourcePath || rawPath
   const size = numberValue(source, ['size', 'sizeBytes', 'byteLength'])
   if (kind) item.kind = kind
   if (path) item.path = path

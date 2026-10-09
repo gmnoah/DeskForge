@@ -35,6 +35,28 @@ describe('Document preview format resolution', () => {
     expect(detectFormat('app.ts')).toBe('source')
   })
 
+  it('detects html and markdown formats when title is a descriptive label but target path ends with extension', () => {
+    const detectTargetFormat = (target: { title?: string; path?: string; sourcePath?: string; mime?: string }) => {
+      const filename = target.title || target.sourcePath?.split('/').at(-1) || target.path?.split('/').at(-1) || ''
+      const name = filename.toLowerCase()
+      const targetPath = (target.sourcePath ?? target.path ?? '').toLowerCase()
+      const m = target.mime?.toLowerCase() ?? ''
+      if (name.endsWith('.html') || name.endsWith('.htm') || targetPath.endsWith('.html') || targetPath.endsWith('.htm') || m === 'text/html') return 'html'
+      if (name.endsWith('.md') || name.endsWith('.markdown') || targetPath.endsWith('.md') || targetPath.endsWith('.markdown') || m === 'text/markdown') return 'markdown'
+      return 'source'
+    }
+
+    expect(detectTargetFormat({
+      title: '昭山 · 山市晴岚 — 单文件介绍页',
+      sourcePath: '/Users/mac/NOAH/NOAH知识/网页产出/昭山风景区介绍.html',
+    })).toBe('html')
+
+    expect(detectTargetFormat({
+      title: '2026 年度规划',
+      path: 'docs/plan.md',
+    })).toBe('markdown')
+  })
+
   it('enables dual mode (rendered vs source) for previewable markup', () => {
     const canRenderDualMode = (format: string) => ['html', 'markdown', 'svg'].includes(format)
 

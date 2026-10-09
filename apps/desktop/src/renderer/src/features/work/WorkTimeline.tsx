@@ -19,6 +19,7 @@ import { buildWorkTurns, type ResultEvidence } from '../../work-turn'
 import type { WorkTurnViewModel } from '../../work-turn.types'
 import { ProcessDisclosure } from './ProcessDisclosure'
 import { failureMessage, failureTechnicalDetail, readTokenUsage, tokenUsageSummary } from './run-insights'
+import { isHtmlArtifact, isUserVisibleArtifact } from './artifact-utils'
 
 const REMARK_PLUGINS = [remarkGfm]
 const PRE_COMPONENT = ({ children }: { children?: ReactNode }) => <CodeBlock>{children}</CodeBlock>
@@ -214,10 +215,9 @@ function ResultSummary({
     const list = result.outputs ?? []
     const seen = new Set<string>()
     return list.filter((item) => {
-      const kind = String(item.kind ?? '')
-      if (kind === 'diff' || kind === 'checkpoint' || kind === 'file_snapshot' || kind === 'attachment') return false
+      if (!isUserVisibleArtifact(item)) return false
       if (item.name.startsWith('context-checkpoint-') || item.name.endsWith('.before')) return false
-      const key = item.path || item.name
+      const key = item.sourcePath || item.path || item.name
       if (seen.has(key)) return false
       seen.add(key)
       return true
@@ -243,12 +243,20 @@ function ResultSummary({
       {outputs.length > 0 && (onOpenArtifact || onOpenPath || onPreviewDocument) && (
         <div className="result-summary-artifacts">
           {outputs.map((artifact) => {
-            const isHtml = artifact.name.toLowerCase().endsWith('.html') || artifact.name.toLowerCase().endsWith('.htm')
+            const displayName = artifact.fileName || artifact.name
+            const displayLabel = artifact.label && artifact.label !== displayName ? artifact.label : undefined
+            const displayPath = artifact.sourcePath || artifact.path
+            const isHtml = isHtmlArtifact({ ...artifact, name: displayName, path: displayPath })
             const handleAction = () => {
               if (onPreviewDocument) {
-                onPreviewDocument({ title: artifact.name, artifactId: artifact.id, path: artifact.path })
-              } else if (artifact.path && onOpenPath) {
-                onOpenPath(artifact.path)
+                onPreviewDocument({
+                  title: displayName,
+                  artifactId: artifact.id,
+                  path: displayPath,
+                  sourcePath: artifact.sourcePath,
+                })
+              } else if (displayPath && onOpenPath) {
+                onOpenPath(displayPath)
               } else if (onOpenArtifact) {
                 onOpenArtifact(artifact.id)
               }
@@ -258,19 +266,28 @@ function ResultSummary({
                 type="button"
                 key={artifact.id}
                 className="result-artifact-chip"
-                title={`文件全称: ${artifact.name}${artifact.path ? `\n完整路径: ${artifact.path}` : ''}\n点击在 DeskForge 内置沙箱预览`}
+                title={`目标文件: ${displayName}${displayLabel ? `\n说明: ${displayLabel}` : ''}${displayPath ? `\n存放路径: ${displayPath}` : ''}\n点击在 DeskForge 内置沙箱预览`}
                 onClick={handleAction}
               >
                 <Icon name={isHtml ? 'globe' : 'file'} size={13} />
-                <span className="result-artifact-name" title={`文件全称: ${artifact.name}`}>{artifact.name}</span>
+                <span className="result-artifact-name" title={`目标文件: ${displayName}${displayLabel ? ` (${displayLabel})` : ''}`}>
+                  {displayName}
+                  {displayLabel ? <small className="result-artifact-sublabel">（{displayLabel}）</small> : null}
+                </span>
                 <span className="result-artifact-action">{isHtml ? '网页预览' : '预览'}</span>
                 <span className="result-artifact-tooltip" role="tooltip">
-                  <span className="artifact-tooltip-label">文件全称</span>
-                  <span className="artifact-tooltip-name">{artifact.name}</span>
-                  {artifact.path ? (
+                  <span className="artifact-tooltip-label">目标文件</span>
+                  <span className="artifact-tooltip-name">{displayName}</span>
+                  {displayLabel ? (
                     <>
-                      <span className="artifact-tooltip-label">完整路径</span>
-                      <span className="artifact-tooltip-path">{artifact.path}</span>
+                      <span className="artifact-tooltip-label">成果说明</span>
+                      <span className="artifact-tooltip-desc">{displayLabel}</span>
+                    </>
+                  ) : null}
+                  {displayPath ? (
+                    <>
+                      <span className="artifact-tooltip-label">存放路径</span>
+                      <span className="artifact-tooltip-path">{displayPath}</span>
                     </>
                   ) : null}
                   <span className="artifact-tooltip-hint">{isHtml ? '点击在 DeskForge 内置安全沙箱中预览网页' : '点击在 DeskForge 内置预览'}</span>

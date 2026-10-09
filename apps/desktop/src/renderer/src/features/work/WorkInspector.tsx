@@ -79,15 +79,8 @@ function sourcesFor(detail: RunDetailView): SourceItem[] {
   return [...items.values()]
 }
 
-const INTERNAL_ARTIFACT_KINDS = new Set(['attachment', 'file_snapshot', 'checkpoint'])
-
-export function isUserVisibleArtifact(artifact: { kind?: string; mime?: unknown; mediaType?: unknown }): boolean {
-  const kind = String(artifact.kind ?? '')
-  if (INTERNAL_ARTIFACT_KINDS.has(kind) || kind === 'diff') return false
-  if (kind === 'final_output') return true
-  const mediaType = String(artifact.mime ?? artifact.mediaType ?? '')
-  return kind === 'tool_result' && mediaType.startsWith('image/')
-}
+import { isHtmlArtifact, isUserVisibleArtifact } from './artifact-utils'
+export { isUserVisibleArtifact }
 
 function visibleOutputs(detail: RunDetailView) {
   return detail.artifacts.filter(isUserVisibleArtifact)
@@ -258,10 +251,13 @@ function ArtifactShelf({ detail, onRevealArtifact, onOpenArtifact, onOpenChanges
       ) : (
         <div className="artifact-shelf-list">
           {outputs.slice(0, 3).map((artifact) => {
-            const isHtml = artifact.name.toLowerCase().endsWith('.html') || artifact.name.toLowerCase().endsWith('.htm')
+            const displayName = artifact.fileName || artifact.name
+            const displayLabel = artifact.label && artifact.label !== displayName ? artifact.label : undefined
+            const displayPath = artifact.sourcePath || artifact.path
+            const isHtml = isHtmlArtifact({ ...artifact, name: displayName, path: displayPath })
             const handlePreview = () => {
               if (onPreviewDocument) {
-                onPreviewDocument({ title: artifact.name, artifactId: artifact.id, path: artifact.path })
+                onPreviewDocument({ title: displayName, artifactId: artifact.id, path: displayPath, sourcePath: artifact.sourcePath })
               } else if (onOpenArtifact) {
                 onOpenArtifact(artifact.id)
               } else {
@@ -273,11 +269,14 @@ function ArtifactShelf({ detail, onRevealArtifact, onOpenArtifact, onOpenChanges
                 <button
                   type="button"
                   className="artifact-shelf-main"
-                  title={`文件全称: ${artifact.name}\n点击内置预览`}
+                  title={`目标文件: ${displayName}${displayLabel ? `\n说明: ${displayLabel}` : ''}${displayPath ? `\n存放路径: ${displayPath}` : ''}\n点击内置预览`}
                   onClick={handlePreview}
                 >
                   <span className="artifact-shelf-icon"><Icon name={isHtml ? 'globe' : 'file'} size={14} /></span>
-                  <span><strong title={`文件全称: ${artifact.name}`}>{artifact.name}</strong><small>{artifactKindLabel(artifact.kind)} {formatBytes(artifact.size)}</small></span>
+                  <span>
+                    <strong title={`目标文件: ${displayName}${displayLabel ? ` (${displayLabel})` : ''}`}>{displayName}</strong>
+                    <small>{displayLabel ? `${displayLabel} · ` : ''}{artifactKindLabel(artifact.kind)} {formatBytes(artifact.size)}</small>
+                  </span>
                   <span className="artifact-open-badge"><Icon name={isHtml ? 'globe' : 'file'} size={11} />{isHtml ? '网页预览' : '预览'}</span>
                 </button>
                 <button
