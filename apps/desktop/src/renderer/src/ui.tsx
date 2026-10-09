@@ -448,12 +448,32 @@ export function Toasts({ items, onDismiss }: { items: ToastMessage[]; onDismiss:
   )
 }
 
-export function SubmitForm({ onSubmit, children, className = '' }: { onSubmit: () => void; children: ReactNode; className?: string }) {
+export function SubmitForm({
+  onSubmit,
+  children,
+  className = '',
+  onDragOver,
+  onDragLeave,
+  onDrop,
+}: {
+  onSubmit: () => void
+  children: ReactNode
+  className?: string
+  onDragOver?: (event: React.DragEvent<HTMLFormElement>) => void
+  onDragLeave?: (event: React.DragEvent<HTMLFormElement>) => void
+  onDrop?: (event: React.DragEvent<HTMLFormElement>) => void
+}) {
   return (
-    <form className={className} onSubmit={(event: FormEvent) => {
-      event.preventDefault()
-      onSubmit()
-    }}>
+    <form
+      className={className}
+      onSubmit={(event: FormEvent) => {
+        event.preventDefault()
+        onSubmit()
+      }}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+    >
       {children}
     </form>
   )

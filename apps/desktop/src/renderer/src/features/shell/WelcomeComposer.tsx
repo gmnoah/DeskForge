@@ -65,7 +65,31 @@ export function WelcomeComposer({
   const [matchedFiles, setMatchedFiles] = useState<WorkspaceFileItem[]>([])
   const [mentionLoading, setMentionLoading] = useState(false)
   const [mentionMatch, setMentionMatch] = useState<{ query: string; start: number } | null>(null)
+  const [isDragOver, setIsDragOver] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragOver(true)
+  }
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragOver(false)
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragOver(false)
+    const files = Array.from(e.dataTransfer.files)
+    if (files.length === 0) return
+    const fileMentions = files.map((f) => `@${f.name}`).join(' ')
+    setPrompt((prev) => (prev ? `${prev} ${fileMentions} ` : `${fileMentions} `))
+    textareaRef.current?.focus()
+  }
 
   const mentionedFiles = extractMentions(prompt)
 
@@ -292,7 +316,19 @@ export function WelcomeComposer({
       {models.length === 0 && (
         <div className="inline-notice warning"><Icon name="key" /><span>还没有可用的模型配置。</span><button type="button" onClick={onOpenSettings}>添加模型</button></div>
       )}
-      <SubmitForm className="hero-composer" onSubmit={submit}>
+      <SubmitForm
+        className={`hero-composer ${isDragOver ? 'is-drag-over' : ''}`}
+        onSubmit={submit}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
+        {isDragOver && (
+          <div className="composer-drop-overlay">
+            <Icon name="file" size={20} />
+            <span>释放文件以添加 @ 引用</span>
+          </div>
+        )}
         {isSlashActive && matchingSkills.length > 0 && (
           <SlashCommandMenu
             skills={matchingSkills}

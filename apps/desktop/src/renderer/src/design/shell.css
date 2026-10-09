@@ -308,6 +308,27 @@
   border-color: var(--accent);
   box-shadow: var(--shadow-composer), 0 0 0 3px var(--accent-soft);
 }
+.hero-composer.is-drag-over,
+.run-composer.is-drag-over {
+  border-color: var(--accent);
+  border-style: dashed;
+  box-shadow: var(--shadow-composer), 0 0 0 3px var(--accent-soft);
+}
+.composer-drop-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: var(--surface);
+  border-radius: var(--radius-surface);
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+  pointer-events: none;
+  z-index: 20;
+}
 .hero-composer textarea {
   width: 100%;
   min-height: 96px;

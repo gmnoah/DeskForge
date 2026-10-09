@@ -235,7 +235,31 @@ function RunComposer({ runId, workspaceId, permissionMode, disabled, onSend, ski
   const [matchedFiles, setMatchedFiles] = useState<WorkspaceFileItem[]>([])
   const [mentionLoading, setMentionLoading] = useState(false)
   const [mentionMatch, setMentionMatch] = useState<{ query: string; start: number } | null>(null)
+  const [isDragOver, setIsDragOver] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragOver(true)
+  }
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragOver(false)
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragOver(false)
+    const files = Array.from(e.dataTransfer.files)
+    if (files.length === 0) return
+    const fileMentions = files.map((f) => `@${f.name}`).join(' ')
+    setMessage((prev) => (prev ? `${prev} ${fileMentions} ` : `${fileMentions} `))
+    textareaRef.current?.focus()
+  }
 
   const mentionedFiles = extractMentions(message)
 
@@ -446,7 +470,19 @@ function RunComposer({ runId, workspaceId, permissionMode, disabled, onSend, ski
 
   return (
     <div className="run-composer-dock">
-      <SubmitForm className="run-composer" onSubmit={submit}>
+      <SubmitForm
+        className={`run-composer ${isDragOver ? 'is-drag-over' : ''}`}
+        onSubmit={submit}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
+        {isDragOver && (
+          <div className="composer-drop-overlay">
+            <Icon name="file" size={18} />
+            <span>释放文件以添加 @ 引用</span>
+          </div>
+        )}
         {isSlashActive && matchingSkills.length > 0 && (
           <SlashCommandMenu
             skills={matchingSkills}
