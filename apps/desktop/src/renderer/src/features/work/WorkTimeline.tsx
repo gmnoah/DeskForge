@@ -1,6 +1,18 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import Prism from 'prismjs'
+import 'prismjs/components/prism-javascript'
+import 'prismjs/components/prism-typescript'
+import 'prismjs/components/prism-jsx'
+import 'prismjs/components/prism-tsx'
+import 'prismjs/components/prism-bash'
+import 'prismjs/components/prism-python'
+import 'prismjs/components/prism-json'
+import 'prismjs/components/prism-yaml'
+import 'prismjs/components/prism-markdown'
+import 'prismjs/components/prism-sql'
+import 'prismjs/components/prism-css'
 import { BrandMark, Icon } from '../../icons'
 import type { DocumentPreviewTarget, RunDetailView } from '../../types'
 import { buildWorkTurns, type ResultEvidence } from '../../work-turn'
@@ -75,12 +87,38 @@ export function CodeBlock({ children }: { children?: ReactNode }) {
     }
   }
 
+  const highlighted = useMemo(() => {
+    if (!rawCode) return ''
+    const norm = (language || '').toLowerCase()
+    const langKey = norm === 'ts' ? 'typescript'
+      : norm === 'js' ? 'javascript'
+      : norm === 'py' ? 'python'
+      : norm === 'sh' || norm === 'zsh' || norm === 'shell' ? 'bash'
+      : norm === 'yml' ? 'yaml'
+      : norm
+    const grammar = Prism.languages[langKey] || (norm ? Prism.languages.clike : undefined)
+    if (grammar) {
+      try {
+        return Prism.highlight(rawCode, grammar, langKey)
+      } catch {
+        // fallback to plain text if parsing errors
+      }
+    }
+    return ''
+  }, [language, rawCode])
+
+  const lineCount = useMemo(() => {
+    if (!rawCode) return 0
+    return rawCode.split('\n').length
+  }, [rawCode])
+
   const displayLang = language ? language.toUpperCase() : 'CODE'
 
   return (
     <div className="code-block-wrapper">
       <div className="code-block-header">
         <span className="code-block-language">{displayLang}</span>
+        {lineCount > 1 && <span className="code-block-lines">{lineCount} 行</span>}
         <button
           type="button"
           className={`code-block-copy-btn${copied ? ' is-copied' : ''}`}
@@ -92,7 +130,11 @@ export function CodeBlock({ children }: { children?: ReactNode }) {
           <span>{copied ? '已复制' : '复制代码'}</span>
         </button>
       </div>
-      <pre>{children}</pre>
+      {highlighted ? (
+        <pre><code className={`language-${language}`} dangerouslySetInnerHTML={{ __html: highlighted }} /></pre>
+      ) : (
+        <pre>{children}</pre>
+      )}
     </div>
   )
 }
@@ -350,12 +392,18 @@ export function WorkTimeline({ detail, approvals, onOpenDetails, onOpenChanges, 
     onPreviewDocument: hasPreview ? (target: DocumentPreviewTarget) => handlersRef.current.onPreviewDocument?.(target) : undefined,
   }), [hasArtifact, hasPath, hasPreview])
 
+  const [showScrollBottom, setShowScrollBottom] = useState(false)
+
   useEffect(() => {
     const scroller = tailRef.current?.closest('.run-scroll')
     if (!(scroller instanceof HTMLElement)) return undefined
     followTailRef.current = true
     const frame = requestAnimationFrame(() => tailRef.current?.scrollIntoView({ block: 'end' }))
-    const update = () => { followTailRef.current = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 180 }
+    const update = () => {
+      const distance = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight
+      followTailRef.current = distance < 180
+      setShowScrollBottom(distance > 240)
+    }
     scroller.addEventListener('scroll', update, { passive: true })
     return () => { cancelAnimationFrame(frame); scroller.removeEventListener('scroll', update) }
   }, [detail.id])
@@ -365,6 +413,11 @@ export function WorkTimeline({ detail, approvals, onOpenDetails, onOpenChanges, 
     const frame = requestAnimationFrame(() => tailRef.current?.scrollIntoView({ block: 'end' }))
     return () => cancelAnimationFrame(frame)
   }, [detail.status, detail.toolCalls.length, detail.events.length, detail.approvals.length])
+
+  const scrollToBottom = () => {
+    followTailRef.current = true
+    tailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+  }
 
   return (
     <div className="timeline work-timeline">
@@ -384,6 +437,18 @@ export function WorkTimeline({ detail, approvals, onOpenDetails, onOpenChanges, 
       })}
       {detail.status === 'failed' && <FailureNotice lastError={detail.lastError} />}
       {tokenUsage && <div className="run-token-usage" title="服务商返回的用量合计（含工具调用回合）">{tokenUsageSummary(tokenUsage)}</div>}
+      {showScrollBottom && (
+        <button
+          type="button"
+          className="scroll-bottom-fab"
+          onClick={scrollToBottom}
+          aria-label="回到最新消息"
+          title="回到最新消息"
+        >
+          <Icon name="chevronDown" size={14} />
+          <span>回到最新</span>
+        </button>
+      )}
       <div ref={tailRef} className="timeline-tail" aria-hidden="true" />
     </div>
   )

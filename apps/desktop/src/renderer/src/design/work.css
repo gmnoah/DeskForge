@@ -283,6 +283,13 @@
   letter-spacing: 0.04em;
   color: var(--text-secondary);
 }
+.code-block-lines {
+  margin-left: 8px;
+  margin-right: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
 .code-block-copy-btn {
   display: inline-flex;
   align-items: center;
@@ -323,6 +330,78 @@
   background: transparent;
   border: 0;
   font-family: inherit;
+}
+/* Prism Syntax Highlighting (semantic tokens for both light & dark themes) */
+.code-block-wrapper pre code .token.comment,
+.code-block-wrapper pre code .token.prolog,
+.code-block-wrapper pre code .token.doctype,
+.code-block-wrapper pre code .token.cdata {
+  color: var(--text-tertiary);
+  font-style: italic;
+}
+.code-block-wrapper pre code .token.punctuation {
+  color: var(--text-secondary);
+}
+.code-block-wrapper pre code .token.property,
+.code-block-wrapper pre code .token.tag,
+.code-block-wrapper pre code .token.boolean,
+.code-block-wrapper pre code .token.number,
+.code-block-wrapper pre code .token.constant,
+.code-block-wrapper pre code .token.symbol,
+.code-block-wrapper pre code .token.deleted {
+  color: var(--danger);
+}
+.code-block-wrapper pre code .token.selector,
+.code-block-wrapper pre code .token.attr-name,
+.code-block-wrapper pre code .token.string,
+.code-block-wrapper pre code .token.char,
+.code-block-wrapper pre code .token.builtin,
+.code-block-wrapper pre code .token.inserted {
+  color: var(--success);
+}
+.code-block-wrapper pre code .token.operator,
+.code-block-wrapper pre code .token.entity,
+.code-block-wrapper pre code .token.url {
+  color: var(--text-secondary);
+}
+.code-block-wrapper pre code .token.atrule,
+.code-block-wrapper pre code .token.attr-value,
+.code-block-wrapper pre code .token.keyword {
+  color: var(--accent);
+  font-weight: 600;
+}
+.code-block-wrapper pre code .token.function,
+.code-block-wrapper pre code .token.class-name {
+  color: var(--link);
+  font-weight: 500;
+}
+.code-block-wrapper pre code .token.regex,
+.code-block-wrapper pre code .token.important,
+.code-block-wrapper pre code .token.variable {
+  color: var(--warning);
+}
+.scroll-bottom-fab {
+  position: sticky;
+  bottom: 24px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--separator-strong);
+  border-radius: var(--radius-floating);
+  box-shadow: var(--shadow-floating);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  z-index: 10;
+  transition: all var(--motion-fast) var(--ease-out);
+}
+.scroll-bottom-fab:hover {
+  color: var(--accent);
+  border-color: var(--accent-border);
 }
 .markdown-content table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; border-radius: var(--radius-control); }
 .markdown-content th, .markdown-content td { padding: 8px 12px; border: 1px solid var(--separator); text-align: left; }
