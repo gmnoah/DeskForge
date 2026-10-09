@@ -79,6 +79,7 @@ const api: DesktopApi = {
     query: (input) => invoke('audit:query', input), export: (input) => invoke('audit:export', input),
   },
   artifacts: { getText: (input) => invoke('artifacts:get-text', input), reveal: (input) => invoke('artifacts:reveal', input), open: (input) => invoke('artifacts:open', input), undoChange: (input) => invoke('artifacts:undo-change', input) },
+  analytics: { getTokenUsage: (input) => invoke('analytics:token-usage', input) },
   events: {
     subscribe(listener) {
       const handler = (_event: Electron.IpcRendererEvent, value: RunEvent) => listener(value)

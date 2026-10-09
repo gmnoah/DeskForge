@@ -48,6 +48,8 @@ import type {
   WorkbenchSnapshot,
   WorkspaceItem,
   WorkspaceFileItem,
+  TokenUsageMetricsReport,
+  TokenUsageQuery,
 } from './types'
 
 type UnknownFn = (...args: unknown[]) => unknown
@@ -1301,6 +1303,10 @@ export const bridge = {
   undoChange: (id: string) => call<unknown>([
     { path: 'artifacts.undoChange', args: [{ id }] },
     { path: 'undoArtifactChange', args: [id] },
+  ]),
+  getTokenUsage: (query?: TokenUsageQuery) => call<TokenUsageMetricsReport>([
+    { path: 'analytics.getTokenUsage', args: [query] },
+    { path: 'analytics:token-usage', args: [query] },
   ]),
   subscribe(listener: (event: unknown) => void): () => void {
     try {

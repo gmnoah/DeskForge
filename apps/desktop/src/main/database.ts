@@ -2,9 +2,10 @@ import { createHash, randomUUID } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import Database from 'better-sqlite3'
-import type { RunStatus, RunTokenUsage, TaskStepStatus } from '@deskforge/contracts'
+import type { RunStatus, RunTokenUsage, TaskStepStatus, TokenUsageMetricsReport, TokenUsageQuery } from '@deskforge/contracts'
 import { assertRunTransition, assertStepTransition, excerptAround, isTerminalRunStatus, likePattern, planFtsQuery, termHits } from '@deskforge/core'
 import { defaultBaseUrl } from './model-providers'
+import { calculateTokenCost } from './pricing'
 
 type Json = Record<string, unknown> | unknown[] | string | number | boolean | null
 
@@ -717,6 +718,318 @@ export class AppDatabase {
       modelCalls: count(row.model_calls),
     }
     return usage
+  }
+
+  getTokenUsageMetrics(query?: TokenUsageQuery): TokenUsageMetricsReport {
+    const range = query?.range ?? '7d'
+    const targetProvider = query?.provider && query.provider !== 'all' ? query.provider.toLowerCase() : undefined
+
+    const now = new Date()
+    let dayCount = 7
+    if (range === 'today') dayCount = 1
+    else if (range === '7d') dayCount = 7
+    else if (range === '30d') dayCount = 30
+    else if (range === 'all') dayCount = 30
+
+    if (range === 'all') {
+      const earliestRow = this.db.prepare('SELECT MIN(created_at) as earliest FROM runs WHERE total_tokens > 0 OR model_calls > 0').get() as { earliest?: string } | undefined
+      if (earliestRow?.earliest) {
+        const earliestDate = new Date(earliestRow.earliest)
+        if (!Number.isNaN(earliestDate.getTime())) {
+          const diffDays = Math.max(1, Math.ceil((now.getTime() - earliestDate.getTime()) / (1000 * 60 * 60 * 24)))
+          dayCount = Math.min(diffDays, 90)
+        }
+      }
+    }
+
+    const dateKeys: string[] = []
+    for (let i = dayCount - 1; i >= 0; i--) {
+      const d = new Date(now)
+      d.setDate(d.getDate() - i)
+      const yyyy = d.getFullYear()
+      const mm = String(d.getMonth() + 1).padStart(2, '0')
+      const dd = String(d.getDate()).padStart(2, '0')
+      dateKeys.push(`${yyyy}-${mm}-${dd}`)
+    }
+
+    const bucketMap = new Map<string, any>()
+    for (const key of dateKeys) {
+      const parts = key.split('-')
+      const displayDate = `${Number(parts[1])}/${Number(parts[2])}`
+      bucketMap.set(key, {
+        date: key,
+        displayDate,
+        tokens: 0,
+        promptTokens: 0,
+        completionTokens: 0,
+        cacheReadTokens: 0,
+        reasoningTokens: 0,
+        requests: 0,
+        failedRequests: 0,
+        costUsd: 0,
+        costCny: 0,
+        byModel: {},
+      })
+    }
+
+    const auditRows = this.db.prepare(`
+      SELECT
+        strftime('%Y-%m-%d', a.created_at) AS day,
+        a.created_at,
+        a.run_id,
+        a.payload_json,
+        r.model_profile_id,
+        r.model_snapshot_json,
+        r.status AS run_status
+      FROM audit_events a
+      LEFT JOIN runs r ON a.run_id = r.id
+      WHERE a.category = 'model' AND a.action = 'completion'
+      ORDER BY a.created_at ASC
+    `).all() as Array<{
+      day: string
+      created_at: string
+      run_id?: string
+      payload_json: string
+      model_profile_id?: string
+      model_snapshot_json?: string
+      run_status?: string
+    }>
+
+    const processedRunIds = new Set<string>()
+    const modelAggregates = new Map<string, {
+      modelId: string
+      modelName: string
+      provider: string
+      tokens: number
+      promptTokens: number
+      completionTokens: number
+      cacheReadTokens: number
+      reasoningTokens: number
+      requests: number
+      failedRequests: number
+      costUsd: number
+      costCny: number
+      hasPricing: boolean
+      durationMs: number
+    }>()
+
+    let totalTokens = 0
+    let promptTokens = 0
+    let completionTokens = 0
+    let cacheReadTokens = 0
+    let reasoningTokens = 0
+    let totalRequests = 0
+    let failedRequests = 0
+    let estimatedCostUsd = 0
+    let estimatedCostCny = 0
+    const unknownPricingModels = new Set<string>()
+
+    const recordCompletion = (
+      day: string,
+      modelId: string,
+      modelName: string,
+      provider: string,
+      input: number,
+      output: number,
+      cacheRead: number,
+      reasoning: number,
+      total: number,
+      isFailed: boolean,
+      durationMs = 0,
+    ) => {
+      if (targetProvider && provider.toLowerCase() !== targetProvider) return
+
+      const cost = calculateTokenCost(modelId, provider, {
+        promptTokens: input,
+        completionTokens: output,
+        cacheReadTokens: cacheRead,
+      })
+
+      if (!cost.hasPricing) {
+        unknownPricingModels.add(modelId || modelName)
+      }
+
+      totalTokens += total
+      promptTokens += input
+      completionTokens += output
+      cacheReadTokens += cacheRead
+      reasoningTokens += reasoning
+      totalRequests += 1
+      if (isFailed) failedRequests += 1
+      estimatedCostUsd += cost.costUsd
+      estimatedCostCny += cost.costCny
+
+      const bucket = bucketMap.get(day)
+      if (bucket) {
+        bucket.tokens += total
+        bucket.promptTokens += input
+        bucket.completionTokens += output
+        bucket.cacheReadTokens += cacheRead
+        bucket.reasoningTokens += reasoning
+        bucket.requests += 1
+        if (isFailed) bucket.failedRequests += 1
+        bucket.costUsd += cost.costUsd
+        bucket.costCny += cost.costCny
+
+        const modelKey = modelName || modelId || '未知模型'
+        if (!bucket.byModel[modelKey]) {
+          bucket.byModel[modelKey] = {
+            modelName: modelKey,
+            provider,
+            tokens: 0,
+            costUsd: 0,
+            costCny: 0,
+            requests: 0,
+          }
+        }
+        bucket.byModel[modelKey].tokens += total
+        bucket.byModel[modelKey].costUsd += cost.costUsd
+        bucket.byModel[modelKey].costCny += cost.costCny
+        bucket.byModel[modelKey].requests += 1
+      }
+
+      const aggKey = modelId || modelName || '未知模型'
+      let agg = modelAggregates.get(aggKey)
+      if (!agg) {
+        agg = {
+          modelId: aggKey,
+          modelName: modelName || aggKey,
+          provider: provider || 'custom',
+          tokens: 0,
+          promptTokens: 0,
+          completionTokens: 0,
+          cacheReadTokens: 0,
+          reasoningTokens: 0,
+          requests: 0,
+          failedRequests: 0,
+          costUsd: 0,
+          costCny: 0,
+          hasPricing: cost.hasPricing,
+          durationMs: 0,
+        }
+        modelAggregates.set(aggKey, agg)
+      }
+      agg.tokens += total
+      agg.promptTokens += input
+      agg.completionTokens += output
+      agg.cacheReadTokens += cacheRead
+      agg.reasoningTokens += reasoning
+      agg.requests += 1
+      if (isFailed) agg.failedRequests += 1
+      agg.costUsd += cost.costUsd
+      agg.costCny += cost.costCny
+      agg.durationMs += durationMs
+    }
+
+    for (const row of auditRows) {
+      if (row.run_id) processedRunIds.add(row.run_id)
+      const payload = parse<Record<string, unknown>>(row.payload_json, {})
+      const usage = (payload.usage as Record<string, unknown>) ?? {}
+      const snapshot = parse<Record<string, unknown>>(row.model_snapshot_json, {})
+
+      const modelId = String(snapshot.modelId ?? snapshot.id ?? '')
+      const modelName = String(snapshot.name ?? modelId ?? '本地模型')
+      const provider = String(snapshot.provider ?? 'custom')
+
+      const input = Math.max(0, Math.round(Number(usage.input ?? usage.prompt_tokens ?? 0)) || 0)
+      const output = Math.max(0, Math.round(Number(usage.output ?? usage.completion_tokens ?? 0)) || 0)
+      const cacheRead = Math.max(0, Math.round(Number(usage.cacheRead ?? usage.cache_read ?? 0)) || 0)
+      const reasoning = Math.max(0, Math.round(Number(usage.reasoning ?? 0)) || 0)
+      const total = Math.max(0, Math.round(Number(usage.totalTokens ?? usage.total_tokens ?? 0)) || (input + output + cacheRead))
+      const isFailed = payload.outcome === 'failed' || row.run_status === 'failed'
+
+      recordCompletion(row.day, modelId, modelName, provider, input, output, cacheRead, reasoning, total, isFailed)
+    }
+
+    const unrecordedRuns = this.db.prepare(`
+      SELECT
+        id,
+        strftime('%Y-%m-%d', created_at) AS day,
+        prompt_tokens,
+        completion_tokens,
+        cache_read_tokens,
+        reasoning_tokens,
+        total_tokens,
+        model_calls,
+        active_duration_ms,
+        model_snapshot_json,
+        status
+      FROM runs
+      WHERE (model_calls > 0 OR total_tokens > 0)
+    `).all() as Array<{
+      id: string
+      day: string
+      prompt_tokens: number
+      completion_tokens: number
+      cache_read_tokens: number
+      reasoning_tokens: number
+      total_tokens: number
+      model_calls: number
+      active_duration_ms: number
+      model_snapshot_json: string
+      status: string
+    }>
+
+    for (const run of unrecordedRuns) {
+      if (processedRunIds.has(run.id)) continue
+      const snapshot = parse<Record<string, unknown>>(run.model_snapshot_json, {})
+      const modelId = String(snapshot.modelId ?? snapshot.id ?? '')
+      const modelName = String(snapshot.name ?? modelId ?? '本地模型')
+      const provider = String(snapshot.provider ?? 'custom')
+
+      const input = Math.max(0, run.prompt_tokens ?? 0)
+      const output = Math.max(0, run.completion_tokens ?? 0)
+      const cacheRead = Math.max(0, run.cache_read_tokens ?? 0)
+      const reasoning = Math.max(0, run.reasoning_tokens ?? 0)
+      const total = Math.max(0, run.total_tokens || (input + output + cacheRead))
+      const isFailed = run.status === 'failed'
+
+      recordCompletion(run.day, modelId, modelName, provider, input, output, cacheRead, reasoning, total, isFailed, run.active_duration_ms ?? 0)
+    }
+
+    const modelBreakdowns = Array.from(modelAggregates.values()).map((agg) => {
+      const percentage = totalTokens > 0 ? Math.round((agg.tokens / totalTokens) * 100) : 0
+      const durationSec = agg.durationMs / 1000
+      const tokensPerSecond = durationSec > 0 ? Math.round(agg.tokens / durationSec) : 0
+      return {
+        ...agg,
+        costUsd: Math.round(agg.costUsd * 10_000) / 10_000,
+        costCny: Math.round(agg.costCny * 10_000) / 10_000,
+        tokensPerSecond,
+        percentage,
+      }
+    }).sort((a, b) => b.tokens - a.tokens)
+
+    const dailyBuckets = dateKeys.map((key) => {
+      const b = bucketMap.get(key)!
+      return {
+        ...b,
+        costUsd: Math.round(b.costUsd * 10_000) / 10_000,
+        costCny: Math.round(b.costCny * 10_000) / 10_000,
+      }
+    })
+
+    const cacheHitRate = (promptTokens + cacheReadTokens) > 0
+      ? Math.round((cacheReadTokens / (promptTokens + cacheReadTokens)) * 100) / 100
+      : 0
+
+    return {
+      range,
+      ...(targetProvider ? { provider: targetProvider } : {}),
+      totalTokens,
+      promptTokens,
+      completionTokens,
+      cacheReadTokens,
+      reasoningTokens,
+      totalRequests,
+      failedRequests,
+      estimatedCostUsd: Math.round(estimatedCostUsd * 10_000) / 10_000,
+      estimatedCostCny: Math.round(estimatedCostCny * 10_000) / 10_000,
+      unknownPriceCount: unknownPricingModels.size,
+      cacheHitRate,
+      dailyBuckets,
+      modelBreakdowns,
+    }
   }
 
   getRunSummaryRow(id: string): any | undefined {

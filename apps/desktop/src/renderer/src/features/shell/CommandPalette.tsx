@@ -23,6 +23,7 @@ export interface CommandPaletteProps {
   onSelectWorkspace: (workspaceId: string) => void
   onNewRun: () => void
   onOpenSettings: () => void
+  onOpenAnalytics?: () => void
   onToggleSidebar: () => void
   resolvedTheme?: 'light' | 'dark' | undefined
   onToggleTheme?: (() => void) | undefined
@@ -40,6 +41,7 @@ export function CommandPalette({
   onSelectWorkspace,
   onNewRun,
   onOpenSettings,
+  onOpenAnalytics,
   onToggleSidebar,
   resolvedTheme,
   onToggleTheme,
@@ -112,6 +114,18 @@ export function CommandPalette({
         action: () => {
           onClose()
           onOpenSettings()
+        },
+      },
+      {
+        id: 'action-analytics',
+        category: 'action',
+        categoryLabel: '快捷指令',
+        label: '查看用量与计费',
+        sublabel: 'Token 消耗统计、模型费用与调用图表',
+        icon: 'chart',
+        action: () => {
+          onClose()
+          onOpenAnalytics?.()
         },
       },
       {

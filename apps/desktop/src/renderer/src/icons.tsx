@@ -4,6 +4,7 @@ import { ArrowRightIcon as ArrowRight } from '@phosphor-icons/react/ArrowRight'
 import { ArrowSquareOutIcon as ArrowSquareOut } from '@phosphor-icons/react/ArrowSquareOut'
 import { BrainIcon as Brain } from '@phosphor-icons/react/Brain'
 import { CaretDownIcon as CaretDown } from '@phosphor-icons/react/CaretDown'
+import { ChartBarIcon as ChartBar } from '@phosphor-icons/react/ChartBar'
 import { CheckIcon as Check } from '@phosphor-icons/react/Check'
 import { ClockIcon as Clock } from '@phosphor-icons/react/Clock'
 import { CopyIcon as Copy } from '@phosphor-icons/react/Copy'
@@ -84,6 +85,7 @@ export type IconName =
   | 'edit'
   | 'copy'
   | 'lock'
+  | 'chart'
 
 /** Regular is the default; fill is reserved for selected or attention states. */
 export type AppIconWeight = Extract<PhosphorIconWeight, 'regular' | 'fill'>
@@ -103,6 +105,7 @@ const icons: Record<IconName, PhosphorIconComponent> = {
   plug: Plugs,
   skill: Star,
   clock: Clock,
+  chart: ChartBar,
   settings: GearSix,
   shield: ShieldCheck,
   folder: Folder,

@@ -6,6 +6,16 @@ export type ViewKey =
   | 'automations'
   | 'settings'
   | 'audit'
+  | 'analytics'
+
+export type {
+  TokenUsageTimeRange,
+  TokenUsageDimension,
+  DailyUsageBucket,
+  ModelUsageBreakdown,
+  TokenUsageQuery,
+  TokenUsageMetricsReport,
+} from '@deskforge/contracts'
 
 export type RunStatus =
   | 'understanding'

@@ -790,3 +790,68 @@ export const BootstrapSnapshotSchema = z
   .strict()
 
 export const PageRequestSchema = z.object({ cursor: z.string().optional(), limit: z.number().int().min(1).max(500).optional() }).strict()
+
+export const TokenUsageTimeRangeSchema = z.enum(['today', '7d', '30d', 'all'])
+export const TokenUsageQuerySchema = z.object({
+  range: TokenUsageTimeRangeSchema.optional(),
+  provider: z.string().optional(),
+}).strict()
+
+export const DailyUsageBucketSchema = z.object({
+  date: z.string(),
+  displayDate: z.string(),
+  tokens: z.number().nonnegative(),
+  promptTokens: z.number().nonnegative(),
+  completionTokens: z.number().nonnegative(),
+  cacheReadTokens: z.number().nonnegative(),
+  reasoningTokens: z.number().nonnegative(),
+  requests: z.number().int().nonnegative(),
+  failedRequests: z.number().int().nonnegative(),
+  costUsd: z.number().nonnegative(),
+  costCny: z.number().nonnegative(),
+  byModel: z.record(z.string(), z.object({
+    modelName: z.string(),
+    provider: z.string(),
+    tokens: z.number().nonnegative(),
+    costUsd: z.number().nonnegative(),
+    costCny: z.number().nonnegative(),
+    requests: z.number().int().nonnegative(),
+  })),
+}).strict()
+
+export const ModelUsageBreakdownSchema = z.object({
+  modelId: z.string(),
+  modelName: z.string(),
+  provider: z.string(),
+  tokens: z.number().nonnegative(),
+  promptTokens: z.number().nonnegative(),
+  completionTokens: z.number().nonnegative(),
+  cacheReadTokens: z.number().nonnegative(),
+  reasoningTokens: z.number().nonnegative(),
+  requests: z.number().int().nonnegative(),
+  failedRequests: z.number().int().nonnegative(),
+  costUsd: z.number().nonnegative(),
+  costCny: z.number().nonnegative(),
+  hasPricing: z.boolean(),
+  durationMs: z.number().nonnegative(),
+  tokensPerSecond: z.number().nonnegative(),
+  percentage: z.number().min(0).max(100),
+}).strict()
+
+export const TokenUsageMetricsReportSchema = z.object({
+  range: TokenUsageTimeRangeSchema,
+  provider: z.string().optional(),
+  totalTokens: z.number().nonnegative(),
+  promptTokens: z.number().nonnegative(),
+  completionTokens: z.number().nonnegative(),
+  cacheReadTokens: z.number().nonnegative(),
+  reasoningTokens: z.number().nonnegative(),
+  totalRequests: z.number().int().nonnegative(),
+  failedRequests: z.number().int().nonnegative(),
+  estimatedCostUsd: z.number().nonnegative(),
+  estimatedCostCny: z.number().nonnegative(),
+  unknownPriceCount: z.number().int().nonnegative(),
+  cacheHitRate: z.number().min(0).max(1),
+  dailyBuckets: z.array(DailyUsageBucketSchema),
+  modelBreakdowns: z.array(ModelUsageBreakdownSchema),
+}).strict()

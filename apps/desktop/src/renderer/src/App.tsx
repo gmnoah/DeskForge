@@ -21,6 +21,7 @@ const LibraryPage = lazy(() => import('./features/library/LibraryPage').then((m)
 const AuditPage = lazy(() => import('./features/settings/AuditPage').then((m) => ({ default: m.AuditPage })))
 const SettingsPage = lazy(() => import('./features/settings/SettingsPage').then((m) => ({ default: m.SettingsPage })))
 const DocumentPreviewModal = lazy(() => import('./features/work/DocumentPreviewModal').then((m) => ({ default: m.DocumentPreviewModal })))
+const AnalyticsPage = lazy(() => import('./features/analytics/AnalyticsPage').then((m) => ({ default: m.AnalyticsPage })))
 
 function ViewLoadingPlaceholder() {
   return (
@@ -134,19 +135,28 @@ function ApprovalCard({ approval, onRespond }: { approval: ApprovalItem; onRespo
   )
 }
 
-function ContextUsageMeter({ usage }: { usage: TokenUsageView }) {
+function ContextUsageMeter({ usage, onOpenAnalytics }: { usage: TokenUsageView; onOpenAnalytics?: (() => void) | undefined }) {
   const budget = 128_000
   const pct = Math.min(100, Math.round((usage.totalTokens / budget) * 100))
   const isHigh = pct >= 80
   const isMedium = pct >= 50
 
   const lines = tokenUsageLines(usage)
-  const tooltipText = `上下文用量预算估算 (${pct}% / 128k tokens)\n` + lines.map((l) => `${l.label}: ${l.value}`).join('\n')
+  const tooltipText = `上下文用量预算估算 (${pct}% / 128k tokens)\n` + lines.map((l) => `${l.label}: ${l.value}`).join('\n') + (onOpenAnalytics ? '\n点击查看详细用量与计费统计' : '')
 
   return (
     <div
-      className={`context-usage-meter${isHigh ? ' is-high' : isMedium ? ' is-medium' : ''}`}
+      role={onOpenAnalytics ? 'button' : undefined}
+      tabIndex={onOpenAnalytics ? 0 : undefined}
+      className={`context-usage-meter${isHigh ? ' is-high' : isMedium ? ' is-medium' : ''}${onOpenAnalytics ? ' is-clickable' : ''}`}
       title={tooltipText}
+      onClick={onOpenAnalytics}
+      onKeyDown={(e) => {
+        if (onOpenAnalytics && (e.key === 'Enter' || e.key === ' ')) {
+          e.preventDefault()
+          onOpenAnalytics()
+        }
+      }}
     >
       <div className="context-usage-bar-track">
         <div className="context-usage-bar-fill" style={{ width: `${Math.max(6, pct)}%` }} />
@@ -159,7 +169,7 @@ function ContextUsageMeter({ usage }: { usage: TokenUsageView }) {
   )
 }
 
-function RunHeader({ detail, onPause, onResume, onCancel, onToggleInspector, inspectorOpen, onRename, onExport, onDelete }: {
+function RunHeader({ detail, onPause, onResume, onCancel, onToggleInspector, inspectorOpen, onRename, onExport, onDelete, onOpenAnalytics }: {
   detail: RunDetailView
   onPause: () => void
   onResume: () => void
@@ -169,6 +179,7 @@ function RunHeader({ detail, onPause, onResume, onCancel, onToggleInspector, ins
   onRename: () => void
   onExport: () => void
   onDelete: () => void
+  onOpenAnalytics?: (() => void) | undefined
 }) {
   const active = ['understanding', 'planning', 'running', 'verifying', 'waiting_approval', 'waiting_user'].includes(detail.status)
   const tokenUsage = readTokenUsage(detail.tokenUsage)
@@ -180,7 +191,7 @@ function RunHeader({ detail, onPause, onResume, onCancel, onToggleInspector, ins
           <span className="run-forge-badge">工单</span>
           <h1>{detail.title}</h1>
           <StatusBadge status={detail.status} />
-          {tokenUsage && <ContextUsageMeter usage={tokenUsage} />}
+          {tokenUsage && <ContextUsageMeter usage={tokenUsage} onOpenAnalytics={onOpenAnalytics} />}
         </div>
         <span>更新于 {formatDate(detail.updatedAt ?? detail.createdAt)}</span>
       </div>
@@ -648,6 +659,7 @@ function TasksView({
   onOpenArtifact,
   onOpenPath,
   onUndoChange,
+  onOpenAnalytics,
 }: {
   snapshot: WorkbenchSnapshot
   detail: RunDetailView | undefined
@@ -670,6 +682,7 @@ function TasksView({
   onOpenArtifact: (id: string) => void
   onOpenPath: (path: string) => void
   onUndoChange: (id: string) => void
+  onOpenAnalytics?: () => void
 }) {
   const [inspectorTab, setInspectorTab] = useState<WorkInspectorTab>('details')
   const [previewTarget, setPreviewTarget] = useState<DocumentPreviewTarget | undefined>(undefined)
@@ -681,7 +694,7 @@ function TasksView({
   return (
     <div className="task-workbench">
       <main className="main-pane run-pane">
-        <RunHeader detail={detail} onPause={onPause} onResume={onResume} onCancel={onCancel} onToggleInspector={onInspector} inspectorOpen={inspectorOpen} onRename={onRename} onExport={onExport} onDelete={onDelete} />
+        <RunHeader detail={detail} onPause={onPause} onResume={onResume} onCancel={onCancel} onToggleInspector={onInspector} inspectorOpen={inspectorOpen} onRename={onRename} onExport={onExport} onDelete={onDelete} onOpenAnalytics={onOpenAnalytics} />
         <div className="run-scroll">
           <WorkTimeline
             detail={detail}
@@ -1007,12 +1020,14 @@ export default function App() {
             if (result && result.success === false && result.error) notify('error', '打开文件失败', result.error)
           }, undefined, { refresh: false })}
           onUndoChange={(id) => void perform(() => bridge.undoChange(id), '文件变更已撤销', { refreshRun: true })}
+          onOpenAnalytics={() => setView('analytics')}
         />}
         <Suspense fallback={<ViewLoadingPlaceholder />}>
           {(['memory', 'mcp', 'skills'] as ViewKey[]).includes(view) && <LibraryPage view={view as LibraryView} snapshot={snapshot} workspaceId={selectedWorkspaceId} perform={perform} onView={setView} />}
           {view === 'automations' && <AutomationsPage snapshot={snapshot} workspaceId={selectedWorkspaceId} perform={perform} onRunCreated={handleAutomationRun} />}
           {view === 'settings' && <SettingsPage snapshot={snapshot} selectedWorkspaceId={selectedWorkspaceId} perform={perform} onWorkspaceAdded={() => void refresh()} onWorkspaceSelected={(id) => void switchWorkspace(id)} onOpenAudit={() => setView('audit')} />}
           {view === 'audit' && <AuditPage snapshot={snapshot} perform={perform} />}
+          {view === 'analytics' && <AnalyticsPage onBackToTasks={() => setView('tasks')} />}
         </Suspense>
       </section>
       <ConfirmDialog open={cancelOpen} title="停止当前工作？" description="正在运行的操作会收到停止信号，已经完成的本地变更不会自动撤销。" confirmLabel="停止工作" danger onCancel={() => setCancelOpen(false)} onConfirm={() => { setCancelOpen(false); if (selectedRunId) void perform(() => bridge.cancelRun(selectedRunId), '已停止', { refreshRun: true }) }} />
@@ -1057,6 +1072,9 @@ export default function App() {
         }}
         onOpenSettings={() => {
           setView('settings')
+        }}
+        onOpenAnalytics={() => {
+          setView('analytics')
         }}
         onToggleSidebar={() => {
           setSidebarOpen((v) => !v)

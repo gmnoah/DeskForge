@@ -35,6 +35,8 @@ import {
   RunSummarySchema,
   SessionApprovalRuleSchema,
   SkillManifestSchema,
+  TokenUsageMetricsReportSchema,
+  TokenUsageQuerySchema,
   WorkspaceSchema,
   WorkspaceFileItemSchema,
 } from './schemas'
@@ -73,6 +75,8 @@ import type {
   RunSummary,
   SessionApprovalRule,
   SkillManifest,
+  TokenUsageMetricsReport,
+  TokenUsageQuery,
   Workspace,
   WorkspaceFileItem,
 } from './types'
@@ -595,6 +599,9 @@ export interface DesktopApi {
     open(input: { id: string }): Promise<{ success: boolean; error?: string }>
     undoChange(input: { id: string }): Promise<ArtifactRestoreResult>
   }
+  analytics: {
+    getTokenUsage(input?: TokenUsageQuery): Promise<TokenUsageMetricsReport>
+  }
   events: {
     subscribe(listener: (event: RunEvent) => void): () => void
   }
@@ -695,6 +702,7 @@ export interface DesktopInvokeMap {
   'artifacts:reveal': { input: { id: string }; output: undefined }
   'artifacts:open': { input: { id: string }; output: { success: boolean; error?: string } }
   'artifacts:undo-change': { input: { id: string }; output: ArtifactRestoreResult }
+  'analytics:token-usage': { input: TokenUsageQuery | undefined; output: TokenUsageMetricsReport }
 }
 
 export type DesktopInvokeChannel = keyof DesktopInvokeMap
@@ -1004,6 +1012,7 @@ export const DesktopInvokeContracts: Record<DesktopInvokeChannel, { input: z.Zod
   'artifacts:reveal': { input: ByIdSchema, output: VoidSchema },
   'artifacts:open': { input: ByIdSchema, output: z.object({ success: z.boolean(), error: z.string().optional() }).strict() },
   'artifacts:undo-change': { input: ByIdSchema, output: z.object({ restored: z.literal(true), path: z.string().min(1), createdFileRemoved: z.boolean() }).strict() },
+  'analytics:token-usage': { input: TokenUsageQuerySchema.optional(), output: TokenUsageMetricsReportSchema },
 }
 
 export const DesktopEventSchema = RunEventSchema

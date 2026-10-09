@@ -251,6 +251,9 @@ export function ShellSidebar({
       </div>
 
       <div className="sidebar-footer">
+        <button type="button" className={view === 'analytics' ? 'is-active' : ''} onClick={() => onView('analytics')}>
+          <Icon name="chart" size={17} /><span>用量与计费</span>
+        </button>
         <button type="button" className={['memory', 'mcp', 'skills'].includes(view) ? 'is-active' : ''} onClick={() => onView('memory')}>
           <Icon name="layers" size={17} /><span>资料库</span>
           {snapshot.memory.some((memory) => memory.status === 'proposed') && <em className="nav-count">{snapshot.memory.filter((memory) => memory.status === 'proposed').length}</em>}

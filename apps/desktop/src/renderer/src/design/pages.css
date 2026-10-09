@@ -385,3 +385,443 @@
   font-weight: 600;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
+
+/* ==========================================================================
+   Analytics (Token Usage & Billing)
+   ========================================================================== */
+
+.analytics-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow-y: auto;
+  background: var(--canvas);
+}
+
+.analytics-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 18px 24px 14px;
+  border-bottom: 1px solid var(--separator);
+  background: var(--surface);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.analytics-header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.analytics-title-group h1 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.2;
+}
+
+.analytics-subtitle {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin-top: 3px;
+  display: block;
+}
+
+.analytics-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+/* Segmented Control */
+.segmented-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  background: var(--surface-muted);
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-control);
+}
+
+.segmented-btn {
+  height: 26px;
+  padding: 0 10px;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-control);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--motion-fast) ease;
+}
+
+.segmented-btn:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+.segmented-btn.is-active {
+  color: var(--text);
+  background: var(--surface);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+/* Analytics Select */
+.analytics-select-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.analytics-select-wrap select {
+  height: 30px;
+  padding: 0 28px 0 10px;
+  background: var(--surface-muted);
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-control);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 500;
+  appearance: none;
+  cursor: pointer;
+}
+
+.analytics-select-wrap select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.analytics-select-arrow {
+  position: absolute;
+  right: 8px;
+  pointer-events: none;
+  color: var(--text-tertiary);
+}
+
+/* Analytics Content */
+.analytics-content {
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 1200px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* Cards */
+.analytics-card {
+  background: var(--surface);
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-surface);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+}
+
+/* Top Metric Grid */
+.analytics-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+}
+
+@media (max-width: 800px) {
+  .analytics-metric-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.metric-card {
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.metric-card-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+}
+
+.metric-card-primary {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.2;
+}
+
+.metric-card-primary.is-cost {
+  color: var(--success);
+}
+
+.metric-card-sub {
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+  margin-top: 2px;
+}
+
+.metric-card-sub.is-danger {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+/* Main Chart Card */
+.chart-card {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.chart-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.chart-dimension-switch {
+  margin-bottom: 4px;
+}
+
+/* SVG Chart */
+.analytics-chart-container {
+  width: 100%;
+}
+
+.analytics-chart-wrap {
+  width: 100%;
+  position: relative;
+}
+
+.analytics-bar-chart-svg {
+  width: 100%;
+  height: 220px;
+  overflow: visible;
+}
+
+.chart-grid-line line {
+  stroke: var(--separator);
+  stroke-width: 1;
+}
+
+.chart-axis-label {
+  fill: var(--text-tertiary);
+  font-size: 11px;
+  font-family: inherit;
+}
+
+.chart-x-label {
+  fill: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.chart-zero-indicator {
+  stroke: var(--separator);
+  stroke-width: 2;
+}
+
+.chart-bar-hit-area {
+  cursor: pointer;
+}
+
+.chart-bar-segment {
+  transition: opacity var(--motion-fast) ease;
+}
+
+.chart-bar-group:hover .chart-bar-segment {
+  filter: brightness(1.1);
+}
+
+/* Chart Tooltip */
+.chart-tooltip {
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-surface);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+  padding: 10px 14px;
+  min-width: 160px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.chart-tooltip-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  border-bottom: 1px solid var(--separator);
+  padding-bottom: 4px;
+  color: var(--text);
+}
+
+.chart-tooltip-items {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.chart-tooltip-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.chart-tooltip-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-control);
+  flex-shrink: 0;
+}
+
+.chart-tooltip-name {
+  color: var(--text-secondary);
+  flex: 1;
+}
+
+.chart-tooltip-value {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.chart-tooltip-empty {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.analytics-empty-chart {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 180px;
+  color: var(--text-tertiary);
+  font-size: 13px;
+  background: var(--surface-muted);
+  border-radius: var(--radius-control);
+}
+
+/* Breakdown Section */
+.analytics-breakdown-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border-top: 1px solid var(--separator);
+  padding-top: 16px;
+}
+
+.breakdown-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.breakdown-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.breakdown-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.breakdown-item-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.breakdown-model-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.breakdown-model-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-control);
+  flex-shrink: 0;
+}
+
+.breakdown-model-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.breakdown-model-provider-badge {
+  font-size: 11px;
+  padding: 1px 6px;
+  background: var(--surface-muted);
+  color: var(--text-tertiary);
+  border-radius: var(--radius-control);
+  text-transform: capitalize;
+}
+
+.breakdown-item-value {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.breakdown-progress-track {
+  width: 100%;
+  height: 6px;
+  background: var(--surface-muted);
+  border-radius: var(--radius-control);
+  overflow: hidden;
+}
+
+.breakdown-progress-fill {
+  height: 100%;
+  border-radius: var(--radius-control);
+  transition: width var(--motion-normal) ease;
+}
+
+.breakdown-item-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.breakdown-failed-count {
+  color: var(--danger);
+  font-weight: 500;
+}
+
+.breakdown-empty {
+  padding: 16px 0;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.context-usage-meter.is-clickable {
+  cursor: pointer;
+  transition: background var(--motion-fast) ease, border-color var(--motion-fast) ease;
+}
+
+.context-usage-meter.is-clickable:hover {
+  background: var(--surface-hover);
+  border-color: var(--accent);
+}

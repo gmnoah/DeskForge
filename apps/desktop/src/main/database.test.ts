@@ -147,6 +147,27 @@ describe('AppDatabase persistence boundary', () => {
     const expected = { inputTokens: 25, outputTokens: 37, cacheReadTokens: 100, reasoningTokens: 12, totalTokens: 162, modelCalls: 2 }
     expect(database.getRunTokenUsage(run.id)).toEqual(expected)
     expect(database.getRun(run.id).tokenUsage).toEqual(expected)
+
+    // Verify token usage metrics aggregation
+    const metrics = database.getTokenUsageMetrics({ range: '7d' })
+    expect(metrics.range).toBe('7d')
+    expect(metrics.dailyBuckets).toHaveLength(7)
+    expect(metrics.totalTokens).toBeGreaterThanOrEqual(162)
+    expect(metrics.totalRequests).toBeGreaterThanOrEqual(2)
+    expect(metrics.modelBreakdowns.length).toBeGreaterThanOrEqual(1)
+    const dsItem = metrics.modelBreakdowns.find((m) => m.provider === 'deepseek')
+    expect(dsItem).toBeDefined()
+    expect(dsItem?.modelId).toBe('deepseek-flash')
+    expect(metrics.cacheHitRate).toBeGreaterThan(0)
+    expect(metrics.estimatedCostCny).toBeGreaterThan(0)
+
+    // Verify filter by provider
+    const dsMetrics = database.getTokenUsageMetrics({ range: '7d', provider: 'deepseek' })
+    expect(dsMetrics.totalTokens).toBeGreaterThanOrEqual(162)
+
+    const kimiMetrics = database.getTokenUsageMetrics({ range: '7d', provider: 'kimi' })
+    expect(kimiMetrics.totalTokens).toBe(0)
+
     database.close()
   })
 

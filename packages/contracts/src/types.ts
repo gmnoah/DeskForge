@@ -708,3 +708,70 @@ export interface Page<T> {
   items: T[]
   nextCursor?: string
 }
+
+export type TokenUsageTimeRange = 'today' | '7d' | '30d' | 'all'
+export type TokenUsageDimension = 'tokens' | 'cost' | 'requests'
+
+export interface DailyUsageBucket {
+  date: string
+  displayDate: string
+  tokens: number
+  promptTokens: number
+  completionTokens: number
+  cacheReadTokens: number
+  reasoningTokens: number
+  requests: number
+  failedRequests: number
+  costUsd: number
+  costCny: number
+  byModel: Record<string, {
+    modelName: string
+    provider: string
+    tokens: number
+    costUsd: number
+    costCny: number
+    requests: number
+  }>
+}
+
+export interface ModelUsageBreakdown {
+  modelId: string
+  modelName: string
+  provider: string
+  tokens: number
+  promptTokens: number
+  completionTokens: number
+  cacheReadTokens: number
+  reasoningTokens: number
+  requests: number
+  failedRequests: number
+  costUsd: number
+  costCny: number
+  hasPricing: boolean
+  durationMs: number
+  tokensPerSecond: number
+  percentage: number
+}
+
+export interface TokenUsageQuery {
+  range?: TokenUsageTimeRange
+  provider?: string
+}
+
+export interface TokenUsageMetricsReport {
+  range: TokenUsageTimeRange
+  provider?: string
+  totalTokens: number
+  promptTokens: number
+  completionTokens: number
+  cacheReadTokens: number
+  reasoningTokens: number
+  totalRequests: number
+  failedRequests: number
+  estimatedCostUsd: number
+  estimatedCostCny: number
+  unknownPriceCount: number
+  cacheHitRate: number
+  dailyBuckets: DailyUsageBucket[]
+  modelBreakdowns: ModelUsageBreakdown[]
+}

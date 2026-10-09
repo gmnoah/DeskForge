@@ -676,6 +676,9 @@ export class IpcApi {
         this.database.audit('artifact', 'undo_change', `已撤销 ${basename(path)} 的 Agent 变更`, { actor: 'user', outcome: 'succeeded', target: path }, run.id)
         return { restored: true as const, path, createdFileRemoved: createdFile }
       },
+      'analytics:token-usage': async (query) => {
+        return this.database.getTokenUsageMetrics(query)
+      },
     }
   }
 
