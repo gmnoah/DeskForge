@@ -801,7 +801,19 @@ export default function App() {
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
   const [onboardingDismissed, setOnboardingDismissed] = useState(false)
-  useResolvedTheme(snapshot.settings.theme)
+  const resolvedTheme = useResolvedTheme(snapshot.settings.theme)
+
+  const toggleTheme = () => {
+    const nextTheme = resolvedTheme === 'dark' ? 'light' : 'dark'
+    void perform(() => bridge.updateSettings({ theme: nextTheme }), `已切换为${nextTheme === 'dark' ? '深色' : '浅色'}模式`)
+  }
+
+  const setTheme = (nextTheme: 'system' | 'light' | 'dark') => {
+    void perform(
+      () => bridge.updateSettings({ theme: nextTheme }),
+      nextTheme === 'system' ? '已设为跟随系统主题' : `已切换为${nextTheme === 'dark' ? '深色' : '浅色'}模式`,
+    )
+  }
 
   useEffect(() => {
     if (selectedWorkspaceId && snapshot.workspaces.some((item) => item.id === selectedWorkspaceId)) return
@@ -810,6 +822,10 @@ export default function App() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === 'l') {
+        event.preventDefault()
+        toggleTheme()
+      }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault()
         setCommandPaletteOpen((value) => !value)
@@ -830,7 +846,7 @@ export default function App() {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [setSelectedRunId])
+  }, [setSelectedRunId, toggleTheme])
 
   useEffect(() => { window.localStorage.setItem('deskforge.sidebar-open', String(sidebarOpen)) }, [sidebarOpen])
   useEffect(() => { window.localStorage.setItem('deskforge.inspector-open', String(inspectorOpen)) }, [inspectorOpen])
@@ -916,6 +932,10 @@ export default function App() {
         onRefresh={() => void refresh()}
         onHide={() => setSidebarOpen(false)}
         onOpenCommandPalette={() => setCommandPaletteOpen(true)}
+        resolvedTheme={resolvedTheme}
+        onToggleTheme={toggleTheme}
+        onRenameRun={(id, title) => { setSelectedRunId(id); setRenameDraft(title) }}
+        onDeleteRun={(id) => { setSelectedRunId(id); setDeleteOpen(true) }}
       />}
       <section className="content-shell">
         {!sidebarOpen && <div className="sidebar-reveal titlebar-drag"><IconButton icon="panelRight" label="显示侧栏" onClick={() => setSidebarOpen(true)} /></div>}
@@ -1005,6 +1025,9 @@ export default function App() {
         onToggleSidebar={() => {
           setSidebarOpen((v) => !v)
         }}
+        resolvedTheme={resolvedTheme}
+        onToggleTheme={toggleTheme}
+        onSetTheme={setTheme}
       />
       <Toasts items={toasts} onDismiss={dismissToast} />
     </div>

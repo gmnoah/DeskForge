@@ -24,6 +24,9 @@ export interface CommandPaletteProps {
   onNewRun: () => void
   onOpenSettings: () => void
   onToggleSidebar: () => void
+  resolvedTheme?: 'light' | 'dark' | undefined
+  onToggleTheme?: (() => void) | undefined
+  onSetTheme?: ((theme: 'system' | 'light' | 'dark') => void) | undefined
 }
 
 export function CommandPalette({
@@ -38,6 +41,9 @@ export function CommandPalette({
   onNewRun,
   onOpenSettings,
   onToggleSidebar,
+  resolvedTheme,
+  onToggleTheme,
+  onSetTheme,
 }: CommandPaletteProps) {
   const [query, setQuery] = useState('')
   const [selectedIndex, setSelectedIndex] = useState(0)
@@ -72,6 +78,30 @@ export function CommandPalette({
           onNewRun()
         },
       },
+      ...(onToggleTheme ? [{
+        id: 'action-theme-toggle',
+        category: 'action' as const,
+        categoryLabel: '快捷指令',
+        label: resolvedTheme === 'dark' ? '切换为浅色模式' : '切换为深色模式',
+        sublabel: resolvedTheme === 'dark' ? '切换为明亮界面外观 (⌘⇧L)' : '切换为暗色夜间外观 (⌘⇧L)',
+        icon: (resolvedTheme === 'dark' ? 'sun' : 'moon') as IconName,
+        action: () => {
+          onClose()
+          onToggleTheme()
+        },
+      }] : []),
+      ...(onSetTheme ? [{
+        id: 'action-theme-system',
+        category: 'action' as const,
+        categoryLabel: '快捷指令',
+        label: '外观：跟随系统主题',
+        sublabel: '根据 macOS 系统设置自动切换深浅色',
+        icon: 'globe' as IconName,
+        action: () => {
+          onClose()
+          onSetTheme('system')
+        },
+      }] : []),
       {
         id: 'action-settings',
         category: 'action',

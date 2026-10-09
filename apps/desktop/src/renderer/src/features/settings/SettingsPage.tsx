@@ -177,7 +177,34 @@ export function SettingsPage({ snapshot, selectedWorkspaceId, perform, onWorkspa
       </SettingsSection>
 
       <SettingsSection icon="sun" title="外观与语言" description="界面遵循 macOS；回答语言由当前请求决定。">
-        <SettingRow title="主题" detail="跟随系统可自动切换浅色与深色。"><select value={String(settings.theme ?? 'system')} onChange={(event) => void perform(() => bridge.updateSettings({ theme: event.target.value }), '主题已更新')}><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></SettingRow>
+        <SettingRow title="主题外观" detail="支持浅色、深色或随 macOS 系统自动切换。">
+          <div className="theme-segmented-control" role="group" aria-label="主题外观选择">
+            <button
+              type="button"
+              className={String(settings.theme ?? 'system') === 'system' ? 'is-active' : ''}
+              onClick={() => void perform(() => bridge.updateSettings({ theme: 'system' }), '已设为跟随系统')}
+            >
+              <Icon name="globe" size={13} />
+              <span>跟随系统</span>
+            </button>
+            <button
+              type="button"
+              className={String(settings.theme) === 'light' ? 'is-active' : ''}
+              onClick={() => void perform(() => bridge.updateSettings({ theme: 'light' }), '已切换为浅色模式')}
+            >
+              <Icon name="sun" size={13} />
+              <span>浅色</span>
+            </button>
+            <button
+              type="button"
+              className={String(settings.theme) === 'dark' ? 'is-active' : ''}
+              onClick={() => void perform(() => bridge.updateSettings({ theme: 'dark' }), '已切换为深色模式')}
+            >
+              <Icon name="moon" size={13} />
+              <span>深色</span>
+            </button>
+          </div>
+        </SettingRow>
         <SettingRow title="界面语言" detail="当前版本提供简体中文；回答会跟随你使用的语言。"><select value="zh-CN" aria-label="界面语言" disabled><option value="zh-CN">简体中文</option></select></SettingRow>
         <SettingRow title="开机启动" detail="默认关闭；显式退出应用会停止自动化。"><Toggle checked={Boolean(settings.launchAtLogin)} label="开机启动" onChange={(checked) => void perform(() => bridge.updateSettings({ launchAtLogin: checked }), checked ? '已开启开机启动' : '已关闭开机启动')} /></SettingRow>
       </SettingsSection>

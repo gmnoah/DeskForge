@@ -350,3 +350,38 @@
 .embeddings-test { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 11px; font-weight: 600; }
 .embeddings-test.is-ok { color: var(--success); }
 .embeddings-test.is-error { color: var(--danger); }
+
+.theme-segmented-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  background: var(--surface-muted);
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-control);
+}
+.theme-segmented-control button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-control);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--motion-fast) ease;
+}
+.theme-segmented-control button:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+.theme-segmented-control button.is-active {
+  color: var(--text);
+  background: var(--surface);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
