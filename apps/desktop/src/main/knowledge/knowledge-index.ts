@@ -7,6 +7,8 @@ import type { KnowledgeIndexSkipped, KnowledgeIndexStatus, KnowledgeSearchHit, K
 import { chunkText, cosineSimilarity, likePattern, planFtsQuery, reciprocalRankFusion, termHits, topK } from '@deskforge/core'
 import { isWithinRoot, toPosix, walkWorkspace } from '../../workers/workspace-search'
 import { extractDocxText } from './docx-text'
+import { extractPdfText } from './pdf-text'
+import { extractXlsxText } from './xlsx-text'
 import { isSensitiveFile, knowledgeFileKind, type KnowledgeFileKind } from './file-policy'
 
 /**
@@ -23,6 +25,8 @@ export const KNOWLEDGE_LIMITS = {
   maxFiles: 5_000,
   maxTextBytes: 1024 * 1024,
   maxDocxBytes: 20 * 1024 * 1024,
+  maxPdfBytes: 25 * 1024 * 1024,
+  maxXlsxBytes: 20 * 1024 * 1024,
   maxEntriesScanned: 50_000,
   walkBudgetMs: 120_000,
   maxEmbedChunksPerBuild: 4_000,
@@ -313,7 +317,10 @@ export class KnowledgeIndexService {
         if (!info.isFile()) { skipped.symlinks += 1; continue }
         if (!isWithinRoot(root, await realpath(candidate.absolute))) { skipped.symlinks += 1; continue }
       } catch { skipped.unreadable += 1; continue }
-      const sizeLimit = candidate.kind === 'docx' ? this.limits.maxDocxBytes : this.limits.maxTextBytes
+      const sizeLimit = candidate.kind === 'docx' ? this.limits.maxDocxBytes
+        : candidate.kind === 'pdf' ? (this.limits.maxPdfBytes ?? 25 * 1024 * 1024)
+        : candidate.kind === 'xlsx' ? (this.limits.maxXlsxBytes ?? 20 * 1024 * 1024)
+        : this.limits.maxTextBytes
       if (info.size > sizeLimit) { skipped.tooLarge += 1; continue }
       const mtimeMs = Math.floor(info.mtimeMs)
       const prior = existing.get(candidate.path)
@@ -336,6 +343,8 @@ export class KnowledgeIndexService {
       let text: string
       try {
         if (candidate.kind === 'docx') text = extractDocxText(raw)
+        else if (candidate.kind === 'pdf') text = await extractPdfText(raw)
+        else if (candidate.kind === 'xlsx') text = extractXlsxText(raw)
         else {
           if (raw.subarray(0, 8192).includes(0)) { skipped.binary += 1; continue }
           text = raw.toString('utf8').replace(/^\uFEFF/, '')

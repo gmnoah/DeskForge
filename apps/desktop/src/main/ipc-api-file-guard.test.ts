@@ -108,4 +108,35 @@ describe('S1 File IPC path authorization and bounded reading', () => {
     expect(appResult.success).toBe(false)
     expect(appResult.error).toContain('安全限制')
   })
+
+  it('saves base64 attachments safely in app:save-attachment', async () => {
+    const { ipc } = await setupIpc()
+    const testImageBuffer = Buffer.from('fake-png-image-binary-data')
+    const base64 = testImageBuffer.toString('base64')
+
+    const artifact = await ipc.handlers['app:save-attachment']({
+      name: '../../screenshot.png',
+      mimeType: 'image/png',
+      dataBase64: base64,
+    })
+
+    expect(artifact.id).toBeDefined()
+    expect(artifact.displayName).toBe('screenshot.png')
+    expect(artifact.kind).toBe('attachment')
+    expect(artifact.byteLength).toBe(testImageBuffer.byteLength)
+    expect(artifact.mediaType).toBe('image/png')
+    expect(artifact.sha256).toBeDefined()
+  })
+
+  it('rejects oversized attachment in app:save-attachment', async () => {
+    const { ipc } = await setupIpc()
+    // 26 MB of data
+    const oversizedBase64 = Buffer.alloc(26 * 1024 * 1024).toString('base64')
+
+    await expect(ipc.handlers['app:save-attachment']({
+      name: 'large.png',
+      mimeType: 'image/png',
+      dataBase64: oversizedBase64,
+    })).rejects.toThrow(/超过 25 MB/)
+  })
 })

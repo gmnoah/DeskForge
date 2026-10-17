@@ -1,3 +1,4 @@
+import { t, useLocale } from '../../i18n'
 import { useEffect, useRef, useState } from 'react'
 import { bridge, errorMessage } from '../../bridge'
 import { BrandMark, Icon } from '../../icons'
@@ -26,9 +27,9 @@ export interface WelcomeComposerProps {
 }
 
 const SUGGESTIONS = [
-  { icon: 'folder' as const, text: '整理当前工作区并告诉我项目状态' },
-  { icon: 'terminal' as const, text: '检查项目并运行最相关的验证' },
-  { icon: 'globe' as const, text: '通过 Chrome 调研资料并整理来源' },
+  { icon: 'folder' as const, get text() { return t('整理当前工作区并告诉我项目状态') } },
+  { icon: 'terminal' as const, get text() { return t('检查项目并运行最相关的验证') } },
+  { icon: 'globe' as const, get text() { return t('通过 Chrome 调研资料并整理来源') } },
 ]
 
 function extractMentions(text: string): string[] {
@@ -52,11 +53,12 @@ export function WelcomeComposer({
   onOpenSettings,
   skills = [],
 }: WelcomeComposerProps) {
+  useLocale()
   const [prompt, setPrompt] = useState('')
   const [mode, setMode] = useState<'plan' | 'execute'>(defaultMode)
   const [permissionMode, setPermissionMode] = useState<RunPermissionMode>(defaultPermissionMode)
   const [modelId, setModelId] = useState(models.find((model) => model.isDefault)?.id ?? models[0]?.id ?? '')
-  const [attachments, setAttachments] = useState<Array<{ id: string; name: string }>>([])
+  const [attachments, setAttachments] = useState<Array<{ id: string; name: string; previewUrl?: string }>>([])
   const [attachmentError, setAttachmentError] = useState<string>()
   const [slashIndex, setSlashIndex] = useState(0)
   const [slashDismissed, setSlashDismissed] = useState(false)
@@ -80,14 +82,69 @@ export function WelcomeComposer({
     setIsDragOver(false)
   }
 
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = e.clipboardData?.items
+    if (!items) return
+    const imageFiles: File[] = []
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i]
+      if (item && item.type.startsWith('image/')) {
+        const file = item.getAsFile()
+        if (file) imageFiles.push(file)
+      }
+    }
+    if (imageFiles.length === 0) return
+    e.preventDefault()
+    setAttachmentError(undefined)
+    for (const file of imageFiles) {
+      const reader = new FileReader()
+      reader.onload = async () => {
+        try {
+          const dataUrl = reader.result as string
+          const base64 = dataUrl.split(',')[1] || ''
+          const ext = file.type === 'image/jpeg' ? 'jpg' : file.type === 'image/webp' ? 'webp' : 'png'
+          const name = file.name && file.name !== 'image.png' ? file.name : `screenshot-${new Date().toISOString().slice(11, 19).replace(/:/g, '')}.${ext}`
+          const artifact = await bridge.saveAttachment({ name, mimeType: file.type || 'image/png', dataBase64: base64 })
+          setAttachments((prev) => [...prev, { id: artifact.id, name: artifact.name, previewUrl: dataUrl }])
+        } catch (error) {
+          setAttachmentError(errorMessage(error))
+        }
+      }
+      reader.readAsDataURL(file)
+    }
+  }
+
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault()
     e.stopPropagation()
     setIsDragOver(false)
     const files = Array.from(e.dataTransfer.files)
     if (files.length === 0) return
-    const fileMentions = files.map((f) => `@${f.name}`).join(' ')
-    setPrompt((prev) => (prev ? `${prev} ${fileMentions} ` : `${fileMentions} `))
+    const imageFiles = files.filter((f) => f.type.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp)$/i.test(f.name))
+    const otherFiles = files.filter((f) => !imageFiles.includes(f))
+
+    if (imageFiles.length > 0) {
+      setAttachmentError(undefined)
+      for (const file of imageFiles) {
+        const reader = new FileReader()
+        reader.onload = async () => {
+          try {
+            const dataUrl = reader.result as string
+            const base64 = dataUrl.split(',')[1] || ''
+            const artifact = await bridge.saveAttachment({ name: file.name, mimeType: file.type || 'image/png', dataBase64: base64 })
+            setAttachments((prev) => [...prev, { id: artifact.id, name: artifact.name, previewUrl: dataUrl }])
+          } catch (error) {
+            setAttachmentError(errorMessage(error))
+          }
+        }
+        reader.readAsDataURL(file)
+      }
+    }
+
+    if (otherFiles.length > 0) {
+      const fileMentions = otherFiles.map((f) => `@${f.name}`).join(' ')
+      setPrompt((prev) => (prev ? `${prev} ${fileMentions} ` : `${fileMentions} `))
+    }
     textareaRef.current?.focus()
   }
 
@@ -306,15 +363,15 @@ export function WelcomeComposer({
     <div className="welcome-view">
       <div className="welcome-hero">
         <div className="hero-orb"><BrandMark size={31} /></div>
-        <span className="welcome-kicker">安静的本地工作台</span>
-        <h1>从这里开始一项工作</h1>
-        <p>交代目标。DeskForge 在本机读取资料、执行操作，并把结果和依据整理好。它是独立项目，不是 WorkBuddy，也不是腾讯的产品。</p>
+        <span className="welcome-kicker">{t('安静的本地工作台')}</span>
+        <h1>{t('从这里开始一项工作')}</h1>
+        <p>{t('交代目标。DeskForge 在本机读取资料、执行操作，并把结果和依据整理好。它是独立项目，不是 WorkBuddy，也不是腾讯的产品。')}</p>
       </div>
       {!workspace && (
-        <div className="inline-notice warning"><Icon name="warning" /><span>开始前需要选择一个工作区。</span><button type="button" onClick={onOpenSettings}>选择工作区</button></div>
+        <div className="inline-notice warning"><Icon name="warning" /><span>{t('开始前需要选择一个工作区。')}</span><button type="button" onClick={onOpenSettings}>{t('选择工作区')}</button></div>
       )}
       {models.length === 0 && (
-        <div className="inline-notice warning"><Icon name="key" /><span>还没有可用的模型配置。</span><button type="button" onClick={onOpenSettings}>添加模型</button></div>
+        <div className="inline-notice warning"><Icon name="key" /><span>{t('还没有可用的模型配置。')}</span><button type="button" onClick={onOpenSettings}>{t('添加模型')}</button></div>
       )}
       <SubmitForm
         className={`hero-composer ${isDragOver ? 'is-drag-over' : ''}`}
@@ -326,7 +383,7 @@ export function WelcomeComposer({
         {isDragOver && (
           <div className="composer-drop-overlay">
             <Icon name="file" size={20} />
-            <span>释放文件以添加 @ 引用</span>
+            <span>{t('释放文件以添加 @ 引用')}</span>
           </div>
         )}
         {isSlashActive && matchingSkills.length > 0 && (
@@ -350,6 +407,7 @@ export function WelcomeComposer({
           ref={textareaRef}
           value={prompt}
           onChange={(event) => handlePromptChange(event.target.value, event.target.selectionStart)}
+          onPaste={handlePaste}
           onKeyUp={(event) => {
             if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
               checkMention(event.currentTarget.value, event.currentTarget.selectionStart)
@@ -357,23 +415,24 @@ export function WelcomeComposer({
           }}
           onClick={(event) => checkMention(event.currentTarget.value, event.currentTarget.selectionStart)}
           onKeyDown={handleKeyDown}
-          placeholder="描述你想完成的工作（输入 / 调用技能，@ 关联工作区文件，Enter 发送）…"
+          aria-label={t('发送指令')}
+          placeholder={t('描述你想完成的工作（输入 / 调用技能，@ 关联工作区文件，Enter 发送）…')}
           rows={4}
         />
         {(mentionedFiles.length > 0 || attachments.length > 0) && (
-          <div className="composer-context-chips" aria-label="已关联上下文">
+          <div className="composer-context-chips" aria-label={t('已关联上下文')}>
             <span className="context-chips-title">
               <Icon name="layers" size={12} />
-              <span>上下文:</span>
+              <span>{t('上下文:')}</span>
             </span>
             {mentionedFiles.map((filePath) => (
-              <span key={filePath} className="composer-chip mention-chip" title={`引用工作区文件: ${filePath}`}>
+              <span key={filePath} className="composer-chip mention-chip" title={t('引用工作区文件: {0}', { 0: filePath })}>
                 <Icon name="file" size={12} />
                 <span className="composer-chip-text">@{filePath}</span>
                 <button
                   type="button"
-                  aria-label={`移除引用 @${filePath}`}
-                  title="移除该文件引用"
+                  aria-label={t('移除引用 @{0}', { 0: filePath })}
+                  title={t('移除该文件引用')}
                   onClick={() => handleRemoveMention(filePath)}
                 >
                   ×
@@ -381,13 +440,17 @@ export function WelcomeComposer({
               </span>
             ))}
             {attachments.map((attachment) => (
-              <span key={attachment.id} className="composer-chip attachment-chip" title={`已添加附件: ${attachment.name}`}>
-                <Icon name="file" size={12} />
+              <span key={attachment.id} className="composer-chip attachment-chip" title={t('已添加附件: {0}', { 0: attachment.name })}>
+                {attachment.previewUrl ? (
+                  <img src={attachment.previewUrl} alt={attachment.name} className="composer-chip-thumb" />
+                ) : (
+                  <Icon name="file" size={12} />
+                )}
                 <span className="composer-chip-text">{attachment.name}</span>
                 <button
                   type="button"
-                  aria-label={`移除附件 ${attachment.name}`}
-                  title="移除该附件"
+                  aria-label={t('移除附件 {0}', { 0: attachment.name })}
+                  title={t('移除该附件')}
                   onClick={() => setAttachments((items) => items.filter((item) => item.id !== attachment.id))}
                 >
                   ×
@@ -403,30 +466,30 @@ export function WelcomeComposer({
               className="access-mode-select permission-mode-select"
               value={permissionMode}
               onChange={(event) => setPermissionMode(event.target.value as RunPermissionMode)}
-              aria-label="操作确认方式"
-              title="自动处理只放行可撤销的工作区写入和验证命令；删除、敏感文件及外发仍需批准"
+              aria-label={t('操作确认方式')}
+              title={t('自动处理只放行可撤销的工作区写入和验证命令；删除、敏感文件及外发仍需批准')}
             >
-              <option value="approval">请求批准</option>
-              <option value="workspace_auto">工作区内自动处理</option>
+              <option value="approval">{t('请求批准')}</option>
+              <option value="workspace_auto">{t('工作区内自动处理')}</option>
             </select>
             <button
               type="button"
               className="composer-action-btn"
-              title="引用工作区文件 (@)"
+              title={t('引用工作区文件 (@)')}
               onClick={handleTriggerMention}
               disabled={!workspace}
             >
               <span className="action-symbol">@</span>
-              <span>引用文件</span>
+              <span>{t('引用文件')}</span>
             </button>
             <button
               type="button"
               className="composer-action-btn"
-              title="调用技能 (/)"
+              title={t('调用技能 (/)')}
               onClick={handleTriggerSlash}
             >
               <Icon name="skill" size={13} />
-              <span>技能</span>
+              <span>{t('技能')}</span>
             </button>
             <button type="button" className="attachment-button" onClick={async () => {
               try {
@@ -441,17 +504,17 @@ export function WelcomeComposer({
               } catch (error) {
                 setAttachmentError(errorMessage(error))
               }
-            }}><Icon name="plus" size={14} />附件</button>
-            <select value={mode} onChange={(event) => setMode(event.target.value as 'plan' | 'execute')} aria-label="执行模式">
-              <option value="execute">直接处理</option>
-              <option value="plan">先整理计划</option>
+            }}><Icon name="plus" size={14} />{t('附件')}</button>
+            <select value={mode} onChange={(event) => setMode(event.target.value as 'plan' | 'execute')} aria-label={t('执行模式')}>
+              <option value="execute">{t('直接处理')}</option>
+              <option value="plan">{t('先整理计划')}</option>
             </select>
-            <select value={modelId} onChange={(event) => setModelId(event.target.value)} aria-label="模型">
-              {models.length === 0 && <option value="">未配置模型</option>}
+            <select className="composer-model-select" value={modelId} onChange={(event) => setModelId(event.target.value)} aria-label={t('模型')}>
+              {models.length === 0 && <option value="">{t('未配置模型')}</option>}
               {models.map((model) => <option key={model.id} value={model.id}>{model.name} · {model.modelId}</option>)}
             </select>
           </div>
-          <button className="send-button" type="submit" disabled={!prompt.trim() || !workspace || models.length === 0} aria-label="开始工作">
+          <button className="send-button" type="submit" disabled={!prompt.trim() || !workspace || models.length === 0} aria-label={t('开始工作')}>
             <Icon name="arrowRight" size={18} />
           </button>
         </div>
@@ -465,7 +528,7 @@ export function WelcomeComposer({
           </button>
         ))}
       </div>
-      <div className="local-trust"><Icon name="lock" size={14} /> 数据与操作留在本机 · 需要你决定时才会打断</div>
+      <div className="local-trust"><Icon name="lock" size={14} />{t('数据与操作留在本机 · 需要你决定时才会打断')}</div>
     </div>
   )
 }

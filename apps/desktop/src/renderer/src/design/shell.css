@@ -447,6 +447,13 @@
   border-color: var(--accent-border);
   color: var(--accent-hover);
 }
+.composer-chip-thumb {
+  width: 16px;
+  height: 16px;
+  object-fit: cover;
+  border-radius: var(--radius-control);
+  flex-shrink: 0;
+}
 .composer-chip-text {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -540,7 +547,7 @@
   .suggestion-grid { grid-template-columns: 1fr; }
   .welcome-view { width: calc(100% - 32px); }
   .composer-options { flex-wrap: wrap; }
-  .composer-options select[aria-label="模型"] { max-width: 210px; }
+  .composer-options select.composer-model-select { max-width: 210px; }
 }
 
 /* Session Search Hits */

@@ -1,3 +1,4 @@
+import { t, useLocale } from '../../i18n'
 import { useEffect, useRef } from 'react'
 import { Icon } from '../../icons'
 import type { WorkspaceFileItem } from '../../types'
@@ -23,6 +24,7 @@ export function FileMentionMenu({
   loading = false,
   onSelect,
 }: FileMentionMenuProps) {
+  useLocale()
   const listRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -34,21 +36,21 @@ export function FileMentionMenu({
   }, [selectedIndex])
 
   return (
-    <div className="file-mention-menu" role="listbox" aria-label="工作区文件引用">
+    <div className="file-mention-menu" role="listbox" aria-label={t('工作区文件引用')}>
       <div className="file-mention-header">
         <span className="file-mention-title">
           <Icon name="folder" size={13} />
-          <span>引用当前工作区文件</span>
+          <span>{t('引用当前工作区文件')}</span>
         </span>
         <small className="file-mention-count">
-          {loading ? '搜索中…' : `${files.length} 个结果`}
+          {loading ? t('搜索中…') : t('{0} 个结果', { 0: files.length })}
         </small>
       </div>
 
       <div className="file-mention-list" ref={listRef}>
         {files.length === 0 ? (
           <div className="file-mention-empty">
-            {loading ? '正在搜索工作区文件…' : query ? `未找到与 “${query}” 匹配的文件` : '工作区内暂无文件'}
+            {loading ? t('正在搜索工作区文件…') : query ? t('未找到与 “{0}” 匹配的文件', { 0: query }) : t('工作区内暂无文件')}
           </div>
         ) : (
           files.map((file, index) => {
@@ -81,9 +83,9 @@ export function FileMentionMenu({
       </div>
 
       <div className="file-mention-footer">
-        <span>↑↓ 选择</span>
-        <span>↵ / Tab 补全</span>
-        <span>Esc 关闭</span>
+        <span>{t('↑↓ 选择')}</span>
+        <span>{t('↵ / Tab 补全')}</span>
+        <span>{t('Esc 关闭')}</span>
       </div>
     </div>
   )

@@ -1,3 +1,4 @@
+import { t, useLocale, getLocale } from '../../i18n'
 import React, { useState } from 'react'
 import type { DailyUsageBucket, TokenUsageDimension } from '../../types'
 import { formatTokenCount } from '../work/run-insights'
@@ -24,7 +25,7 @@ function formatValue(value: number, dimension: TokenUsageDimension, currency: 'U
     if (value < 0.01 && value > 0) return `<${symbol}0.01`
     return `${symbol}${value.toFixed(2)}`
   }
-  return value.toLocaleString('zh-CN')
+  return value.toLocaleString(getLocale())
 }
 
 export function TokenUsageBarChart({
@@ -33,6 +34,7 @@ export function TokenUsageBarChart({
   currency,
   modelColors,
 }: TokenUsageBarChartProps) {
+  useLocale()
   const [hover, setHover] = useState<HoverState | null>(null)
 
   // Extract bucket values according to dimension
@@ -190,7 +192,7 @@ export function TokenUsageBarChart({
           >
             <div className="chart-tooltip-header">
               <strong>{hover.bucket.date}</strong>
-              <span>总计: {formatValue(getBucketTotal(hover.bucket), dimension, currency)}</span>
+              <span>{t('总计:')}{formatValue(getBucketTotal(hover.bucket), dimension, currency)}</span>
             </div>
             {Object.keys(hover.bucket.byModel).length > 0 ? (
               <div className="chart-tooltip-items">
@@ -208,7 +210,7 @@ export function TokenUsageBarChart({
                 ))}
               </div>
             ) : (
-              <div className="chart-tooltip-empty">当日无调用记录</div>
+              <div className="chart-tooltip-empty">{t('当日无调用记录')}</div>
             )}
           </div>
         )}

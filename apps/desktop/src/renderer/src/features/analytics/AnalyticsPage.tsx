@@ -1,3 +1,4 @@
+import { t, useLocale, getLocale } from '../../i18n'
 import React, { useEffect, useMemo, useState } from 'react'
 import { bridge } from '../../bridge'
 import { Icon } from '../../icons'
@@ -26,6 +27,7 @@ interface AnalyticsPageProps {
 }
 
 export function AnalyticsPage({ onBackToTasks }: AnalyticsPageProps) {
+  useLocale()
   const [range, setRange] = useState<TokenUsageTimeRange>('7d')
   const [provider, setProvider] = useState<string>('all')
   const [dimension, setDimension] = useState<TokenUsageDimension>('tokens')
@@ -60,7 +62,7 @@ export function AnalyticsPage({ onBackToTasks }: AnalyticsPageProps) {
       colors[item.modelName || item.modelId] = MODEL_PALETTE[index % MODEL_PALETTE.length] ?? '#6366f1'
     })
     return colors
-  }, [metrics])
+  }, [getLocale(), metrics])
 
   return (
     <div className="analytics-page">
@@ -71,51 +73,41 @@ export function AnalyticsPage({ onBackToTasks }: AnalyticsPageProps) {
             <button
               type="button"
               className="button ghost icon-only no-drag"
-              title="返回工作"
+              title={t('返回工作')}
               onClick={onBackToTasks}
             >
               <Icon name="arrowRight" size={16} style={{ transform: 'rotate(180deg)' }} />
             </button>
           )}
           <div className="analytics-title-group">
-            <h1>用量与计费</h1>
-            <span className="analytics-subtitle">
-              统计模型调用与会话日志；记录每次回合的 Token、费用与响应耗时。
-            </span>
+            <h1>{t('用量与计费')}</h1>
+            <span className="analytics-subtitle">{t('统计模型调用与会话日志；记录每次回合的 Token、费用与响应耗时。')}</span>
           </div>
         </div>
 
         <div className="analytics-controls no-drag">
           {/* Time range segmented control */}
-          <div className="segmented-control" role="group" aria-label="时间范围">
+          <div className="segmented-control" role="group" aria-label={t('时间范围')}>
             <button
               type="button"
               className={`segmented-btn ${range === 'today' ? 'is-active' : ''}`}
               onClick={() => setRange('today')}
-            >
-              今天
-            </button>
+            >{t('今天')}</button>
             <button
               type="button"
               className={`segmented-btn ${range === '7d' ? 'is-active' : ''}`}
               onClick={() => setRange('7d')}
-            >
-              7 天
-            </button>
+            >{t('7 天')}</button>
             <button
               type="button"
               className={`segmented-btn ${range === '30d' ? 'is-active' : ''}`}
               onClick={() => setRange('30d')}
-            >
-              30 天
-            </button>
+            >{t('30 天')}</button>
             <button
               type="button"
               className={`segmented-btn ${range === 'all' ? 'is-active' : ''}`}
               onClick={() => setRange('all')}
-            >
-              全部
-            </button>
+            >{t('全部')}</button>
           </div>
 
           {/* Provider selector */}
@@ -123,24 +115,24 @@ export function AnalyticsPage({ onBackToTasks }: AnalyticsPageProps) {
             <select
               value={provider}
               onChange={(e) => setProvider(e.target.value)}
-              aria-label="筛选供应商"
+              aria-label={t('筛选供应商')}
             >
-              <option value="all">全部供应商</option>
+              <option value="all">{t('全部供应商')}</option>
               <option value="deepseek">DeepSeek</option>
               <option value="kimi">Kimi</option>
-              <option value="tongyi">通义千问</option>
-              <option value="custom">自定义 / 兼容</option>
+              <option value="tongyi">{t('通义千问')}</option>
+              <option value="custom">{t('自定义 / 兼容')}</option>
             </select>
             <Icon name="chevronDown" size={14} className="analytics-select-arrow" />
           </div>
 
           {/* Currency switch */}
-          <div className="segmented-control" role="group" aria-label="货币单位">
+          <div className="segmented-control" role="group" aria-label={t('货币单位')}>
             <button
               type="button"
               className={`segmented-btn ${currency === 'USD' ? 'is-active' : ''}`}
               onClick={() => setCurrency('USD')}
-              title="美元计价"
+              title={t('美元计价')}
             >
               USD ($)
             </button>
@@ -148,7 +140,7 @@ export function AnalyticsPage({ onBackToTasks }: AnalyticsPageProps) {
               type="button"
               className={`segmented-btn ${currency === 'CNY' ? 'is-active' : ''}`}
               onClick={() => setCurrency('CNY')}
-              title="人民币计价"
+              title={t('人民币计价')}
             >
               CNY (¥)
             </button>
@@ -158,7 +150,7 @@ export function AnalyticsPage({ onBackToTasks }: AnalyticsPageProps) {
           <button
             type="button"
             className="button secondary icon-only"
-            title="刷新数据"
+            title={t('刷新数据')}
             disabled={loading}
             onClick={() => void loadMetrics(range, provider)}
           >
@@ -179,22 +171,21 @@ export function AnalyticsPage({ onBackToTasks }: AnalyticsPageProps) {
             </div>
             <div className="metric-card-sub">
               {metrics ? (
-                <>
-                  输入 {formatTokenCount(metrics.promptTokens)} · 输出{' '}
-                  {formatTokenCount(metrics.completionTokens)} · 缓存{' '}
+                <>{t('输入')}{formatTokenCount(metrics.promptTokens)}{t('· 输出')}{' '}
+                  {formatTokenCount(metrics.completionTokens)}{t('· 缓存')}{' '}
                   {formatTokenCount(metrics.cacheReadTokens)}
                 </>
               ) : (
-                '暂无数据'
+                t('暂无数据')
               )}
             </div>
           </div>
 
           {/* Card 2: Requests */}
           <div className="analytics-card metric-card">
-            <span className="metric-card-label">请求</span>
+            <span className="metric-card-label">{t('请求')}</span>
             <div className="metric-card-primary">
-              {metrics ? metrics.totalRequests.toLocaleString('zh-CN') : '—'}
+              {metrics ? metrics.totalRequests.toLocaleString(getLocale()) : '—'}
             </div>
             <div
               className={`metric-card-sub ${
@@ -203,19 +194,19 @@ export function AnalyticsPage({ onBackToTasks }: AnalyticsPageProps) {
             >
               {metrics ? (
                 metrics.failedRequests > 0 ? (
-                  `${metrics.failedRequests} 次失败`
+                  t('{0} 次失败', { 0: metrics.failedRequests })
                 ) : (
-                  '0 次失败'
+                  t('0 次失败')
                 )
               ) : (
-                '暂无数据'
+                t('暂无数据')
               )}
             </div>
           </div>
 
           {/* Card 3: Cost */}
           <div className="analytics-card metric-card">
-            <span className="metric-card-label">费用</span>
+            <span className="metric-card-label">{t('费用')}</span>
             <div className="metric-card-primary is-cost">
               {metrics
                 ? `≈${currency === 'USD' ? '$' : '¥'}${
@@ -227,18 +218,18 @@ export function AnalyticsPage({ onBackToTasks }: AnalyticsPageProps) {
             </div>
             <div className="metric-card-sub">
               {metrics && metrics.unknownPriceCount > 0
-                ? `${metrics.unknownPriceCount} 个未配置价格`
-                : '按官方单价估算'}
+                ? t('{0} 个未配置价格', { 0: metrics.unknownPriceCount })
+                : t('按官方单价估算')}
             </div>
           </div>
 
           {/* Card 4: Cache Hit Rate */}
           <div className="analytics-card metric-card">
-            <span className="metric-card-label">缓存命中率</span>
+            <span className="metric-card-label">{t('缓存命中率')}</span>
             <div className="metric-card-primary">
               {metrics ? `${Math.round(metrics.cacheHitRate * 100)}%` : '0%'}
             </div>
-            <div className="metric-card-sub">占提示词</div>
+            <div className="metric-card-sub">{t('占提示词')}</div>
           </div>
         </section>
 
@@ -262,18 +253,14 @@ export function AnalyticsPage({ onBackToTasks }: AnalyticsPageProps) {
                 aria-selected={dimension === 'cost'}
                 className={`segmented-btn ${dimension === 'cost' ? 'is-active' : ''}`}
                 onClick={() => setDimension('cost')}
-              >
-                费用
-              </button>
+              >{t('费用')}</button>
               <button
                 type="button"
                 role="tab"
                 aria-selected={dimension === 'requests'}
                 className={`segmented-btn ${dimension === 'requests' ? 'is-active' : ''}`}
                 onClick={() => setDimension('requests')}
-              >
-                请求
-              </button>
+              >{t('请求')}</button>
             </div>
           </div>
 
@@ -287,13 +274,13 @@ export function AnalyticsPage({ onBackToTasks }: AnalyticsPageProps) {
             />
           ) : (
             <div className="analytics-empty-chart">
-              <span>暂无对应时间段的调用记录</span>
+              <span>{t('暂无对应时间段的调用记录')}</span>
             </div>
           )}
 
           {/* Breakdown List by Model */}
           <div className="analytics-breakdown-section">
-            <h3 className="breakdown-title">模型用量构成</h3>
+            <h3 className="breakdown-title">{t('模型用量构成')}</h3>
             {metrics && metrics.modelBreakdowns.length > 0 ? (
               <div className="breakdown-list">
                 {metrics.modelBreakdowns.map((item) => {
@@ -304,10 +291,10 @@ export function AnalyticsPage({ onBackToTasks }: AnalyticsPageProps) {
                       : `¥${item.costCny.toFixed(2)}`
                   const dimValue =
                     dimension === 'tokens'
-                      ? `${item.tokens.toLocaleString('zh-CN')} tokens`
+                      ? `${item.tokens.toLocaleString(getLocale())} tokens`
                       : dimension === 'cost'
                       ? `≈${displayCost}`
-                      : `${item.requests} 个请求`
+                      : t('{0} 个请求', { 0: item.requests })
 
                   return (
                     <div key={item.modelId} className="breakdown-item">
@@ -340,13 +327,13 @@ export function AnalyticsPage({ onBackToTasks }: AnalyticsPageProps) {
 
                       {/* Meta line */}
                       <div className="breakdown-item-meta">
-                        <span>{item.requests} 个请求</span>
+                        <span>{item.requests}{t('个请求')}</span>
                         <span>·</span>
                         <span>≈{displayCost}</span>
                         {item.tokensPerSecond > 0 && (
                           <>
                             <span>·</span>
-                            <span>{item.tokensPerSecond} token/秒</span>
+                            <span>{item.tokensPerSecond}{t('token/秒')}</span>
                           </>
                         )}
                         <span>·</span>
@@ -355,8 +342,7 @@ export function AnalyticsPage({ onBackToTasks }: AnalyticsPageProps) {
                           <>
                             <span>·</span>
                             <span className="breakdown-failed-count">
-                              {item.failedRequests} 次失败
-                            </span>
+                              {item.failedRequests}{t('次失败')}</span>
                           </>
                         )}
                       </div>
@@ -365,7 +351,7 @@ export function AnalyticsPage({ onBackToTasks }: AnalyticsPageProps) {
                 })}
               </div>
             ) : (
-              <div className="breakdown-empty">暂无模型调用数据</div>
+              <div className="breakdown-empty">{t('暂无模型调用数据')}</div>
             )}
           </div>
         </section>

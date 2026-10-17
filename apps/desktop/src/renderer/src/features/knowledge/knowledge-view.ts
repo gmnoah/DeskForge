@@ -1,11 +1,12 @@
+import { t } from '../../i18n'
 import type { EmbeddingsInput, EmbeddingsPresetId, EmbeddingsView, KnowledgeStatusItem } from '../../types'
 
 /** Mirrors EMBEDDINGS_PRESETS in @deskforge/contracts (kept local so the renderer bundle stays zod-free). */
 export const EMBEDDING_PRESETS: Array<{ id: EmbeddingsPresetId; label: string; baseUrl: string; model: string; dimensions?: number }> = [
-  { id: 'dashscope-v4', label: '通义 DashScope · text-embedding-v4', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'text-embedding-v4', dimensions: 1024 },
-  { id: 'dashscope-v3', label: '通义 DashScope · text-embedding-v3', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'text-embedding-v3', dimensions: 1024 },
+  { id: 'dashscope-v4', get label() { return t('通义 DashScope · text-embedding-v4') }, baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'text-embedding-v4', dimensions: 1024 },
+  { id: 'dashscope-v3', get label() { return t('通义 DashScope · text-embedding-v3') }, baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'text-embedding-v3', dimensions: 1024 },
   { id: 'openai-3-small', label: 'OpenAI · text-embedding-3-small', baseUrl: 'https://api.openai.com/v1', model: 'text-embedding-3-small' },
-  { id: 'custom', label: '自定义 OpenAI 兼容接口', baseUrl: '', model: '' },
+  { id: 'custom', get label() { return t('自定义 OpenAI 兼容接口') }, baseUrl: '', model: '' },
 ]
 
 export function formatBytes(bytes: number): string {
@@ -14,38 +15,38 @@ export function formatBytes(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
-export const KNOWLEDGE_STATE_LABEL: Record<KnowledgeStatusItem['state'], string> = { empty: '未建立', indexing: '索引中', ready: '已就绪', error: '出错' }
+export const KNOWLEDGE_STATE_LABEL: Record<KnowledgeStatusItem['state'], string> = { get empty() { return t('未建立') }, get indexing() { return t('索引中') }, get ready() { return t('已就绪') }, get error() { return t('出错') } }
 
 export function knowledgeSummary(status: KnowledgeStatusItem): string {
-  if (status.state === 'empty') return '尚未建立索引'
-  const parts = [`${status.fileCount} 个文件`, `${status.chunkCount} 个片段`, `正文 ${formatBytes(status.indexedBytes)}`, `索引占用 ${formatBytes(status.storageBytes)}`]
-  if (status.embeddings.embeddedChunks) parts.push(`${status.embeddings.embeddedChunks} 个向量`)
+  if (status.state === 'empty') return t('尚未建立索引')
+  const parts = [t('{0} 个文件', { 0: status.fileCount }), t('{0} 个片段', { 0: status.chunkCount }), t('正文 {0}', { 0: formatBytes(status.indexedBytes) }), t('索引占用 {0}', { 0: formatBytes(status.storageBytes) })]
+  if (status.embeddings.embeddedChunks) parts.push(t('{0} 个向量', { 0: status.embeddings.embeddedChunks }))
   return parts.join(' · ')
 }
 
 export function skippedSummary(status: KnowledgeStatusItem): string {
   const { skipped } = status
   const parts: string[] = []
-  if (skipped.ignored) parts.push(`忽略 ${skipped.ignored}`)
-  if (skipped.sensitive) parts.push(`敏感文件 ${skipped.sensitive}`)
-  if (skipped.symlinks) parts.push(`符号链接 ${skipped.symlinks}`)
-  if (skipped.tooLarge) parts.push(`超大 ${skipped.tooLarge}`)
-  if (skipped.binary) parts.push(`二进制 ${skipped.binary}`)
-  if (skipped.unsupported) parts.push(`不支持的类型 ${skipped.unsupported}`)
-  if (skipped.unreadable) parts.push(`无法读取 ${skipped.unreadable}`)
-  return parts.length ? `已跳过：${parts.join('，')}` : ''
+  if (skipped.ignored) parts.push(t('忽略 {0}', { 0: skipped.ignored }))
+  if (skipped.sensitive) parts.push(t('敏感文件 {0}', { 0: skipped.sensitive }))
+  if (skipped.symlinks) parts.push(t('符号链接 {0}', { 0: skipped.symlinks }))
+  if (skipped.tooLarge) parts.push(t('超大 {0}', { 0: skipped.tooLarge }))
+  if (skipped.binary) parts.push(t('二进制 {0}', { 0: skipped.binary }))
+  if (skipped.unsupported) parts.push(t('不支持的类型 {0}', { 0: skipped.unsupported }))
+  if (skipped.unreadable) parts.push(t('无法读取 {0}', { 0: skipped.unreadable }))
+  return parts.length ? t('已跳过：{0}', { 0: parts.join('，') }) : ''
 }
 
 export function lastRunSummary(status: KnowledgeStatusItem): string {
   if (!status.lastRun) return ''
   const { added, updated, unchanged, removed } = status.lastRun
-  const duration = status.lastDurationMs !== undefined ? `，用时 ${(status.lastDurationMs / 1000).toFixed(1)} 秒` : ''
-  return `上次：新增 ${added}，更新 ${updated}，未变 ${unchanged}，移除 ${removed}${duration}`
+  const duration = status.lastDurationMs !== undefined ? t('，用时 {0} 秒', { 0: (status.lastDurationMs / 1000).toFixed(1) }) : ''
+  return t('上次：新增 {0}，更新 {1}，未变 {2}，移除 {3}{4}', { 0: added, 1: updated, 2: unchanged, 3: removed, 4: duration })
 }
 
 export function limitReasonLabel(reason?: string): string {
   if (!reason) return ''
-  return ({ max_files: '已达到文件数上限（5000）', max_entries: '目录项过多，扫描已截断', time_budget: '扫描超时，已索引部分文件' } as Record<string, string>)[reason] ?? reason
+  return ({ max_files: t('已达到文件数上限（5000）'), max_entries: t('目录项过多，扫描已截断'), time_budget: t('扫描超时，已索引部分文件') } as Record<string, string>)[reason] ?? reason
 }
 
 export function endpointHost(baseUrl: string): string {

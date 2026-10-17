@@ -1,3 +1,4 @@
+import { setLocale, getLocale, t, useLocale } from '../../i18n'
 import { useEffect, useState, type ReactNode } from 'react'
 import { bridge, resultId } from '../../bridge'
 import { Icon, type IconName } from '../../icons'
@@ -40,6 +41,7 @@ function formatBytes(value?: number) {
 }
 
 export function SettingsPage({ snapshot, selectedWorkspaceId, perform, onWorkspaceAdded, onWorkspaceSelected, onOpenAudit }: { snapshot: WorkbenchSnapshot; selectedWorkspaceId: string | undefined; perform: Perform; onWorkspaceAdded: () => void; onWorkspaceSelected: (id: string) => void; onOpenAudit: () => void }) {
+  useLocale()
   const [modelOpen, setModelOpen] = useState(false)
   const [mcpEditorOpen, setMcpEditorOpen] = useState(false)
   const [provider, setProvider] = useState<ModelProvider>('deepseek')
@@ -75,7 +77,7 @@ export function SettingsPage({ snapshot, selectedWorkspaceId, perform, onWorkspa
   const addWorkspace = async () => {
     const path = await perform(() => bridge.chooseWorkspace(), undefined, { refresh: false })
     if (typeof path !== 'string' || !path) return
-    const result = await perform(() => bridge.addWorkspace(path), '工作区已添加')
+    const result = await perform(() => bridge.addWorkspace(path), t('工作区已添加'))
     if (result !== undefined) onWorkspaceAdded()
   }
   const selectProvider = (nextProvider: ModelProvider) => {
@@ -122,7 +124,7 @@ export function SettingsPage({ snapshot, selectedWorkspaceId, perform, onWorkspa
       if (!saved) return
     }
     if (snapshot.models.length === 0) await perform(() => bridge.setDefaultModel(id), undefined, { refresh: false })
-    await perform(async () => profile, '模型配置已保存')
+    await perform(async () => profile, t('模型配置已保存'))
     setModelOpen(false)
   }
   const testModel = async (id: string) => {
@@ -135,7 +137,7 @@ export function SettingsPage({ snapshot, selectedWorkspaceId, perform, onWorkspa
   }
   const savePersistentGrant = async () => {
     if (!selectedWorkspaceId) return
-    const result = await perform(() => bridge.createPersistentGrant({ workspaceId: selectedWorkspaceId, toolName: grantTool, path: grantPath.trim() }), '永久授权已创建')
+    const result = await perform(() => bridge.createPersistentGrant({ workspaceId: selectedWorkspaceId, toolName: grantTool, path: grantPath.trim() }), t('永久授权已创建'))
     if (result !== undefined) { setGrantOpen(false); setGrantPath('') }
   }
   const chooseCapabilityPackage = async () => {
@@ -145,157 +147,164 @@ export function SettingsPage({ snapshot, selectedWorkspaceId, perform, onWorkspa
   const installCapabilityPackage = async () => {
     const selectionId = typeof packagePreview?.selectionId === 'string' ? packagePreview.selectionId : ''
     if (!selectionId) return
-    const result = await perform(() => bridge.installCapabilityPackage(selectionId, selectedWorkspaceId), '能力包已安装')
+    const result = await perform(() => bridge.installCapabilityPackage(selectionId, selectedWorkspaceId), t('能力包已安装'))
     if (result !== undefined) setPackagePreview(undefined)
   }
   return (
     <main className="management-page settings-page">
-      <PageHeader title="设置" description="管理模型、工作区、浏览器、权限和本地数据。" />
+      <PageHeader title={t('设置')} description={t('管理模型、工作区、浏览器、权限和本地数据。')} />
 
-      <SettingsSection icon="layers" title="模型" description="正在进行的工作固定使用创建时的模型；默认值只影响新工作。" action={<button className="button secondary small" type="button" onClick={() => setModelOpen(true)}><Icon name="plus" />添加配置</button>}>
-        {snapshot.models.length ? <><div className="model-list">{snapshot.models.map((model) => <div key={model.id} className="model-row"><div className={`provider-logo ${model.provider}`} aria-label={MODEL_PROVIDER_META[model.provider].name}><span>{MODEL_PROVIDER_META[model.provider].mark}</span></div><div><strong>{model.name}</strong><span>{model.modelId} · {model.hasSecret ? '密钥已配置' : '缺少密钥'}</span></div>{model.isDefault && <span className="default-pill">默认</span>}<div className="model-actions">{!model.isDefault && <button type="button" onClick={() => void perform(() => bridge.setModelDefaults(model.id, snapshot.models.find((item) => item.isSubagentDefault)?.id), '默认模型已更新')}>设为默认</button>}<button type="button" onClick={() => { setSecretProfile(model); setReplacementKey('') }}>更新 Key</button><button type="button" onClick={() => void testModel(model.id)} disabled={testingId === model.id || !model.hasSecret}>{testingId === model.id ? <Spinner size={12} /> : '测试连接'}</button><IconButton icon="trash" label="删除模型配置" onClick={() => void perform(() => bridge.removeModel(model.id), '模型配置已删除')} /></div></div>)}</div><div className="model-defaults"><SettingRow title="工作默认模型" detail="开始新工作时默认选择的模型配置。"><select value={snapshot.models.find((item) => item.isDefault)?.id ?? snapshot.models[0]?.id} onChange={(event) => void perform(() => bridge.setModelDefaults(event.target.value, snapshot.models.find((item) => item.isSubagentDefault)?.id), '工作默认模型已更新')}>{snapshot.models.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.modelId}</option>)}</select></SettingRow><SettingRow title="并行助手默认模型" detail="没有单独指定时，用于并行处理。"><select value={snapshot.models.find((item) => item.isSubagentDefault)?.id ?? snapshot.models.find((item) => item.isDefault)?.id ?? snapshot.models[0]?.id} onChange={(event) => { const primary = snapshot.models.find((item) => item.isDefault) ?? snapshot.models[0]; if (primary) void perform(() => bridge.setModelDefaults(primary.id, event.target.value), '并行助手默认模型已更新') }}>{snapshot.models.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.modelId}</option>)}</select></SettingRow></div>{testResult && <ConnectionTestNotice result={testResult} onClose={() => setTestResult(undefined)} />}</> : <EmptyState compact icon="key" title="尚未配置模型" description="添加 DeepSeek、Kimi、通义或自定义 OpenAI 兼容接口后才能开始工作。" />}
+      <SettingsSection icon="layers" title={t('模型')} description={t('正在进行的工作固定使用创建时的模型；默认值只影响新工作。')} action={<button className="button secondary small" type="button" onClick={() => setModelOpen(true)}><Icon name="plus" />{t('添加配置')}</button>}>
+        {snapshot.models.length ? <><div className="model-list">{snapshot.models.map((model) => <div key={model.id} className="model-row"><div className={`provider-logo ${model.provider}`} aria-label={MODEL_PROVIDER_META[model.provider].name}><span>{MODEL_PROVIDER_META[model.provider].mark}</span></div><div><strong>{model.name}</strong><span>{model.modelId} · {model.hasSecret ? t('密钥已配置') : t('缺少密钥')}</span></div>{model.isDefault && <span className="default-pill">{t('默认')}</span>}<div className="model-actions">{!model.isDefault && <button type="button" onClick={() => void perform(() => bridge.setModelDefaults(model.id, snapshot.models.find((item) => item.isSubagentDefault)?.id), t('默认模型已更新'))}>{t('设为默认')}</button>}<button type="button" onClick={() => { setSecretProfile(model); setReplacementKey('') }}>{t('更新 Key')}</button><button type="button" onClick={() => void testModel(model.id)} disabled={testingId === model.id || !model.hasSecret}>{testingId === model.id ? <Spinner size={12} /> : t('测试连接')}</button><IconButton icon="trash" label={t('删除模型配置')} onClick={() => void perform(() => bridge.removeModel(model.id), t('模型配置已删除'))} /></div></div>)}</div><div className="model-defaults"><SettingRow title={t('工作默认模型')} detail={t('开始新工作时默认选择的模型配置。')}><select value={snapshot.models.find((item) => item.isDefault)?.id ?? snapshot.models[0]?.id} onChange={(event) => void perform(() => bridge.setModelDefaults(event.target.value, snapshot.models.find((item) => item.isSubagentDefault)?.id), t('工作默认模型已更新'))}>{snapshot.models.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.modelId}</option>)}</select></SettingRow><SettingRow title={t('并行助手默认模型')} detail={t('没有单独指定时，用于并行处理。')}><select value={snapshot.models.find((item) => item.isSubagentDefault)?.id ?? snapshot.models.find((item) => item.isDefault)?.id ?? snapshot.models[0]?.id} onChange={(event) => { const primary = snapshot.models.find((item) => item.isDefault) ?? snapshot.models[0]; if (primary) void perform(() => bridge.setModelDefaults(primary.id, event.target.value), t('并行助手默认模型已更新')) }}>{snapshot.models.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.modelId}</option>)}</select></SettingRow></div>{testResult && <ConnectionTestNotice result={testResult} onClose={() => setTestResult(undefined)} />}</> : <EmptyState compact icon="key" title={t('尚未配置模型')} description={t('添加 DeepSeek、Kimi、通义或自定义 OpenAI 兼容接口后才能开始工作。')} />}
       </SettingsSection>
 
-      <SettingsSection icon="folder" title="工作区" description="DeskForge 会自动加载工作区根目录（及父级仓库）的标准 AGENTS.md 工程规则。只能通过文件工具访问明确授权的工作区，不会默认使用磁盘根目录 /。" action={<button type="button" className="button secondary small" onClick={() => void addWorkspace()}><Icon name="plus" />添加工作区</button>}>
-        <div className="workspace-settings-list">{snapshot.workspaces.map((workspace) => <div key={workspace.id} className={workspace.id === selectedWorkspaceId ? 'is-selected' : ''}><span className="folder-symbol"><Icon name="folder" /></span><span><strong>{workspace.name}</strong><small>{workspace.path}</small></span>{workspace.id === selectedWorkspaceId ? <span className="default-pill">当前</span> : <button type="button" className="text-button" onClick={() => onWorkspaceSelected(workspace.id)}>切换</button>}<IconButton icon="edit" label="编辑工作区规则" onClick={() => { setRulesWorkspace(workspace); setRulesText(typeof workspace.rules === 'string' ? workspace.rules : '') }} /><IconButton icon="trash" label="移除工作区授权" onClick={() => void perform(() => bridge.removeWorkspace(workspace.id), '工作区授权已移除')} /></div>)}</div>
+      <SettingsSection icon="folder" title={t('工作区')} description={t('DeskForge 会自动加载工作区根目录（及父级仓库）的标准 AGENTS.md 工程规则。只能通过文件工具访问明确授权的工作区，不会默认使用磁盘根目录 /。')} action={<button type="button" className="button secondary small" onClick={() => void addWorkspace()}><Icon name="plus" />{t('添加工作区')}</button>}>
+        <div className="workspace-settings-list">{snapshot.workspaces.map((workspace) => <div key={workspace.id} className={workspace.id === selectedWorkspaceId ? 'is-selected' : ''}><span className="folder-symbol"><Icon name="folder" /></span><span><strong>{workspace.name}</strong><small>{workspace.path}</small></span>{workspace.id === selectedWorkspaceId ? <span className="default-pill">{t('当前')}</span> : <button type="button" className="text-button" onClick={() => onWorkspaceSelected(workspace.id)}>{t('切换')}</button>}<IconButton icon="edit" label={t('编辑工作区规则')} onClick={() => { setRulesWorkspace(workspace); setRulesText(typeof workspace.rules === 'string' ? workspace.rules : '') }} /><IconButton icon="trash" label={t('移除工作区授权')} onClick={() => void perform(() => bridge.removeWorkspace(workspace.id), t('工作区授权已移除'))} /></div>)}</div>
       </SettingsSection>
 
-      <SettingsSection icon="plug" title="MCP 连接" description="添加 stdio 或 Streamable HTTP 的 MCP Server。密钥使用系统加密保存；调用 MCP 工具每次都需要你批准。" action={<button type="button" className="button secondary small" onClick={() => setMcpEditorOpen(true)}><Icon name="plus" />添加 MCP Server</button>}>
+      <SettingsSection icon="plug" title={t('MCP 连接')} description={t('添加 stdio 或 Streamable HTTP 的 MCP Server。密钥使用系统加密保存；调用 MCP 工具每次都需要你批准。')} action={<button type="button" className="button secondary small" onClick={() => setMcpEditorOpen(true)}><Icon name="plus" />{t('添加 MCP Server')}</button>}>
         <McpServersPanel servers={snapshot.mcpServers} workspaceId={selectedWorkspaceId} perform={perform} editorOpen={mcpEditorOpen} onEditorOpenChange={setMcpEditorOpen} />
       </SettingsSection>
 
-      <SettingsSection icon="search" title="本地知识库" description="为授权工作区建立本地全文索引（中英文），Agent 可用只读工具 knowledge_search 检索并引用 文件:行号。">
+      <SettingsSection icon="search" title={t('本地知识库')} description={t('为授权工作区建立本地全文索引（中英文），Agent 可用只读工具 knowledge_search 检索并引用 文件:行号。')}>
         <KnowledgePanel snapshot={snapshot} selectedWorkspaceId={selectedWorkspaceId} perform={perform} />
       </SettingsSection>
 
-      <SettingsSection icon="globe" title="向量检索（可选）" description="配置 OpenAI 兼容的 Embeddings 接口后，知识库使用关键词 + 向量混合排序；不配置也能完整使用。">
+      <SettingsSection icon="globe" title={t('向量检索（可选）')} description={t('配置 OpenAI 兼容的 Embeddings 接口后，知识库使用关键词 + 向量混合排序；不配置也能完整使用。')}>
         <EmbeddingsPanel perform={perform} />
       </SettingsSection>
 
-      <SettingsSection icon="skill" title="本地能力包" description="组合 Skills、MCP 配置、规则和模板；安装前会显示命令、环境和权限，不允许 JavaScript 注入。" action={<button type="button" className="button secondary small" onClick={() => void chooseCapabilityPackage()}><Icon name="plus" />选择能力包</button>}>
-        {snapshot.capabilityPackages.length > 0 ? <div className="persistent-grant-list">{snapshot.capabilityPackages.map((item) => <div key={item.id}><span className="folder-symbol"><Icon name="skill" /></span><span><strong>{item.name} · v{item.version}</strong><small>{item.skillIds.length} Skills · {item.mcpServerIds.length} MCP · {item.ruleSources.length} Rules · {item.templatePaths.length} Templates</small></span><span className="default-pill">本地安装</span></div>)}</div> : <EmptyState compact icon="skill" title="尚未安装能力包" description="能力包只从你手动选择的本地目录导入，不连接在线市场。" />}
+      <SettingsSection icon="skill" title={t('本地能力包')} description={t('组合 Skills、MCP 配置、规则和模板；安装前会显示命令、环境和权限，不允许 JavaScript 注入。')} action={<button type="button" className="button secondary small" onClick={() => void chooseCapabilityPackage()}><Icon name="plus" />{t('选择能力包')}</button>}>
+        {snapshot.capabilityPackages.length > 0 ? <div className="persistent-grant-list">{snapshot.capabilityPackages.map((item) => <div key={item.id}><span className="folder-symbol"><Icon name="skill" /></span><span><strong>{item.name} · v{item.version}</strong><small>{item.skillIds.length} Skills · {item.mcpServerIds.length} MCP · {item.ruleSources.length} Rules · {item.templatePaths.length} Templates</small></span><span className="default-pill">{t('本地安装')}</span></div>)}</div> : <EmptyState compact icon="skill" title={t('尚未安装能力包')} description={t('能力包只从你手动选择的本地目录导入，不连接在线市场。')} />}
       </SettingsSection>
 
-      <SettingsSection icon="sun" title="外观与语言" description="界面遵循 macOS；回答语言由当前请求决定。">
-        <SettingRow title="主题外观" detail="支持浅色、深色或随 macOS 系统自动切换。">
-          <div className="theme-segmented-control" role="group" aria-label="主题外观选择">
+      <SettingsSection icon="sun" title={t('外观与语言')} description={t('界面遵循 macOS；回答语言由当前请求决定。')}>
+        <SettingRow title={t('主题外观')} detail={t('支持浅色、深色或随 macOS 系统自动切换。')}>
+          <div className="theme-segmented-control" role="group" aria-label={t('主题外观选择')}>
             <button
               type="button"
               className={String(settings.theme ?? 'system') === 'system' ? 'is-active' : ''}
-              onClick={() => void perform(() => bridge.updateSettings({ theme: 'system' }), '已设为跟随系统')}
+              onClick={() => void perform(() => bridge.updateSettings({ theme: 'system' }), t('已设为跟随系统'))}
             >
               <Icon name="globe" size={13} />
-              <span>跟随系统</span>
+              <span>{t('跟随系统')}</span>
             </button>
             <button
               type="button"
               className={String(settings.theme) === 'light' ? 'is-active' : ''}
-              onClick={() => void perform(() => bridge.updateSettings({ theme: 'light' }), '已切换为浅色模式')}
+              onClick={() => void perform(() => bridge.updateSettings({ theme: 'light' }), t('已切换为浅色模式'))}
             >
               <Icon name="sun" size={13} />
-              <span>浅色</span>
+              <span>{t('浅色')}</span>
             </button>
             <button
               type="button"
               className={String(settings.theme) === 'dark' ? 'is-active' : ''}
-              onClick={() => void perform(() => bridge.updateSettings({ theme: 'dark' }), '已切换为深色模式')}
+              onClick={() => void perform(() => bridge.updateSettings({ theme: 'dark' }), t('已切换为深色模式'))}
             >
               <Icon name="moon" size={13} />
-              <span>深色</span>
+              <span>{t('深色')}</span>
             </button>
           </div>
         </SettingRow>
-        <SettingRow title="界面语言" detail="当前版本提供简体中文；回答会跟随你使用的语言。"><select value="zh-CN" aria-label="界面语言" disabled><option value="zh-CN">简体中文</option></select></SettingRow>
-        <SettingRow title="开机启动" detail="默认关闭；显式退出应用会停止自动化。"><Toggle checked={Boolean(settings.launchAtLogin)} label="开机启动" onChange={(checked) => void perform(() => bridge.updateSettings({ launchAtLogin: checked }), checked ? '已开启开机启动' : '已关闭开机启动')} /></SettingRow>
+        <SettingRow title={t('界面语言')} detail={t('当前版本提供简体中文；回答会跟随你使用的语言。')}><select value={getLocale()} aria-label={t('界面语言')} onChange={(event) => {
+          const locale = event.target.value
+          void perform(async () => {
+            const result = await bridge.updateSettings({ locale })
+            setLocale(locale)
+            return result
+          })
+        }}><option value="zh-CN">简体中文</option><option value="en-US">English</option></select></SettingRow>
+        <SettingRow title={t('开机启动')} detail={t('默认关闭；显式退出应用会停止自动化。')}><Toggle checked={Boolean(settings.launchAtLogin)} label={t('开机启动')} onChange={(checked) => void perform(() => bridge.updateSettings({ launchAtLogin: checked }), checked ? t('已开启开机启动') : t('已关闭开机启动'))} /></SettingRow>
       </SettingsSection>
 
-      <SettingsSection icon="memory" title="记忆" description="未经确认的候选不会影响以后的工作。">
-        <SettingRow title="启用记忆建议" detail="工作收尾时允许 DeskForge 提出带来源的候选记忆。"><Toggle checked={settings.memoryEnabled !== false} label="启用记忆" onChange={(checked) => void perform(() => bridge.updateSettings({ memoryEnabled: checked }), checked ? '记忆建议已启用' : '记忆建议已关闭')} /></SettingRow>
+      <SettingsSection icon="memory" title={t('记忆')} description={t('未经确认的候选不会影响以后的工作。')}>
+        <SettingRow title={t('启用记忆建议')} detail={t('工作收尾时允许 DeskForge 提出带来源的候选记忆。')}><Toggle checked={settings.memoryEnabled !== false} label={t('启用记忆')} onChange={(checked) => void perform(() => bridge.updateSettings({ memoryEnabled: checked }), checked ? t('记忆建议已启用') : t('记忆建议已关闭'))} /></SettingRow>
       </SettingsSection>
 
-      <SettingsSection icon="lock" title="工作权限" description="文件和 Shell 只在当前工作区内执行，写入和命令需要批准。">
-        <SettingRow title="工作区边界" detail="不会把授权根扩展到磁盘根目录 /。"><span className="default-pill">请求批准</span></SettingRow>
-        <div className="inline-notice"><Icon name="shield" /><span>选择文件夹后，读取、写入和 Shell 都限制在该目录内。路径穿越和符号链接逃逸会被拒绝。</span></div>
+      <SettingsSection icon="lock" title={t('工作权限')} description={t('文件和 Shell 只在当前工作区内执行，写入和命令需要批准。')}>
+        <SettingRow title={t('工作区边界')} detail={t('不会把授权根扩展到磁盘根目录 /。')}><span className="default-pill">{t('请求批准')}</span></SettingRow>
+        <div className="inline-notice"><Icon name="shield" /><span>{t('选择文件夹后，读取、写入和 Shell 都限制在该目录内。路径穿越和符号链接逃逸会被拒绝。')}</span></div>
       </SettingsSection>
 
-      <SettingsSection icon="shield" title="默认处理方式" description="只影响新工作；先整理计划时，宿主只提供只读能力。">
-        <SettingRow title="新工作默认方式" detail="开始每项工作时仍可临时切换。"><select value={String(settings.defaultExecutionMode ?? 'execute')} onChange={(event) => void perform(() => bridge.updateSettings({ defaultExecutionMode: event.target.value }), '默认处理方式已更新')}><option value="execute">直接处理</option><option value="plan">先整理计划（只读）</option></select></SettingRow>
+      <SettingsSection icon="shield" title={t('默认处理方式')} description={t('只影响新工作；先整理计划时，宿主只提供只读能力。')}>
+        <SettingRow title={t('新工作默认方式')} detail={t('开始每项工作时仍可临时切换。')}><select value={String(settings.defaultExecutionMode ?? 'execute')} onChange={(event) => void perform(() => bridge.updateSettings({ defaultExecutionMode: event.target.value }), t('默认处理方式已更新'))}><option value="execute">{t('直接处理')}</option><option value="plan">{t('先整理计划（只读）')}</option></select></SettingRow>
       </SettingsSection>
 
-      <SettingsSection icon="lock" title="永久授权" description="只能在设置中创建。首版仅允许对当前工作区中的一个精确路径放行可逆文件写入；Shell、发送和不可逆动作不支持永久授权。" action={<button className="button secondary small" type="button" onClick={() => setGrantOpen(true)} disabled={!selectedWorkspaceId}><Icon name="plus" />添加授权</button>}>
-        {snapshot.persistentGrants.length > 0 ? <div className="persistent-grant-list">{snapshot.persistentGrants.map((grant: PersistentGrantItem) => <div key={grant.id}><span className="folder-symbol"><Icon name="file" /></span><span><strong>{grant.toolName === 'file.edit' ? '编辑文件' : '写入文件'} · {snapshot.workspaces.find((workspace) => workspace.id === grant.workspaceId)?.name ?? '未知工作区'}</strong><small className="mono">{grant.path}</small></span><span className="default-pill">工作区 + 精确路径</span><button className="button ghost small danger-text" type="button" onClick={() => void perform(() => bridge.removePersistentGrant(grant.id), '永久授权已撤销')}>撤销</button></div>)}</div> : <EmptyState compact icon="lock" title="没有永久授权" description="工作中的单次允许不会自动升级为永久授权。" />}
+      <SettingsSection icon="lock" title={t('永久授权')} description={t('只能在设置中创建。首版仅允许对当前工作区中的一个精确路径放行可逆文件写入；Shell、发送和不可逆动作不支持永久授权。')} action={<button className="button secondary small" type="button" onClick={() => setGrantOpen(true)} disabled={!selectedWorkspaceId}><Icon name="plus" />{t('添加授权')}</button>}>
+        {snapshot.persistentGrants.length > 0 ? <div className="persistent-grant-list">{snapshot.persistentGrants.map((grant: PersistentGrantItem) => <div key={grant.id}><span className="folder-symbol"><Icon name="file" /></span><span><strong>{grant.toolName === 'file.edit' ? t('编辑文件') : t('写入文件')} · {snapshot.workspaces.find((workspace) => workspace.id === grant.workspaceId)?.name ?? t('未知工作区')}</strong><small className="mono">{grant.path}</small></span><span className="default-pill">{t('工作区 + 精确路径')}</span><button className="button ghost small danger-text" type="button" onClick={() => void perform(() => bridge.removePersistentGrant(grant.id), t('永久授权已撤销'))}>{t('撤销')}</button></div>)}</div> : <EmptyState compact icon="lock" title={t('没有永久授权')} description={t('工作中的单次允许不会自动升级为永久授权。')} />}
       </SettingsSection>
 
-      <SettingsSection icon="globe" title="浏览器连接" description="只有你通过扩展绑定的标签页和它新开的子标签可被当前工作访问。">
-        <div className="chrome-settings"><div className="chrome-illustration"><Icon name="globe" size={24} /></div><div><strong>{snapshot.chrome.connected ? 'Chrome 已连接' : snapshot.chrome.extensionInstalled && snapshot.chrome.nativeHostInstalled ? '组件已安装，等待连接' : '浏览器尚未连接'}</strong><span>{snapshot.chrome.connected ? `${snapshot.chrome.grants.length} 个活跃标签页授权` : `扩展：${snapshot.chrome.extensionInstalled ? '已安装' : '未安装'} · 本地桥接：${snapshot.chrome.nativeHostInstalled ? '已安装' : '未安装'}`}</span></div><span className={`health-pill ${snapshot.chrome.connected ? 'healthy' : ''}`}><i />{snapshot.chrome.connected ? '在线' : '离线'}</span></div>
-        {snapshot.chrome.grants.length > 0 && <div className="chrome-grant-list">{snapshot.chrome.grants.map((grant) => <div key={grant.id}><Icon name="globe" size={14} /><span><strong>{grant.title || `标签页 ${grant.tabId ?? ''}`}</strong><small>{grant.url ?? '已授权给当前工作'}</small></span><button className="button ghost small danger-text" type="button" onClick={() => void perform(() => bridge.revokeChromeGrant(grant.id), '标签页授权已撤销')}>撤销</button></div>)}</div>}
+      <SettingsSection icon="globe" title={t('浏览器连接')} description={t('只有你通过扩展绑定的标签页和它新开的子标签可被当前工作访问。')}>
+        <div className="chrome-settings"><div className="chrome-illustration"><Icon name="globe" size={24} /></div><div><strong>{snapshot.chrome.connected ? t('Chrome 已连接') : snapshot.chrome.extensionInstalled && snapshot.chrome.nativeHostInstalled ? t('组件已安装，等待连接') : t('浏览器尚未连接')}</strong><span>{snapshot.chrome.connected ? t('{0} 个活跃标签页授权', { 0: snapshot.chrome.grants.length }) : t('扩展：{0} · 本地桥接：{1}', { 0: snapshot.chrome.extensionInstalled ? t('已安装') : t('未安装'), 1: snapshot.chrome.nativeHostInstalled ? t('已安装') : t('未安装') })}</span></div><span className={`health-pill ${snapshot.chrome.connected ? 'healthy' : ''}`}><i />{snapshot.chrome.connected ? t('在线') : t('离线')}</span></div>
+        {snapshot.chrome.grants.length > 0 && <div className="chrome-grant-list">{snapshot.chrome.grants.map((grant) => <div key={grant.id}><Icon name="globe" size={14} /><span><strong>{grant.title || t('标签页 {0}', { 0: grant.tabId ?? '' })}</strong><small>{grant.url ?? t('已授权给当前工作')}</small></span><button className="button ghost small danger-text" type="button" onClick={() => void perform(() => bridge.revokeChromeGrant(grant.id), t('标签页授权已撤销'))}>{t('撤销')}</button></div>)}</div>}
       </SettingsSection>
 
-      <SettingsSection icon="shield" title="隐私与记录" description="操作、确认、错误和检查结果只保存在本机，不记录隐藏思维链或原始密钥。">
-        <SettingRow title="本地活动记录" detail="按工作、类别和时间筛选审计事件，校验哈希链，导出 JSON / CSV / Markdown 或脱敏诊断包；也可在这里撤销会话规则。"><button type="button" className="button secondary small" onClick={onOpenAudit}>查看活动记录</button></SettingRow>
+      <SettingsSection icon="shield" title={t('隐私与记录')} description={t('操作、确认、错误和检查结果只保存在本机，不记录隐藏思维链或原始密钥。')}>
+        <SettingRow title={t('本地活动记录')} detail={t('按工作、类别和时间筛选审计事件，校验哈希链，导出 JSON / CSV / Markdown 或脱敏诊断包；也可在这里撤销会话规则。')}><button type="button" className="button secondary small" onClick={onOpenAudit}>{t('查看活动记录')}</button></SettingRow>
       </SettingsSection>
 
-      <SettingsSection icon="settings" title="高级运行限制" description="限制只影响新工作，正在进行的工作继续使用创建时的设置。">
+      <SettingsSection icon="settings" title={t('高级运行限制')} description={t('限制只影响新工作，正在进行的工作继续使用创建时的设置。')}>
         <div className="limit-grid">
-          <LimitInput label="每轮模型回合" value={Number(defaultLimits.maxModelTurnsPerTurn ?? 60)} onSave={(value) => void perform(() => bridge.updateSettings({ defaultRunLimits: { ...defaultLimits, maxModelTurnsPerTurn: value } }), '限制已保存')} />
-          <LimitInput label="任务总模型回合" value={Number(defaultLimits.maxTotalModelTurns ?? 180)} onSave={(value) => void perform(() => bridge.updateSettings({ defaultRunLimits: { ...defaultLimits, maxTotalModelTurns: value } }), '限制已保存')} />
-          <LimitInput label="每轮最长分钟" value={Math.round(Number(defaultLimits.maxDurationMsPerTurn ?? 7_200_000) / 60_000)} onSave={(value) => void perform(() => bridge.updateSettings({ defaultRunLimits: { ...defaultLimits, maxDurationMsPerTurn: value * 60_000 } }), '限制已保存')} />
-          <LimitInput label="任务总时长分钟" value={Math.round(Number(defaultLimits.maxTotalDurationMs ?? 21_600_000) / 60_000)} onSave={(value) => void perform(() => bridge.updateSettings({ defaultRunLimits: { ...defaultLimits, maxTotalDurationMs: value * 60_000 } }), '限制已保存')} />
-          <LimitInput label="并行助手" value={Number(defaultLimits.maxSubagents ?? settings.maxSubagents ?? 3)} onSave={(value) => void perform(() => bridge.updateSettings({ defaultRunLimits: { ...defaultLimits, maxSubagents: value } }), '限制已保存')} />
-          <LimitInput label="并行只读工具" value={Number(defaultLimits.maxParallelReadTools ?? settings.maxReadTools ?? 4)} onSave={(value) => void perform(() => bridge.updateSettings({ defaultRunLimits: { ...defaultLimits, maxParallelReadTools: value } }), '限制已保存')} />
+          <LimitInput label={t('每轮模型回合')} value={Number(defaultLimits.maxModelTurnsPerTurn ?? 60)} onSave={(value) => void perform(() => bridge.updateSettings({ defaultRunLimits: { ...defaultLimits, maxModelTurnsPerTurn: value } }), t('限制已保存'))} />
+          <LimitInput label={t('任务总模型回合')} value={Number(defaultLimits.maxTotalModelTurns ?? 180)} onSave={(value) => void perform(() => bridge.updateSettings({ defaultRunLimits: { ...defaultLimits, maxTotalModelTurns: value } }), t('限制已保存'))} />
+          <LimitInput label={t('每轮最长分钟')} value={Math.round(Number(defaultLimits.maxDurationMsPerTurn ?? 7_200_000) / 60_000)} onSave={(value) => void perform(() => bridge.updateSettings({ defaultRunLimits: { ...defaultLimits, maxDurationMsPerTurn: value * 60_000 } }), t('限制已保存'))} />
+          <LimitInput label={t('任务总时长分钟')} value={Math.round(Number(defaultLimits.maxTotalDurationMs ?? 21_600_000) / 60_000)} onSave={(value) => void perform(() => bridge.updateSettings({ defaultRunLimits: { ...defaultLimits, maxTotalDurationMs: value * 60_000 } }), t('限制已保存'))} />
+          <LimitInput label={t('并行助手')} value={Number(defaultLimits.maxSubagents ?? settings.maxSubagents ?? 3)} onSave={(value) => void perform(() => bridge.updateSettings({ defaultRunLimits: { ...defaultLimits, maxSubagents: value } }), t('限制已保存'))} />
+          <LimitInput label={t('并行只读工具')} value={Number(defaultLimits.maxParallelReadTools ?? settings.maxReadTools ?? 4)} onSave={(value) => void perform(() => bridge.updateSettings({ defaultRunLimits: { ...defaultLimits, maxParallelReadTools: value } }), t('限制已保存'))} />
         </div>
       </SettingsSection>
 
-      <Modal open={modelOpen} onClose={closeModelModal} title="添加模型配置" description="API Key 由 macOS 钥匙串（系统加密存储）保护，保存后无法从界面读回。加密不可用时会直接报错。">
+      <Modal open={modelOpen} onClose={closeModelModal} title={t('添加模型配置')} description={t('API Key 由 macOS 钥匙串（系统加密存储）保护，保存后无法从界面读回。加密不可用时会直接报错。')}>
         <SubmitForm className="modal-form" onSubmit={() => void saveModel()}>
-          <div className="field"><span className="field-label">服务商</span><div className="radio-cards provider-radio-cards"><button type="button" className={provider === 'deepseek' ? 'is-active' : ''} onClick={() => selectProvider('deepseek')}><span className="provider-mini deepseek">D</span><span><strong>DeepSeek</strong><small>OpenAI 兼容</small></span></button><button type="button" className={provider === 'kimi' ? 'is-active' : ''} onClick={() => selectProvider('kimi')}><span className="provider-mini kimi">K</span><span><strong>Kimi</strong><small>Moonshot</small></span></button><button type="button" className={provider === 'tongyi' ? 'is-active' : ''} onClick={() => selectProvider('tongyi')}><span className="provider-mini tongyi">通</span><span><strong>通义</strong><small>DashScope</small></span></button><button type="button" className={provider === 'custom' ? 'is-active' : ''} onClick={() => selectProvider('custom')}><span className="provider-mini custom">自</span><span><strong>自定义</strong><small>自备地址</small></span></button></div></div>
-          <div className="field-row"><Field label="配置名称"><input value={name} onChange={(event) => setName(event.target.value)} /></Field><Field label="模型 ID" hint="使用服务商的模型 ID，例如 deepseek-flash、kimi-k2.6、qwen-plus。"><input list="model-catalog" value={modelId} onChange={(event) => setModelId(event.target.value)} placeholder={provider === 'custom' ? '模型 ID' : undefined} /><datalist id="model-catalog">{modelCatalog.map((item) => <option key={String(item.id)} value={String(item.id)}>{String(item.name ?? item.id)}</option>)}</datalist></Field></div>
-          <Field label="服务地址 baseUrl" hint={provider === 'custom' ? '必填。填写 OpenAI 兼容接口，通常以 /v1 结尾。' : '预设地址可改。密钥不会随地址一起显示。'}><input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="https://example.com/v1" /></Field>
-          <Field label="API Key" hint="留空表示保留已保存的密钥。保存后不能从界面读回。macOS 上由系统钥匙串加密；若加密不可用，保存会失败，不会把明文写入数据库。"><input type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder={MODEL_PROVIDER_META[provider].keyPlaceholder} autoComplete="off" /></Field>
-          <div className="inline-notice"><Icon name="lock" /><span>Key 不会发送给工具，也不会写入活动记录或工作上下文。</span></div>
+          <div className="field"><span className="field-label">{t('服务商')}</span><div className="radio-cards provider-radio-cards"><button type="button" className={provider === 'deepseek' ? 'is-active' : ''} onClick={() => selectProvider('deepseek')}><span className="provider-mini deepseek">D</span><span><strong>DeepSeek</strong><small>{t('OpenAI 兼容')}</small></span></button><button type="button" className={provider === 'kimi' ? 'is-active' : ''} onClick={() => selectProvider('kimi')}><span className="provider-mini kimi">K</span><span><strong>Kimi</strong><small>Moonshot</small></span></button><button type="button" className={provider === 'tongyi' ? 'is-active' : ''} onClick={() => selectProvider('tongyi')}><span className="provider-mini tongyi">{t('通')}</span><span><strong>{t('通义')}</strong><small>DashScope</small></span></button><button type="button" className={provider === 'custom' ? 'is-active' : ''} onClick={() => selectProvider('custom')}><span className="provider-mini custom">{t('自')}</span><span><strong>{t('自定义')}</strong><small>{t('自备地址')}</small></span></button></div></div>
+          <div className="field-row"><Field label={t('配置名称')}><input value={name} onChange={(event) => setName(event.target.value)} /></Field><Field label={t('模型 ID')} hint={t('使用服务商的模型 ID，例如 deepseek-flash、kimi-k2.6、qwen-plus。')}><input list="model-catalog" value={modelId} onChange={(event) => setModelId(event.target.value)} placeholder={provider === 'custom' ? t('模型 ID') : undefined} /><datalist id="model-catalog">{modelCatalog.map((item) => <option key={String(item.id)} value={String(item.id)}>{String(item.name ?? item.id)}</option>)}</datalist></Field></div>
+          <Field label={t('服务地址 baseUrl')} hint={provider === 'custom' ? t('必填。填写 OpenAI 兼容接口，通常以 /v1 结尾。') : t('预设地址可改。密钥不会随地址一起显示。')}><input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="https://example.com/v1" /></Field>
+          <Field label="API Key" hint={t('留空表示保留已保存的密钥。保存后不能从界面读回。macOS 上由系统钥匙串加密；若加密不可用，保存会失败，不会把明文写入数据库。')}><input type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder={MODEL_PROVIDER_META[provider].keyPlaceholder} autoComplete="off" /></Field>
+          <div className="inline-notice"><Icon name="lock" /><span>{t('Key 不会发送给工具，也不会写入活动记录或工作上下文。')}</span></div>
           {draftResult && <ConnectionTestNotice result={draftResult} onClose={() => setDraftResult(undefined)} />}
-          <div className="modal-actions"><button className="button secondary" type="button" onClick={closeModelModal}>取消</button><button className="button secondary" type="button" onClick={() => void testDraftModel()} disabled={draftTesting || !modelId.trim() || !baseUrl.trim() || !apiKey.trim()} title={apiKey.trim() ? '发送一个极小的请求验证 Key、地址和模型 ID' : '填写 API Key 后可测试'}>{draftTesting && <Spinner size={12} />}测试连接</button><button className="button primary" type="submit" disabled={!name.trim() || !modelId.trim() || !baseUrl.trim()}>安全保存</button></div>
+          <div className="modal-actions"><button className="button secondary" type="button" onClick={closeModelModal}>{t('取消')}</button><button className="button secondary" type="button" onClick={() => void testDraftModel()} disabled={draftTesting || !modelId.trim() || !baseUrl.trim() || !apiKey.trim()} title={apiKey.trim() ? t('发送一个极小的请求验证 Key、地址和模型 ID') : t('填写 API Key 后可测试')}>{draftTesting && <Spinner size={12} />}{t('测试连接')}</button><button className="button primary" type="submit" disabled={!name.trim() || !modelId.trim() || !baseUrl.trim()}>{t('安全保存')}</button></div>
         </SubmitForm>
       </Modal>
-      <Modal open={grantOpen} onClose={() => setGrantOpen(false)} title="添加永久授权" description={`该规则只对 ${snapshot.workspaces.find((workspace) => workspace.id === selectedWorkspaceId)?.name ?? '当前工作区'} 生效，直到你在设置中撤销。`}>
+      <Modal open={grantOpen} onClose={() => setGrantOpen(false)} title={t('添加永久授权')} description={t('该规则只对 {0} 生效，直到你在设置中撤销。', { 0: snapshot.workspaces.find((workspace) => workspace.id === selectedWorkspaceId)?.name ?? t('当前工作区') })}>
         <SubmitForm className="modal-form" onSubmit={() => void savePersistentGrant()}>
-          <Field label="允许的动作"><select value={grantTool} onChange={(event) => setGrantTool(event.target.value as 'file.write' | 'file.edit')}><option value="file.write">写入文件（file.write）</option><option value="file.edit">编辑文件（file.edit）</option></select></Field>
-          <Field label="精确路径" hint="必须与实际操作路径完全一致；不支持通配符或目录递归。"><input className="mono" autoFocus value={grantPath} onChange={(event) => setGrantPath(event.target.value)} placeholder="docs/report.md" /></Field>
-          <div className="inline-notice warning"><Icon name="warning" /><span>这不会放行 Shell、网络、上传、发送、删除、购买或发布。</span></div>
-          <div className="modal-actions"><button type="button" className="button secondary" onClick={() => setGrantOpen(false)}>取消</button><button type="submit" className="button primary" disabled={!grantPath.trim()}>创建授权</button></div>
+          <Field label={t('允许的动作')}><select value={grantTool} onChange={(event) => setGrantTool(event.target.value as 'file.write' | 'file.edit')}><option value="file.write">{t('写入文件（file.write）')}</option><option value="file.edit">{t('编辑文件（file.edit）')}</option></select></Field>
+          <Field label={t('精确路径')} hint={t('必须与实际操作路径完全一致；不支持通配符或目录递归。')}><input className="mono" autoFocus value={grantPath} onChange={(event) => setGrantPath(event.target.value)} placeholder="docs/report.md" /></Field>
+          <div className="inline-notice warning"><Icon name="warning" /><span>{t('这不会放行 Shell、网络、上传、发送、删除、购买或发布。')}</span></div>
+          <div className="modal-actions"><button type="button" className="button secondary" onClick={() => setGrantOpen(false)}>{t('取消')}</button><button type="submit" className="button primary" disabled={!grantPath.trim()}>{t('创建授权')}</button></div>
         </SubmitForm>
       </Modal>
-      <Modal open={Boolean(packagePreview)} onClose={() => setPackagePreview(undefined)} title="确认安装能力包" description={`${String(packagePreview?.name ?? '')} · v${String(packagePreview?.version ?? '')}`} wide>
+      <Modal open={Boolean(packagePreview)} onClose={() => setPackagePreview(undefined)} title={t('确认安装能力包')} description={`${String(packagePreview?.name ?? '')} · v${String(packagePreview?.version ?? '')}`} wide>
         <div className="modal-form">
-          <div className="schedule-preview"><span><strong>目录</strong>{String(packagePreview?.directory ?? '')}</span><span><strong>文件</strong>{String(packagePreview?.fileCount ?? 0)} 个 · {formatBytes(typeof packagePreview?.totalBytes === 'number' ? packagePreview.totalBytes : 0)}</span><span><strong>组件</strong>{Array.isArray(packagePreview?.skills) ? packagePreview.skills.length : 0} Skills · {Array.isArray(packagePreview?.mcpConfigs) ? packagePreview.mcpConfigs.length : 0} MCP · {Array.isArray(packagePreview?.rules) ? packagePreview.rules.length : 0} Rules · {Array.isArray(packagePreview?.templates) ? packagePreview.templates.length : 0} Templates</span></div>
-          <Field label="MCP 命令、环境与权限" hint="安装不会执行 Server；首次真正调用仍经过权限代理。"><pre className="package-preview mono">{JSON.stringify(packagePreview?.mcpConfigs ?? [], null, 2)}</pre></Field>
-          {Array.isArray(packagePreview?.rules) && packagePreview.rules.length > 0 && <div className="inline-notice warning"><Icon name="warning" /><span>规则会追加到当前工作区“{snapshot.workspaces.find((workspace) => workspace.id === selectedWorkspaceId)?.name ?? '未选择'}”。</span></div>}
-          <div className="inline-notice"><Icon name="shield" /><span>包已通过路径穿越、符号链接、文件类型、大小、JSON 和 JavaScript 注入检查；其中脚本仍不能绕过 Shell 审批。</span></div>
-          <div className="modal-actions"><button type="button" className="button secondary" onClick={() => setPackagePreview(undefined)}>取消</button><button type="button" className="button primary" onClick={() => void installCapabilityPackage()} disabled={Array.isArray(packagePreview?.rules) && packagePreview.rules.length > 0 && !selectedWorkspaceId}>确认安装</button></div>
+          <div className="schedule-preview"><span><strong>{t('目录')}</strong>{String(packagePreview?.directory ?? '')}</span><span><strong>{t('文件')}</strong>{String(packagePreview?.fileCount ?? 0)}{t('个 ·')}{formatBytes(typeof packagePreview?.totalBytes === 'number' ? packagePreview.totalBytes : 0)}</span><span><strong>{t('组件')}</strong>{Array.isArray(packagePreview?.skills) ? packagePreview.skills.length : 0} Skills · {Array.isArray(packagePreview?.mcpConfigs) ? packagePreview.mcpConfigs.length : 0} MCP · {Array.isArray(packagePreview?.rules) ? packagePreview.rules.length : 0} Rules · {Array.isArray(packagePreview?.templates) ? packagePreview.templates.length : 0} Templates</span></div>
+          <Field label={t('MCP 命令、环境与权限')} hint={t('安装不会执行 Server；首次真正调用仍经过权限代理。')}><pre className="package-preview mono">{JSON.stringify(packagePreview?.mcpConfigs ?? [], null, 2)}</pre></Field>
+          {Array.isArray(packagePreview?.rules) && packagePreview.rules.length > 0 && <div className="inline-notice warning"><Icon name="warning" /><span>{t('规则会追加到当前工作区“')}{snapshot.workspaces.find((workspace) => workspace.id === selectedWorkspaceId)?.name ?? t('未选择')}”。</span></div>}
+          <div className="inline-notice"><Icon name="shield" /><span>{t('包已通过路径穿越、符号链接、文件类型、大小、JSON 和 JavaScript 注入检查；其中脚本仍不能绕过 Shell 审批。')}</span></div>
+          <div className="modal-actions"><button type="button" className="button secondary" onClick={() => setPackagePreview(undefined)}>{t('取消')}</button><button type="button" className="button primary" onClick={() => void installCapabilityPackage()} disabled={Array.isArray(packagePreview?.rules) && packagePreview.rules.length > 0 && !selectedWorkspaceId}>{t('确认安装')}</button></div>
         </div>
       </Modal>
-      <Modal open={Boolean(secretProfile)} onClose={closeSecretModal} title="替换 API Key" description={`为 ${secretProfile?.name ?? '模型配置'} 写入新密钥；旧密钥会被覆盖且无法恢复。`}>
+      <Modal open={Boolean(secretProfile)} onClose={closeSecretModal} title={t('替换 API Key')} description={t('为 {0} 写入新密钥；旧密钥会被覆盖且无法恢复。', { 0: secretProfile?.name ?? t('模型配置') })}>
         <SubmitForm className="modal-form" onSubmit={async () => {
           if (!secretProfile || !replacementKey.trim()) return
           const submittedKey = replacementKey.trim()
           setReplacementKey('')
-          const saved = await perform(async () => { await bridge.setModelSecret({ profileId: secretProfile.id, apiKey: submittedKey }); return true }, 'API Key 已安全替换')
+          const saved = await perform(async () => { await bridge.setModelSecret({ profileId: secretProfile.id, apiKey: submittedKey }); return true }, t('API Key 已安全替换'))
           if (saved) setSecretProfile(undefined)
         }}>
-          <Field label="新 API Key" hint="密钥只提供写入入口，保存后不会回显。"><input autoFocus type="password" value={replacementKey} onChange={(event) => setReplacementKey(event.target.value)} /></Field>
-          <div className="inline-notice"><Icon name="lock" /><span>新密钥会覆盖旧密钥。空白不会在这里提交；请填写完整密钥后再替换。</span></div>
-          <div className="modal-actions"><button type="button" className="button secondary" onClick={closeSecretModal}>取消</button><button type="submit" className="button primary" disabled={!replacementKey.trim()}>替换密钥</button></div>
+          <Field label={t('新 API Key')} hint={t('密钥只提供写入入口，保存后不会回显。')}><input autoFocus type="password" value={replacementKey} onChange={(event) => setReplacementKey(event.target.value)} /></Field>
+          <div className="inline-notice"><Icon name="lock" /><span>{t('新密钥会覆盖旧密钥。空白不会在这里提交；请填写完整密钥后再替换。')}</span></div>
+          <div className="modal-actions"><button type="button" className="button secondary" onClick={closeSecretModal}>{t('取消')}</button><button type="submit" className="button primary" disabled={!replacementKey.trim()}>{t('替换密钥')}</button></div>
         </SubmitForm>
       </Modal>
-      <Modal open={Boolean(rulesWorkspace)} onClose={() => setRulesWorkspace(undefined)} title="工作区规则" description="这些规则只在该工作区的相关工作中加载，且不能改变平台安全边界。" wide>
+      <Modal open={Boolean(rulesWorkspace)} onClose={() => setRulesWorkspace(undefined)} title={t('工作区规则')} description={t('这些规则只在该工作区的相关工作中加载，且不能改变平台安全边界。')} wide>
         <SubmitForm className="modal-form" onSubmit={async () => {
           if (!rulesWorkspace) return
-          const saved = await perform(() => bridge.updateWorkspace({ id: rulesWorkspace.id, rules: rulesText }), '工作区规则已保存')
+          const saved = await perform(() => bridge.updateWorkspace({ id: rulesWorkspace.id, rules: rulesText }), t('工作区规则已保存'))
           if (saved !== undefined) setRulesWorkspace(undefined)
         }}>
-          <Field label={rulesWorkspace?.name ?? '规则'} hint="系统会自动加载工作区根目录（及父级仓库）的标准 AGENTS.md 文件。此处可记录该工作区的额外补充规则。"><textarea className="rules-editor mono" rows={13} value={rulesText} onChange={(event) => setRulesText(event.target.value)} placeholder="# 工作区补充规则\n\n- 优先遵循根目录 AGENTS.md 规范\n- 修改前先阅读现有实现\n- 完成后运行相关测试" /></Field>
-          <div className="inline-notice"><Icon name="shield" /><span>工作区规则与 AGENTS.md 用于引导 DeskForge 遵循工程规范；权限、确认和路径边界仍由本机执行层强制保证。</span></div>
-          <div className="modal-actions"><button type="button" className="button secondary" onClick={() => setRulesWorkspace(undefined)}>取消</button><button type="submit" className="button primary">保存规则</button></div>
+          <Field label={rulesWorkspace?.name ?? t('规则')} hint={t('系统会自动加载工作区根目录（及父级仓库）的标准 AGENTS.md 文件。此处可记录该工作区的额外补充规则。')}><textarea className="rules-editor mono" rows={13} value={rulesText} onChange={(event) => setRulesText(event.target.value)} placeholder={t('# 工作区补充规则\\n\\n- 优先遵循根目录 AGENTS.md 规范\\n- 修改前先阅读现有实现\\n- 完成后运行相关测试')} /></Field>
+          <div className="inline-notice"><Icon name="shield" /><span>{t('工作区规则与 AGENTS.md 用于引导 DeskForge 遵循工程规范；权限、确认和路径边界仍由本机执行层强制保证。')}</span></div>
+          <div className="modal-actions"><button type="button" className="button secondary" onClick={() => setRulesWorkspace(undefined)}>{t('取消')}</button><button type="submit" className="button primary">{t('保存规则')}</button></div>
         </SubmitForm>
       </Modal>
     </main>
@@ -303,12 +312,14 @@ export function SettingsPage({ snapshot, selectedWorkspaceId, perform, onWorkspa
 }
 
 function SettingsSection({ icon, title, description, action, children }: { icon: IconName; title: string; description: string; action?: ReactNode; children: ReactNode }) {
+  useLocale()
   return <section className="settings-section"><div className="settings-section-heading"><span className="settings-icon"><Icon name={icon} /></span><div><h2>{title}</h2><p>{description}</p></div>{action && <div className="settings-action">{action}</div>}</div><div className="settings-section-body">{children}</div></section>
 }
 
 export { SettingRow } from '../../ui'
 
 function LimitInput({ label, value, onSave }: { label: string; value: number; onSave: (value: number) => void }) {
+  useLocale()
   const [current, setCurrent] = useState(value)
   useEffect(() => setCurrent(value), [value])
   return <label><span>{label}</span><input type="number" min="1" value={current} onChange={(event) => setCurrent(Number(event.target.value))} onBlur={() => { if (current !== value && current > 0) onSave(current) }} /></label>

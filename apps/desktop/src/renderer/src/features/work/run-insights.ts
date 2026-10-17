@@ -1,3 +1,5 @@
+import { localizeModelError } from '../../i18n/model-errors'
+import { t, getLocale } from '../../i18n'
 import type { JsonRecord } from '../../types'
 
 export interface TokenUsageView {
@@ -33,36 +35,37 @@ export function readTokenUsage(value: unknown): TokenUsageView | undefined {
 export function formatTokenCount(value: number): string {
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1)}M`
   if (value >= 10_000) return `${(value / 1_000).toFixed(value >= 100_000 ? 0 : 1)}k`
-  return value.toLocaleString('zh-CN')
+  return value.toLocaleString(getLocale())
 }
 
 /** Lines shown under "Token 用量". Input includes cache hits so it matches provider bills. */
 export function tokenUsageLines(usage: TokenUsageView): { label: string; value: string }[] {
   const input = usage.inputTokens + usage.cacheReadTokens
   const lines = [
-    { label: '合计', value: `${formatTokenCount(usage.totalTokens)} tokens` },
-    { label: '输入', value: usage.cacheReadTokens ? `${formatTokenCount(input)}（缓存命中 ${formatTokenCount(usage.cacheReadTokens)}）` : formatTokenCount(input) },
-    { label: '输出', value: usage.reasoningTokens ? `${formatTokenCount(usage.outputTokens)}（含思考 ${formatTokenCount(usage.reasoningTokens)}）` : formatTokenCount(usage.outputTokens) },
+    { label: t('合计'), value: `${formatTokenCount(usage.totalTokens)} tokens` },
+    { label: t('输入'), value: usage.cacheReadTokens ? t('{0}（缓存命中 {1}）', { 0: formatTokenCount(input), 1: formatTokenCount(usage.cacheReadTokens) }) : formatTokenCount(input) },
+    { label: t('输出'), value: usage.reasoningTokens ? t('{0}（含思考 {1}）', { 0: formatTokenCount(usage.outputTokens), 1: formatTokenCount(usage.reasoningTokens) }) : formatTokenCount(usage.outputTokens) },
   ]
-  if (usage.modelCalls) lines.push({ label: '模型调用', value: `${usage.modelCalls} 次` })
+  if (usage.modelCalls) lines.push({ label: t('模型调用'), value: t('{0} 次', { 0: usage.modelCalls }) })
   return lines
 }
 
 export function tokenUsageSummary(usage: TokenUsageView): string {
-  return `本次工作共用 ${formatTokenCount(usage.totalTokens)} tokens`
+  return t('本次工作共用 {0} tokens', { 0: formatTokenCount(usage.totalTokens) })
 }
 
 const TECHNICAL_NOISE = /constraint|sqlite|stack|tool_calls|\bid\b/i
 
 /** Failure text for the chat timeline: classified model errors carry their own Chinese guidance. */
 export function failureMessage(lastError: unknown): string {
-  const fallback = '这次操作没有完成。你可以重试，或打开右侧诊断查看技术信息。'
+  const fallback = t('这次操作没有完成。你可以重试，或打开右侧诊断查看技术信息。')
   if (!lastError || typeof lastError !== 'object') return fallback
   const error = lastError as JsonRecord
-  const message = typeof error.message === 'string' ? error.message.trim() : ''
-  const suggestion = typeof error.suggestedAction === 'string' ? error.suggestedAction.trim() : ''
+  const localized = localizeModelError(error)
+  const message = localized.message?.trim() ?? ''
+  const suggestion = localized.suggestion?.trim() ?? ''
   if (typeof error.code === 'string' && error.code.startsWith('MODEL_') && message) {
-    return suggestion ? `${message}${suggestion}` : message
+    return suggestion ? `${message}${getLocale() === 'en-US' ? ' ' : ''}${suggestion}` : message
   }
   if (!message || TECHNICAL_NOISE.test(message)) return fallback
   return message.length > 180 ? `${message.slice(0, 179)}…` : message

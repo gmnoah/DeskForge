@@ -15,6 +15,8 @@ export type {
   ModelUsageBreakdown,
   TokenUsageQuery,
   TokenUsageMetricsReport,
+  GitFileStatus,
+  GitStatusResult,
 } from '@deskforge/contracts'
 
 export type RunStatus =
@@ -285,6 +287,7 @@ export interface ArtifactItem extends JsonRecord {
   sourcePath?: string
   fileName?: string
   label?: string
+  mime?: string
 }
 
 export interface DocumentPreviewTarget {
@@ -468,7 +471,7 @@ export type PermissionMode = 'cautious' | 'balanced' | 'autonomous'
 export interface SettingsView extends JsonRecord {
   onboardingCompleted?: boolean
   theme?: 'system' | 'light' | 'dark'
-  language?: string
+  locale?: 'zh-CN' | 'en-US' | string
   memoryEnabled?: boolean
   defaultExecutionMode?: 'plan' | 'execute'
   defaultAccessMode?: RunAccessMode

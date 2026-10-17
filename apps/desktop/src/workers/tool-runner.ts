@@ -18,6 +18,9 @@ import {
 import { findFiles, resolveSearchScope, searchContents } from './workspace-search'
 import { callMcpTool, closeAllMcp, disconnectMcp, listMcpTools, sanitizedEnvironment } from './mcp-client'
 import { TextDeltaBuffer } from './event-buffer'
+import { extractDocxText } from '../main/knowledge/docx-text'
+import { extractPdfText } from '../main/knowledge/pdf-text'
+import { extractXlsxText } from '../main/knowledge/xlsx-text'
 
 type Command = ToolRunnerCommand
 
@@ -200,6 +203,24 @@ async function execute(command: Extract<Command, { type: 'execute' }>): Promise<
       const { target } = await resolveAuthorizedPath(authorizationRoot, args.path, false, workspacePath)
       const info = await stat(target)
       if (!info.isFile()) throw new Error('目标不是文件')
+      const lower = target.toLowerCase()
+      if (lower.endsWith('.docx') || lower.endsWith('.xlsx') || lower.endsWith('.pdf')) {
+        if (info.size > 25 * 1024 * 1024) throw new Error('文档超过 25 MB')
+        const raw = await readFile(target)
+        let content: string
+        let format: string
+        if (lower.endsWith('.docx')) {
+          content = extractDocxText(raw)
+          format = 'docx'
+        } else if (lower.endsWith('.xlsx')) {
+          content = extractXlsxText(raw)
+          format = 'xlsx'
+        } else {
+          content = await extractPdfText(raw)
+          format = 'pdf'
+        }
+        return { path: target, content, sha256: hash(raw), mtimeMs: info.mtimeMs, size: info.size, format }
+      }
       if (info.size > MAX_TEXT) throw new Error('文件超过 2 MB；请使用 Shell 或专用工具分段读取')
       const content = await readFile(target, 'utf8')
       return { path: target, content, sha256: hash(content), mtimeMs: info.mtimeMs, size: info.size }

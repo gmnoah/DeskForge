@@ -13,7 +13,9 @@ import { DownloadSimpleIcon as DownloadSimple } from '@phosphor-icons/react/Down
 import { FileTextIcon as FileText } from '@phosphor-icons/react/FileText'
 import { FolderIcon as Folder } from '@phosphor-icons/react/Folder'
 import { GearSixIcon as GearSix } from '@phosphor-icons/react/GearSix'
+import { GitBranchIcon as GitBranch } from '@phosphor-icons/react/GitBranch'
 import { GlobeIcon as Globe } from '@phosphor-icons/react/Globe'
+import { ImageIcon as Image } from '@phosphor-icons/react/Image'
 import { InfoIcon as Info } from '@phosphor-icons/react/Info'
 import { KeyIcon as Key } from '@phosphor-icons/react/Key'
 import { ListChecksIcon as ListChecks } from '@phosphor-icons/react/ListChecks'
@@ -86,6 +88,8 @@ export type IconName =
   | 'copy'
   | 'lock'
   | 'chart'
+  | 'image'
+  | 'gitBranch'
 
 /** Regular is the default; fill is reserved for selected or attention states. */
 export type AppIconWeight = Extract<PhosphorIconWeight, 'regular' | 'fill'>
@@ -136,6 +140,8 @@ const icons: Record<IconName, PhosphorIconComponent> = {
   edit: PencilSimple,
   copy: Copy,
   lock: LockKey,
+  image: Image,
+  gitBranch: GitBranch,
 }
 
 /**

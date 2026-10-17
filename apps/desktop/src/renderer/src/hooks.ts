@@ -1,3 +1,4 @@
+import { t, setLocale } from './i18n'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { bridge, errorMessage, getRunDetail, loadWorkbench } from './bridge'
 import { StreamDeltaBuffer } from './stream-delta-buffer'
@@ -47,6 +48,7 @@ export function useWorkbench() {
     if (!quiet) setRefreshing(true)
     try {
       const next = await loadWorkbench()
+      setLocale(next.settings.locale)
       setSnapshot(next)
       setError(undefined)
       const isInitialSelection = !selectionInitialized.current
@@ -60,7 +62,7 @@ export function useWorkbench() {
     } catch (cause) {
       const message = errorMessage(cause)
       setError(message)
-      if (!quiet) notify('error', '无法加载本地工作台', message)
+      if (!quiet) notify('error', t('无法加载本地工作台'), message)
       return undefined
     } finally {
       setLoading(false)
@@ -93,7 +95,7 @@ export function useWorkbench() {
       })
       return detail
     } catch (cause) {
-      if (!quiet) notify('error', '工作详情加载失败', errorMessage(cause))
+      if (!quiet) notify('error', t('工作详情加载失败'), errorMessage(cause))
       return undefined
     } finally {
       setRunLoading(false)
@@ -190,11 +192,11 @@ export function useWorkbench() {
         const toolCall = value.toolCall as Record<string, unknown>
         const toolId = typeof toolCall.id === 'string' ? toolCall.id : String(value.id ?? 'tool')
         const eventId = `tool-${toolId}`
-        const title = typeof toolCall.toolName === 'string' ? toolCall.toolName : '工具调用'
+        const title = typeof toolCall.toolName === 'string' ? toolCall.toolName : t('工具调用')
         const status = typeof toolCall.status === 'string' ? toolCall.status : 'running'
         setRunDetail((current) => {
           if (!current || current.id !== selectedRunId) return current
-          const nextEvent = { id: eventId, type: 'tool.updated', title, content: `状态：${status}`, actor: 'tool' as const, createdAt: typeof value.at === 'string' ? value.at : new Date().toISOString(), level: status === 'failed' ? 'error' as const : status === 'succeeded' ? 'success' as const : 'info' as const }
+          const nextEvent = { id: eventId, type: 'tool.updated', title, content: t('状态：{0}', { 0: status }), actor: 'tool' as const, createdAt: typeof value.at === 'string' ? value.at : new Date().toISOString(), level: status === 'failed' ? 'error' as const : status === 'succeeded' ? 'success' as const : 'info' as const }
           const exists = current.events.some((item) => item.id === eventId)
           return { ...current, events: exists ? current.events.map((item) => item.id === eventId ? { ...item, ...nextEvent } : item) : [...current.events, nextEvent] }
         })
@@ -226,7 +228,7 @@ export function useWorkbench() {
       if (options?.refreshRun && selectedRunId) await reloadRun(selectedRunId, true)
       return result
     } catch (cause) {
-      notify('error', '操作未完成', errorMessage(cause))
+      notify('error', t('操作未完成'), errorMessage(cause))
       return undefined
     }
   }, [notify, refresh, reloadRun, selectedRunId])
@@ -241,7 +243,7 @@ export function useWorkbench() {
         events: [...current.events, {
           id,
           type: 'message.optimistic',
-          title: '你',
+          title: t('你'),
           content,
           actor: 'user' as const,
           createdAt,

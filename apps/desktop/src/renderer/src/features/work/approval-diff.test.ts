@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { normalizeApprovalDiff } from '../../bridge'
-import { diffSummary, sideBySideRows } from './approval-diff'
+import { diffSummary, parseUnifiedDiffText, sideBySideRows } from './approval-diff'
 
 describe('approval diff view', () => {
   const diff = normalizeApprovalDiff({
@@ -28,5 +28,24 @@ describe('approval diff view', () => {
     expect(rows.slice(1).map((row) => row.kind === 'pair' ? [row.left?.text ?? null, row.right?.text ?? null] : null)).toEqual([
       ['a', 'a'], ['b', 'B'], [null, 'B2'], ['c', 'c'], [null, 'd'],
     ])
+  })
+
+  it('parses unified diff text into ApprovalDiffView', () => {
+    const rawDiff = [
+      '@@ -1,3 +1,4 @@',
+      ' line1',
+      '-line2',
+      '+line2_modified',
+      '+line2_extra',
+      ' line3',
+    ].join('\n')
+
+    const parsed = parseUnifiedDiffText(rawDiff, 'test.txt')
+    expect(parsed.path).toBe('test.txt')
+    expect(parsed.operation).toBe('modify')
+    expect(parsed.additions).toBe(2)
+    expect(parsed.deletions).toBe(1)
+    expect(parsed.hunks).toHaveLength(1)
+    expect(parsed.hunks[0]!.lines).toHaveLength(5)
   })
 })

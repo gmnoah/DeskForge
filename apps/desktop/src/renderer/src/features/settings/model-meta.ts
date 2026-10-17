@@ -1,3 +1,4 @@
+import { t } from '../../i18n'
 import type { ModelProvider } from '../../types'
 
 export const MODEL_PROVIDER_META: Record<ModelProvider, {
@@ -25,16 +26,16 @@ export const MODEL_PROVIDER_META: Record<ModelProvider, {
     baseUrlEditable: true,
   },
   tongyi: {
-    name: '通义',
-    mark: '通',
+    get name() { return t('通义') },
+    get mark() { return t('通') },
     defaultModelId: 'qwen-plus',
     defaultBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
     keyPlaceholder: 'DashScope API Key',
     baseUrlEditable: true,
   },
   custom: {
-    name: '自定义',
-    mark: '自',
+    get name() { return t('自定义') },
+    get mark() { return t('自') },
     defaultModelId: '',
     defaultBaseUrl: '',
     keyPlaceholder: 'API Key',

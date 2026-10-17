@@ -1,3 +1,4 @@
+import { t } from '../../i18n'
 import type { JsonRecord, McpCwdMode, McpServerItem } from '../../types'
 
 export interface McpKeyValueRow {
@@ -55,7 +56,7 @@ export function splitArgs(text: string): string[] {
     current += character
     started = true
   }
-  if (quote) throw new Error('参数中的引号没有闭合')
+  if (quote) throw new Error(t('参数中的引号没有闭合'))
   if (started) args.push(current)
   return args
 }
@@ -96,29 +97,29 @@ export function mcpFormFromServer(server: McpServerItem): McpFormState {
 /** Client-side checks; the main process validates again and owns the final rules. */
 export function mcpFormProblems(form: McpFormState): string[] {
   const problems: string[] = []
-  if (!form.name.trim()) problems.push('请填写名称')
-  if (!/^[a-zA-Z][a-zA-Z0-9_-]*$/.test(form.namespace.trim())) problems.push('工具命名空间须以字母开头，只能包含字母、数字、_ 和 -')
+  if (!form.name.trim()) problems.push(t('请填写名称'))
+  if (!/^[a-zA-Z][a-zA-Z0-9_-]*$/.test(form.namespace.trim())) problems.push(t('工具命名空间须以字母开头，只能包含字母、数字、_ 和 -'))
   const rows = form.transport === 'stdio' ? form.env : form.headers
-  const label = form.transport === 'stdio' ? '环境变量' : 'Header'
+  const label = form.transport === 'stdio' ? t('环境变量') : 'Header'
   const seen = new Set<string>()
   for (const row of rows) {
     const key = row.key.trim()
     if (!key && !row.value) continue
-    if (!key) { problems.push(`${label}名称不能为空`); continue }
+    if (!key) { problems.push(t('{0}名称不能为空', { 0: label })); continue }
     const normalized = form.transport === 'stdio' ? key : key.toLowerCase()
-    if (seen.has(normalized)) problems.push(`${label} ${key} 重复`)
+    if (seen.has(normalized)) problems.push(t('{0} {1} 重复', { 0: label, 1: key }))
     seen.add(normalized)
-    if (!row.secret && SECRET_HINT.test(key)) problems.push(`${label} ${key} 看起来是密钥，请勾选「加密保存」`)
-    if (row.secret && !row.value && !row.stored) problems.push(`请填写加密${label} ${key} 的值`)
+    if (!row.secret && SECRET_HINT.test(key)) problems.push(t('{0} {1} 看起来是密钥，请勾选「加密保存」', { 0: label, 1: key }))
+    if (row.secret && !row.value && !row.stored) problems.push(t('请填写加密{0} {1} 的值', { 0: label, 1: key }))
   }
   if (form.transport === 'stdio') {
-    if (!form.command.trim()) problems.push('请填写启动命令')
+    if (!form.command.trim()) problems.push(t('请填写启动命令'))
     try { splitArgs(form.args) } catch (error) { problems.push(error instanceof Error ? error.message : String(error)) }
-    if (form.cwdMode === 'custom' && !form.cwd.trim()) problems.push('请通过「选择文件夹」指定工作目录')
+    if (form.cwdMode === 'custom' && !form.cwd.trim()) problems.push(t('请通过「选择文件夹」指定工作目录'))
   } else {
-    if (!form.url.trim()) problems.push('请填写 Server URL')
-    if (form.auth === 'bearer' && !form.bearer && !form.bearerStored) problems.push('请填写 Bearer Token')
-    if (form.auth === 'headers' && !form.headers.some((row) => row.secret && row.key.trim())) problems.push('「自定义 Header」认证需要至少一个加密 Header')
+    if (!form.url.trim()) problems.push(t('请填写 Server URL'))
+    if (form.auth === 'bearer' && !form.bearer && !form.bearerStored) problems.push(t('请填写 Bearer Token'))
+    if (form.auth === 'headers' && !form.headers.some((row) => row.secret && row.key.trim())) problems.push(t('「自定义 Header」认证需要至少一个加密 Header'))
   }
   return [...new Set(problems)]
 }
@@ -164,11 +165,11 @@ export function buildMcpInput(form: McpFormState): JsonRecord {
 }
 
 export function connectedViaLabel(value: McpServerItem['connectedVia']): string {
-  return value === 'sse' ? 'SSE（兼容模式）' : value === 'streamable_http' ? 'Streamable HTTP' : value === 'stdio' ? 'stdio' : '—'
+  return value === 'sse' ? t('SSE（兼容模式）') : value === 'streamable_http' ? 'Streamable HTTP' : value === 'stdio' ? 'stdio' : '—'
 }
 
 export const CWD_MODE_LABELS: Record<McpCwdMode, string> = {
-  isolated: '独立目录（推荐）',
-  workspace: '当前工作区',
-  custom: '指定文件夹',
+  get isolated() { return t('独立目录（推荐）') },
+  get workspace() { return t('当前工作区') },
+  get custom() { return t('指定文件夹') },
 }

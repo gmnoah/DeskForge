@@ -26,6 +26,7 @@ import { DEFAULT_SETTINGS, normalizeRunLimits, presentArtifact, presentAudit, pr
 import { auditExportFileName, presentAuditRecord, renderAuditExport } from './audit-export'
 import { CapabilityPackageService, type ParsedCapabilityPackage } from './capability-package-service'
 import { getModelCatalog } from './model-providers'
+import { inspectGitStatus } from './git-service'
 
 const DANGEROUS_EXTENSIONS = new Set([
   '.app', '.command', '.sh', '.bash', '.zsh', '.bat', '.cmd', '.exe', '.com', '.vbs', '.js', '.mjs', '.bin', '.workflow',
@@ -256,6 +257,19 @@ export class IpcApi {
         }
         return rows
       },
+      'app:save-attachment': async ({ name, mimeType, dataBase64 }) => {
+        const cleanName = basename(name).replace(/[\r\n\0]/g, '') || 'attachment.png'
+        const buffer = Buffer.from(dataBase64, 'base64')
+        if (buffer.byteLength > 25 * 1024 * 1024) throw new Error(`${cleanName} 超过 25 MB`)
+        const row = await this.artifacts.putBuffer({
+          name: cleanName,
+          kind: 'attachment',
+          data: buffer,
+          mime: mimeType,
+          metadata: { importedAt: new Date().toISOString(), source: 'clipboard' },
+        })
+        return presentArtifact(row)
+      },
       'app:reveal-path': async ({ path }) => {
         if (!path || typeof path !== 'string') throw new Error('文件路径无效')
         const canonical = await this.assertPathAuthorized(path)
@@ -326,6 +340,11 @@ export class IpcApi {
       'workspaces:remove': async ({ id }) => { this.database.removeWorkspace(id); await this.knowledge.drop(id).catch(() => undefined) },
       'workspaces:select': ({ id }) => { const row = this.database.getWorkspace(id); if (!row) throw new Error('工作区不存在'); this.database.setSetting('selectedWorkspaceId', id); return presentWorkspace(row, id) },
       'workspaces:search-files': ({ workspaceId, query, limit }) => this.searchWorkspaceFiles(workspaceId, query, limit),
+      'workspaces:git-status': async ({ workspaceId }) => {
+        const workspace = this.database.getWorkspace(workspaceId)
+        if (!workspace || !workspace.root_path) throw new Error('工作区不存在')
+        return inspectGitStatus(workspace.root_path)
+      },
 
       'runs:list': (input) => {
         const profiles = this.modelProfiles()

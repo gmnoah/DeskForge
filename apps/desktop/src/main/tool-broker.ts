@@ -26,6 +26,9 @@ import { effectiveRisk, TOOL_DEFINITIONS, type ToolDefinition } from './tool-reg
 import { assertToolArguments } from './tool-argument-validator'
 import type { ToolRunnerBridge } from './worker-bridge'
 import type { DocumentRenderService } from './document-render-service'
+import { extractDocxText } from './knowledge/docx-text'
+import { extractPdfText } from './knowledge/pdf-text'
+import { extractXlsxText } from './knowledge/xlsx-text'
 
 interface PendingApproval {
   approval: ApprovalRequest
@@ -1063,10 +1066,31 @@ export class ToolBroker {
       sha256: String(artifact.sha256),
     }
     const isText = mime.startsWith('text/') || /(?:json|xml|yaml|javascript|csv|tab-separated)/i.test(mime)
-    if (isText && size <= 1024 * 1024) {
-      const content = await this.artifacts.read(String(artifact.path))
-      result.preview = content.toString('utf8').slice(0, 12_000)
-      result.truncated = content.byteLength > 12_000
+    const lowerName = String(artifact.name).toLowerCase()
+    const isDocx = mime.includes('wordprocessingml') || lowerName.endsWith('.docx')
+    const isPdf = mime === 'application/pdf' || lowerName.endsWith('.pdf')
+    const isXlsx = mime.includes('spreadsheetml') || lowerName.endsWith('.xlsx')
+
+    if ((isText || isDocx || isPdf || isXlsx) && size <= 25 * 1024 * 1024) {
+      try {
+        const content = await this.artifacts.read(String(artifact.path))
+        let extracted: string | undefined
+        if (isDocx) {
+          extracted = extractDocxText(content)
+        } else if (isPdf) {
+          extracted = await extractPdfText(content)
+        } else if (isXlsx) {
+          extracted = extractXlsxText(content)
+        } else if (isText && size <= 1024 * 1024) {
+          extracted = content.toString('utf8')
+        }
+        if (extracted !== undefined) {
+          result.preview = extracted.slice(0, 15_000)
+          result.truncated = extracted.length > 15_000
+        }
+      } catch (err: any) {
+        result.previewError = err?.message || String(err)
+      }
     }
     return result
   }

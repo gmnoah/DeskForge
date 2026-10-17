@@ -143,6 +143,22 @@ export interface PersistentGrantInput {
   expiresAt?: string
 }
 
+export interface GitFileStatus {
+  path: string
+  status: 'modified' | 'added' | 'deleted' | 'untracked' | 'renamed'
+  staged: boolean
+}
+
+export interface GitStatusResult {
+  isGitRepo: boolean
+  branch?: string
+  clean: boolean
+  ahead?: number
+  behind?: number
+  files: GitFileStatus[]
+  error?: string
+}
+
 export interface CapabilityPackagePreview {
   selectionId: string
   name: string
@@ -482,6 +498,7 @@ export interface DesktopApi {
     chooseWorkspace(): Promise<string | null>
     chooseFiles(): Promise<string[]>
     importAttachments(): Promise<ArtifactRef[]>
+    saveAttachment(input: SaveAttachmentInput): Promise<ArtifactRef>
     revealPath(input: { path: string }): Promise<void>
     openPath(input: { path: string }): Promise<{ success: boolean; error?: string }>
     readFileContent(input: { path: string; maxBytes?: number }): Promise<FileContentResult>
@@ -493,6 +510,7 @@ export interface DesktopApi {
     remove(input: { id: string }): Promise<void>
     select(input: { id: string }): Promise<Workspace>
     searchFiles(input: { workspaceId: string; query?: string; limit?: number }): Promise<WorkspaceFileItem[]>
+    gitStatus(input: { workspaceId: string }): Promise<GitStatusResult>
   }
   runs: {
     list(input?: PageRequest & { workspaceId?: string; status?: Run['status'] }): Promise<Page<RunSummary>>
@@ -614,6 +632,7 @@ export interface DesktopInvokeMap {
   'app:choose-workspace': { input: undefined; output: string | null }
   'app:choose-files': { input: undefined; output: string[] }
   'app:import-attachments': { input: undefined; output: ArtifactRef[] }
+  'app:save-attachment': { input: SaveAttachmentInput; output: ArtifactRef }
   'app:reveal-path': { input: { path: string }; output: undefined }
   'app:open-path': { input: { path: string }; output: { success: boolean; error?: string } }
   'app:read-file-content': { input: { path: string; maxBytes?: number }; output: FileContentResult }
@@ -623,6 +642,7 @@ export interface DesktopInvokeMap {
   'workspaces:remove': { input: { id: string }; output: undefined }
   'workspaces:select': { input: { id: string }; output: Workspace }
   'workspaces:search-files': { input: { workspaceId: string; query?: string; limit?: number }; output: WorkspaceFileItem[] }
+  'workspaces:git-status': { input: { workspaceId: string }; output: GitStatusResult }
   'runs:list': { input: (PageRequest & { workspaceId?: string; status?: Run['status'] }) | undefined; output: Page<RunSummary> }
   'runs:get': { input: { id: string }; output: RunDetail }
   'runs:create': { input: CreateRunInput; output: RunDetail }
@@ -713,6 +733,13 @@ export type DesktopInvoker = <C extends DesktopInvokeChannel>(
 
 const VoidSchema = z.undefined()
 const ByIdSchema = z.object({ id: IdSchema }).strict()
+
+export const SaveAttachmentInputSchema = z.object({
+  name: z.string().min(1).max(255),
+  mimeType: z.string().min(1).max(100),
+  dataBase64: z.string().min(1),
+}).strict()
+export type SaveAttachmentInput = z.infer<typeof SaveAttachmentInputSchema>
 
 const McpStringMap = z.record(z.string().max(256), z.string().max(8192))
 export const McpSecretInputSchema = z.object({
@@ -879,12 +906,29 @@ const SessionSearchHitSchema = z.object({
   snippet: z.string(),
 }).strict()
 
+export const GitFileStatusSchema = z.object({
+  path: z.string(),
+  status: z.enum(['modified', 'added', 'deleted', 'untracked', 'renamed']),
+  staged: z.boolean(),
+}).strict()
+
+export const GitStatusResultSchema = z.object({
+  isGitRepo: z.boolean(),
+  branch: z.string().optional(),
+  clean: z.boolean(),
+  ahead: z.number().int().nonnegative().optional(),
+  behind: z.number().int().nonnegative().optional(),
+  files: z.array(GitFileStatusSchema),
+  error: z.string().optional(),
+}).strict()
+
 export const DesktopInvokeContracts: Record<DesktopInvokeChannel, { input: z.ZodType; output: z.ZodType }> = {
   bootstrap: { input: VoidSchema, output: BootstrapSnapshotSchema },
   'app:get-info': { input: VoidSchema, output: z.object({ name: z.string(), version: z.string(), platform: z.string(), arch: z.string(), locale: z.string() }).strict() },
   'app:choose-workspace': { input: VoidSchema, output: z.string().nullable() },
   'app:choose-files': { input: VoidSchema, output: z.array(z.string()) },
   'app:import-attachments': { input: VoidSchema, output: z.array(ArtifactRefSchema) },
+  'app:save-attachment': { input: SaveAttachmentInputSchema, output: ArtifactRefSchema },
   'app:reveal-path': { input: z.object({ path: z.string().min(1) }).strict(), output: VoidSchema },
   'app:open-path': { input: z.object({ path: z.string().min(1) }).strict(), output: z.object({ success: z.boolean(), error: z.string().optional() }).strict() },
   'app:read-file-content': {
@@ -903,6 +947,10 @@ export const DesktopInvokeContracts: Record<DesktopInvokeChannel, { input: z.Zod
       limit: z.number().int().min(1).max(200).optional(),
     }).strict(),
     output: z.array(WorkspaceFileItemSchema),
+  },
+  'workspaces:git-status': {
+    input: z.object({ workspaceId: IdSchema }).strict(),
+    output: GitStatusResultSchema,
   },
   'runs:list': { input: PageRequestSchema.extend({ workspaceId: IdSchema.optional(), status: RunStatusSchema.optional() }).strict().optional(), output: PageSchema(RunSummarySchema) },
   'runs:get': { input: ByIdSchema, output: RunDetailSchema },

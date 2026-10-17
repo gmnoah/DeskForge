@@ -1,3 +1,4 @@
+import { t, useLocale, getLocale } from '../../i18n'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { bridge } from '../../bridge'
 import { Icon } from '../../icons'
@@ -18,6 +19,7 @@ export function DocumentPreviewModal({
   onOpenExternalPath,
   onOpenExternalArtifact,
 }: DocumentPreviewModalProps) {
+  useLocale()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string>()
   const [text, setText] = useState('')
@@ -36,8 +38,8 @@ export function DocumentPreviewModal({
     if (target.title) return target.title
     const candidatePath = target.sourcePath || target.path
     if (candidatePath) return candidatePath.split(/[/\\]/).filter(Boolean).at(-1) ?? candidatePath
-    return '文件预览'
-  }, [target])
+    return t('文件预览')
+  }, [getLocale(), target])
 
   const { isHtml, isMarkdown, isSvg, isImage, formatLabel } = useMemo(() => {
     const name = filename.toLowerCase()
@@ -60,7 +62,7 @@ export function DocumentPreviewModal({
     else if (name.endsWith('.css') || targetPath.endsWith('.css')) formatLabel = 'CSS'
     else if (name.endsWith('.js') || name.endsWith('.ts') || name.endsWith('.tsx') || name.endsWith('.jsx') || targetPath.endsWith('.js') || targetPath.endsWith('.ts') || targetPath.endsWith('.tsx') || targetPath.endsWith('.jsx')) formatLabel = 'SCRIPT'
     return { isHtml, isMarkdown, isSvg, isImage, formatLabel }
-  }, [filename, target?.mime, target?.sourcePath, target?.path])
+  }, [getLocale(), filename, target?.mime, target?.sourcePath, target?.path])
 
   const canRender = isHtml || isMarkdown || isSvg
 
@@ -127,7 +129,7 @@ export function DocumentPreviewModal({
         }
       } catch (err) {
         if (!active) return
-        setError(err instanceof Error ? err.message : '无法读取文件内容')
+        setError(err instanceof Error ? err.message : t('无法读取文件内容'))
         setLoading(false)
       }
     }
@@ -189,7 +191,7 @@ export function DocumentPreviewModal({
               {filename}
             </strong>
             <span className="document-preview-tag">{formatLabel}</span>
-            {truncated && <span className="document-preview-tag warning">{isImage ? '图片超过 10 MB' : '已截取前 2 MB'}</span>}
+            {truncated && <span className="document-preview-tag warning">{isImage ? t('图片超过 10 MB') : t('已截取前 2 MB')}</span>}
           </div>
 
           <div className="document-preview-toolbar">
@@ -203,7 +205,7 @@ export function DocumentPreviewModal({
                   onClick={() => setMode('rendered')}
                 >
                   <Icon name={isHtml ? 'globe' : 'file'} size={13} />
-                  <span>{isHtml ? '网页渲染' : isMarkdown ? '排版预览' : '矢量预览'}</span>
+                  <span>{isHtml ? t('网页渲染') : isMarkdown ? t('排版预览') : t('矢量预览')}</span>
                 </button>
                 <button
                   type="button"
@@ -213,27 +215,23 @@ export function DocumentPreviewModal({
                   onClick={() => setMode('source')}
                 >
                   <Icon name="file" size={13} />
-                  <span>源代码</span>
+                  <span>{t('源代码')}</span>
                 </button>
               </div>
             )}
 
             {isHtml && mode === 'rendered' && (
-              <div className="document-preview-viewport-toggle" title="切换视口大小">
+              <div className="document-preview-viewport-toggle" title={t('切换视口大小')}>
                 <button
                   type="button"
                   className={`document-preview-viewport-btn${viewport === 'desktop' ? ' is-active' : ''}`}
                   onClick={() => setViewport('desktop')}
-                >
-                  全宽
-                </button>
+                >{t('全宽')}</button>
                 <button
                   type="button"
                   className={`document-preview-viewport-btn${viewport === 'mobile' ? ' is-active' : ''}`}
                   onClick={() => setViewport('mobile')}
-                >
-                  移动端
-                </button>
+                >{t('移动端')}</button>
               </div>
             )}
 
@@ -241,41 +239,41 @@ export function DocumentPreviewModal({
               <button
                 type="button"
                 className="document-preview-btn"
-                title="重新载入页面"
+                title={t('重新载入页面')}
                 onClick={handleReload}
               >
                 <Icon name="refresh" size={13} />
-                <span>刷新</span>
+                <span>{t('刷新')}</span>
               </button>
             )}
 
             <button
               type="button"
               className={`document-preview-btn${copied ? ' is-copied' : ''}`}
-              title="复制全部代码/文本"
+              title={t('复制全部代码/文本')}
               onClick={handleCopy}
             >
               <Icon name={copied ? 'check' : 'copy'} size={13} />
-              <span>{copied ? '已复制' : '复制'}</span>
+              <span>{copied ? t('已复制') : t('复制')}</span>
             </button>
 
             {(target.path || target.artifactId) && (
               <button
                 type="button"
                 className="document-preview-btn"
-                title="在默认浏览器 / 系统程序中打开"
+                title={t('在默认浏览器 / 系统程序中打开')}
                 onClick={handleOpenExternal}
               >
                 <Icon name="external" size={13} />
-                <span>在外部打开</span>
+                <span>{t('在外部打开')}</span>
               </button>
             )}
 
             <button
               type="button"
               className="icon-button"
-              title="关闭预览 (Esc)"
-              aria-label="关闭预览"
+              title={t('关闭预览 (Esc)')}
+              aria-label={t('关闭预览')}
               onClick={onClose}
             >
               <Icon name="x" size={16} />
@@ -287,7 +285,7 @@ export function DocumentPreviewModal({
           {loading && (
             <div className="document-preview-status">
               <Spinner size={24} />
-              <span>正在读取文件内容…</span>
+              <span>{t('正在读取文件内容…')}</span>
             </div>
           )}
 
@@ -296,9 +294,7 @@ export function DocumentPreviewModal({
               <Icon name="warning" size={28} />
               <p>{error}</p>
               {(target.path || target.artifactId) && (
-                <button type="button" className="button secondary" onClick={handleOpenExternal}>
-                  尝试在系统默认程序中打开
-                </button>
+                <button type="button" className="button secondary" onClick={handleOpenExternal}>{t('尝试在系统默认程序中打开')}</button>
               )}
             </div>
           )}
@@ -313,7 +309,7 @@ export function DocumentPreviewModal({
                       alt={filename}
                     />
                   ) : (
-                    <p className="document-preview-note">图片超过 10 MB，无法内置预览，请在系统默认程序中打开。</p>
+                    <p className="document-preview-note">{t('图片超过 10 MB，无法内置预览，请在系统默认程序中打开。')}</p>
                   )}
                 </div>
               ) : mode === 'rendered' && isHtml ? (
@@ -351,13 +347,13 @@ export function DocumentPreviewModal({
 
         <footer className="document-preview-footer">
           <div className="document-preview-footer-left">
-            <span>{lineCount} 行</span>
-            <span>{charCount} 字符</span>
+            <span>{lineCount}{t('行')}</span>
+            <span>{charCount}{t('字符')}</span>
             {target.path && <span title={target.path}>{target.path}</span>}
           </div>
           <div className="document-preview-footer-right">
-            {isHtml && mode === 'rendered' && <span>内置沙箱安全预览 · 包含实时 JS 运行环境</span>}
-            <span>Esc 退出预览</span>
+            {isHtml && mode === 'rendered' && <span>{t('内置沙箱安全预览 · 包含实时 JS 运行环境')}</span>}
+            <span>{t('Esc 退出预览')}</span>
           </div>
         </footer>
       </section>

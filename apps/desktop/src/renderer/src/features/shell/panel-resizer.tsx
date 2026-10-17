@@ -1,3 +1,4 @@
+import { t, useLocale } from '../../i18n'
 import {
   useCallback,
   useEffect,
@@ -145,11 +146,12 @@ export function PanelResizer({
   edge = 'left',
   step = 8,
   largeStep = 32,
-  label = '调整详情面板宽度',
+  label = t('调整详情面板宽度'),
   controls,
   className = '',
   style,
 }: PanelResizerProps) {
+  useLocale()
   const dragRef = useRef<DragState | undefined>(undefined)
   const documentStyleRef = useRef<DocumentDragStyle | undefined>(undefined)
   const [dragging, setDragging] = useState(false)
@@ -239,7 +241,7 @@ export function PanelResizer({
       aria-valuemin={Math.min(minWidth, maxWidth)}
       aria-valuemax={Math.max(minWidth, maxWidth)}
       aria-valuenow={clampedWidth}
-      aria-valuetext={`${clampedWidth} 像素`}
+      aria-valuetext={t('{0} 像素', { 0: clampedWidth })}
       tabIndex={0}
       onKeyDown={handleKeyDown}
       onPointerDown={handlePointerDown}

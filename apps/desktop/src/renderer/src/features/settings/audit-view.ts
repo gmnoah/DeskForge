@@ -1,23 +1,24 @@
+import { t } from '../../i18n'
 import type { AuditChainView, AuditFilters } from '../../types'
 
 export const AUDIT_CATEGORY_LABELS: Record<string, string> = {
-  tool: '工具', approval: '审批', security: '安全', lifecycle: '生命周期', run: '工作', model: '模型', memory: '记忆', chrome: '浏览器', audit: '审计', settings: '设置', mcp: '连接',
+  get tool() { return t('工具') }, get approval() { return t('审批') }, get security() { return t('安全') }, get lifecycle() { return t('生命周期') }, get run() { return t('工作') }, get model() { return t('模型') }, get memory() { return t('记忆') }, get chrome() { return t('浏览器') }, get audit() { return t('审计') }, get settings() { return t('设置') }, get mcp() { return t('连接') },
 }
 
 export const AUDIT_OUTCOME_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: 'allow', label: '已允许' },
-  { value: 'require_approval', label: '待确认' },
-  { value: 'approved', label: '已批准' },
-  { value: 'auto_approved', label: '会话规则自动批准' },
-  { value: 'rejected', label: '已拒绝' },
-  { value: 'deny', label: '已阻止' },
-  { value: 'succeeded', label: '成功' },
-  { value: 'failed', label: '失败' },
+  { value: 'allow', get label() { return t('已允许') } },
+  { value: 'require_approval', get label() { return t('待确认') } },
+  { value: 'approved', get label() { return t('已批准') } },
+  { value: 'auto_approved', get label() { return t('会话规则自动批准') } },
+  { value: 'rejected', get label() { return t('已拒绝') } },
+  { value: 'deny', get label() { return t('已阻止') } },
+  { value: 'succeeded', get label() { return t('成功') } },
+  { value: 'failed', get label() { return t('失败') } },
 ]
 
 const OUTCOME_LABELS: Record<string, string> = {
-  started: '已开始', allowed: '已允许', allow: '已允许', blocked: '已阻止', deny: '已阻止', require_approval: '待确认', approved: '已批准', auto_approved: '自动批准',
-  rejected: '已拒绝', succeeded: '成功', failed: '失败',
+  get started() { return t('已开始') }, get allowed() { return t('已允许') }, get allow() { return t('已允许') }, get blocked() { return t('已阻止') }, get deny() { return t('已阻止') }, get require_approval() { return t('待确认') }, get approved() { return t('已批准') }, get auto_approved() { return t('自动批准') },
+  get rejected() { return t('已拒绝') }, get succeeded() { return t('成功') }, get failed() { return t('失败') },
 }
 
 export function auditOutcomeLabel(value?: string): string {
@@ -61,8 +62,8 @@ export function toAuditFilters(form: AuditFilterForm, limit = 500): AuditFilters
 }
 
 export function chainStatus(chain: AuditChainView): { tone: 'ok' | 'warning' | 'danger'; title: string; detail: string } {
-  if (!chain.valid) return { tone: 'danger', title: `哈希链校验失败：${chain.brokenIds.length} 条记录内容与签名不符`, detail: `可能被修改的记录 ID：${chain.brokenIds.slice(0, 10).join('、')}${chain.brokenIds.length > 10 ? ' 等' : ''}` }
-  const legacy = chain.legacyEntries ? `，另有 ${chain.legacyEntries} 条旧格式记录未签名` : ''
-  if (chain.linkBreakIds.length) return { tone: 'warning', title: `哈希链内容完整，但有 ${chain.linkBreakIds.length} 处不连续`, detail: `通常由保留期清理导致；若未清理过记录，请导出并检查 ID ${chain.linkBreakIds.slice(0, 10).join('、')}${legacy}` }
-  return { tone: 'ok', title: '哈希链校验通过', detail: `已校验最近 ${chain.checkedEntries} 条记录，其中 ${chain.hashedEntries} 条已签名${legacy}` }
+  if (!chain.valid) return { tone: 'danger', title: t('哈希链校验失败：{0} 条记录内容与签名不符', { 0: chain.brokenIds.length }), detail: t('可能被修改的记录 ID：{0}{1}', { 0: chain.brokenIds.slice(0, 10).join('、'), 1: chain.brokenIds.length > 10 ? t(' 等') : '' }) }
+  const legacy = chain.legacyEntries ? t('，另有 {0} 条旧格式记录未签名', { 0: chain.legacyEntries }) : ''
+  if (chain.linkBreakIds.length) return { tone: 'warning', title: t('哈希链内容完整，但有 {0} 处不连续', { 0: chain.linkBreakIds.length }), detail: t('通常由保留期清理导致；若未清理过记录，请导出并检查 ID {0}{1}', { 0: chain.linkBreakIds.slice(0, 10).join('、'), 1: legacy }) }
+  return { tone: 'ok', title: t('哈希链校验通过'), detail: t('已校验最近 {0} 条记录，其中 {1} 条已签名{2}', { 0: chain.checkedEntries, 1: chain.hashedEntries, 2: legacy }) }
 }

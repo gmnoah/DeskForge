@@ -1,3 +1,4 @@
+import { t, useLocale } from './i18n'
 import {
   useEffect,
   useId,
@@ -10,7 +11,8 @@ import { Icon, type IconName } from './icons'
 import type { RunStatus, ToastMessage } from './types'
 
 export function Spinner({ size = 18 }: { size?: number }) {
-  return <span className="spinner" style={{ width: size, height: size }} role="status" aria-label="加载中" />
+  useLocale()
+  return <span className="spinner" style={{ width: size, height: size }} role="status" aria-label={t('加载中')} />
 }
 
 export function IconButton({
@@ -25,6 +27,7 @@ export function IconButton({
   active?: boolean
   className?: string
 } & Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'children'>) {
+  useLocale()
   const {
     'aria-label': ariaLabel,
     'aria-pressed': ariaPressed,
@@ -149,18 +152,19 @@ export function useFocusTrap<T extends HTMLElement = HTMLElement>(
 }
 
 const STATUS_LABELS: Record<Exclude<RunStatus, 'completed'>, string> = {
-  understanding: '正在处理',
-  planning: '正在整理',
-  running: '正在处理',
-  verifying: '正在检查',
-  waiting_approval: '需要确认',
-  waiting_user: '等你回复',
-  paused: '已暂停',
-  failed: '未完成',
-  cancelled: '已停止',
+  get understanding() { return t('正在处理') },
+  get planning() { return t('正在整理') },
+  get running() { return t('正在处理') },
+  get verifying() { return t('正在检查') },
+  get waiting_approval() { return t('需要确认') },
+  get waiting_user() { return t('等你回复') },
+  get paused() { return t('已暂停') },
+  get failed() { return t('未完成') },
+  get cancelled() { return t('已停止') },
 }
 
 export function StatusBadge({ status, compact = false }: { status: RunStatus; compact?: boolean }) {
+  useLocale()
   if (status === 'completed') return null
   const label = STATUS_LABELS[status]
   return (
@@ -186,6 +190,7 @@ export function PageHeader({
   description: string
   action?: ReactNode
 }) {
+  useLocale()
   return (
     <header className="page-header">
       <div>
@@ -211,6 +216,7 @@ export function EmptyState({
   action?: ReactNode
   compact?: boolean
 }) {
+  useLocale()
   return (
     <div className={`empty-state ${compact ? 'compact' : ''}`}>
       <div className="empty-icon"><Icon name={icon} size={compact ? 18 : 24} /></div>
@@ -232,6 +238,7 @@ export function Toggle({
   label: string
   disabled?: boolean
 }) {
+  useLocale()
   return (
     <button
       type="button"
@@ -262,6 +269,7 @@ export function Modal({
   children: ReactNode
   wide?: boolean
 }) {
+  useLocale()
   const dialogRef = useRef<HTMLElement>(null)
   const titleId = useId()
   const descriptionId = useId()
@@ -286,7 +294,7 @@ export function Modal({
             <h2 id={titleId}>{title}</h2>
             {description && <p id={descriptionId}>{description}</p>}
           </div>
-          <IconButton icon="x" label={`关闭“${title}”`} onClick={onClose} />
+          <IconButton icon="x" label={t('关闭“{0}”', { 0: title })} onClick={onClose} />
         </div>
         {children}
       </section>
@@ -319,6 +327,7 @@ export function Tabs<T extends string>({
   tabListClassName?: string
   tabPanelClassName?: string
 }) {
+  useLocale()
   const idPrefix = useId().replace(/:/g, '')
   const tabRefs = useRef(new Map<T, HTMLButtonElement>())
   const enabledItems = items.filter((item) => !item.disabled)
@@ -400,7 +409,7 @@ export function ConfirmDialog({
   open,
   title,
   description,
-  confirmLabel = '确认',
+  confirmLabel = t('确认'),
   danger = false,
   onCancel,
   onConfirm,
@@ -413,6 +422,7 @@ export function ConfirmDialog({
   onCancel: () => void
   onConfirm: () => void
 }) {
+  useLocale()
   return (
     <Modal open={open} title={title} onClose={onCancel}>
       <div className="confirm-content">
@@ -422,7 +432,7 @@ export function ConfirmDialog({
         <p>{description}</p>
       </div>
       <div className="modal-actions">
-        <button type="button" className="button secondary" onClick={onCancel}>取消</button>
+        <button type="button" className="button secondary" onClick={onCancel}>{t('取消')}</button>
         <button type="button" className={`button ${danger ? 'danger' : 'primary'}`} onClick={onConfirm}>{confirmLabel}</button>
       </div>
     </Modal>
@@ -430,6 +440,7 @@ export function ConfirmDialog({
 }
 
 export function Toasts({ items, onDismiss }: { items: ToastMessage[]; onDismiss: (id: number) => void }) {
+  useLocale()
   return (
     <div className="toast-region" aria-live="polite">
       {items.map((toast) => (
@@ -441,7 +452,7 @@ export function Toasts({ items, onDismiss }: { items: ToastMessage[]; onDismiss:
             <strong>{toast.title}</strong>
             {toast.detail && <span>{toast.detail}</span>}
           </div>
-          <IconButton icon="x" label="关闭通知" onClick={() => onDismiss(toast.id)} />
+          <IconButton icon="x" label={t('关闭通知')} onClick={() => onDismiss(toast.id)} />
         </div>
       ))}
     </div>
@@ -463,6 +474,7 @@ export function SubmitForm({
   onDragLeave?: (event: React.DragEvent<HTMLFormElement>) => void
   onDrop?: (event: React.DragEvent<HTMLFormElement>) => void
 }) {
+  useLocale()
   return (
     <form
       className={className}
@@ -490,6 +502,7 @@ export function Field({
   children: ReactNode
   className?: string
 }) {
+  useLocale()
   return (
     <label className={`field ${className}`}>
       <span className="field-label">{label}</span>
@@ -508,6 +521,7 @@ export function SettingRow({
   detail: string
   children: ReactNode
 }) {
+  useLocale()
   return (
     <div className="setting-row">
       <div>

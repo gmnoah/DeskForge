@@ -1,3 +1,4 @@
+import { t, useLocale, getLocale } from '../../i18n'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Icon, type IconName } from '../../icons'
 import type { RunItem, SkillItem, WorkspaceItem } from '../../types'
@@ -47,6 +48,7 @@ export function CommandPalette({
   onToggleTheme,
   onSetTheme,
 }: CommandPaletteProps) {
+  useLocale()
   const [query, setQuery] = useState('')
   const [selectedIndex, setSelectedIndex] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -71,9 +73,9 @@ export function CommandPalette({
       {
         id: 'action-new-run',
         category: 'action',
-        categoryLabel: '快捷指令',
-        label: '新建工作会话',
-        sublabel: '开始一项新的本地工作 (⌘N)',
+        categoryLabel: t('快捷指令'),
+        label: t('新建工作会话'),
+        sublabel: t('开始一项新的本地工作 (⌘N)'),
         icon: 'plus',
         action: () => {
           onClose()
@@ -83,9 +85,9 @@ export function CommandPalette({
       ...(onToggleTheme ? [{
         id: 'action-theme-toggle',
         category: 'action' as const,
-        categoryLabel: '快捷指令',
-        label: resolvedTheme === 'dark' ? '切换为浅色模式' : '切换为深色模式',
-        sublabel: resolvedTheme === 'dark' ? '切换为明亮界面外观 (⌘⇧L)' : '切换为暗色夜间外观 (⌘⇧L)',
+        categoryLabel: t('快捷指令'),
+        label: resolvedTheme === 'dark' ? t('切换为浅色模式') : t('切换为深色模式'),
+        sublabel: resolvedTheme === 'dark' ? t('切换为明亮界面外观 (⌘⇧L)') : t('切换为暗色夜间外观 (⌘⇧L)'),
         icon: (resolvedTheme === 'dark' ? 'sun' : 'moon') as IconName,
         action: () => {
           onClose()
@@ -95,9 +97,9 @@ export function CommandPalette({
       ...(onSetTheme ? [{
         id: 'action-theme-system',
         category: 'action' as const,
-        categoryLabel: '快捷指令',
-        label: '外观：跟随系统主题',
-        sublabel: '根据 macOS 系统设置自动切换深浅色',
+        categoryLabel: t('快捷指令'),
+        label: t('外观：跟随系统主题'),
+        sublabel: t('根据 macOS 系统设置自动切换深浅色'),
         icon: 'globe' as IconName,
         action: () => {
           onClose()
@@ -107,9 +109,9 @@ export function CommandPalette({
       {
         id: 'action-settings',
         category: 'action',
-        categoryLabel: '快捷指令',
-        label: '设置与偏好',
-        sublabel: '配置模型密钥与工作区权限 (⌘,)',
+        categoryLabel: t('快捷指令'),
+        label: t('设置与偏好'),
+        sublabel: t('配置模型密钥与工作区权限 (⌘,)'),
         icon: 'settings',
         action: () => {
           onClose()
@@ -119,9 +121,9 @@ export function CommandPalette({
       {
         id: 'action-analytics',
         category: 'action',
-        categoryLabel: '快捷指令',
-        label: '查看用量与计费',
-        sublabel: 'Token 消耗统计、模型费用与调用图表',
+        categoryLabel: t('快捷指令'),
+        label: t('查看用量与计费'),
+        sublabel: t('Token 消耗统计、模型费用与调用图表'),
         icon: 'chart',
         action: () => {
           onClose()
@@ -131,9 +133,9 @@ export function CommandPalette({
       {
         id: 'action-sidebar',
         category: 'action',
-        categoryLabel: '快捷指令',
-        label: '切换侧边栏',
-        sublabel: '显示或收起会话导航栏 (⌘\\)',
+        categoryLabel: t('快捷指令'),
+        label: t('切换侧边栏'),
+        sublabel: t('显示或收起会话导航栏 (⌘\\)'),
         icon: 'panelRight',
         action: () => {
           onClose()
@@ -145,9 +147,9 @@ export function CommandPalette({
     const runItems: PaletteItem[] = runs.map((run) => ({
       id: `run-${run.id}`,
       category: 'run',
-      categoryLabel: '工作会话',
-      label: run.title || '未命名工单',
-      sublabel: run.status === 'completed' ? '已完成' : run.status === 'running' ? '进行中' : '会话记录',
+      categoryLabel: t('工作会话'),
+      label: run.title || t('未命名工单'),
+      sublabel: run.status === 'completed' ? t('已完成') : run.status === 'running' ? t('进行中') : t('会话记录'),
       icon: 'file',
       action: () => {
         onClose()
@@ -158,9 +160,9 @@ export function CommandPalette({
     const workspaceItems: PaletteItem[] = workspaces.map((ws) => ({
       id: `ws-${ws.id}`,
       category: 'workspace',
-      categoryLabel: '切换工作区',
+      categoryLabel: t('切换工作区'),
       label: ws.name,
-      sublabel: ws.path + (ws.id === currentWorkspaceId ? ' (当前)' : ''),
+      sublabel: ws.path + (ws.id === currentWorkspaceId ? t(' (当前)') : ''),
       icon: 'folder',
       action: () => {
         onClose()
@@ -173,9 +175,9 @@ export function CommandPalette({
       .map((skill) => ({
         id: `skill-${skill.name}`,
         category: 'skill',
-        categoryLabel: '技能扩展',
+        categoryLabel: t('技能扩展'),
         label: `/${skill.name}`,
-        sublabel: skill.description || '本地或全局技能',
+        sublabel: skill.description || t('本地或全局技能'),
         icon: 'skill',
         action: () => {
           onClose()
@@ -206,7 +208,7 @@ export function CommandPalette({
     )
 
     return [...filteredActions, ...filteredRuns, ...filteredWorkspaces, ...filteredSkills]
-  }, [query, runs, workspaces, currentWorkspaceId, skills, onClose, onNewRun, onOpenSettings, onToggleSidebar, onSelectRun, onSelectWorkspace])
+  }, [getLocale(), query, runs, workspaces, currentWorkspaceId, skills, resolvedTheme, onToggleTheme, onSetTheme, onClose, onNewRun, onOpenSettings, onToggleSidebar, onSelectRun, onSelectWorkspace])
 
   useEffect(() => {
     setSelectedIndex(0)
@@ -254,7 +256,7 @@ export function CommandPalette({
         className="command-palette-modal"
         role="dialog"
         aria-modal="true"
-        aria-label="快速操作命令面板"
+        aria-label={t('快速操作命令面板')}
         onClick={(e) => e.stopPropagation()}
         onKeyDown={handleKeyDown}
       >
@@ -265,15 +267,15 @@ export function CommandPalette({
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="搜索操作、会话、工作区或技能 (⌘K / Esc 退出)…"
-            aria-label="搜索命令"
+            placeholder={t('搜索操作、会话、工作区或技能 (⌘K / Esc 退出)…')}
+            aria-label={t('搜索命令')}
           />
           {query && (
             <button
               type="button"
               className="command-palette-clear"
               onClick={() => setQuery('')}
-              aria-label="清除搜索"
+              aria-label={t('清除搜索')}
             >
               ×
             </button>
@@ -282,7 +284,7 @@ export function CommandPalette({
 
         <div className="command-palette-list" ref={listRef} role="listbox">
           {items.length === 0 ? (
-            <div className="command-palette-empty">没有找到匹配的结果</div>
+            <div className="command-palette-empty">{t('没有找到匹配的结果')}</div>
           ) : (
             items.map((item, index) => {
               const isSelected = index === selectedIndex
@@ -310,7 +312,7 @@ export function CommandPalette({
                       <span className="palette-item-label">{item.label}</span>
                       {item.sublabel && <span className="palette-item-sublabel">{item.sublabel}</span>}
                     </span>
-                    {isSelected && <span className="palette-item-shortcut">↵ 执行</span>}
+                    {isSelected && <span className="palette-item-shortcut">{t('↵ 执行')}</span>}
                   </button>
                 </div>
               )
@@ -319,9 +321,9 @@ export function CommandPalette({
         </div>
 
         <div className="command-palette-footer">
-          <span><kbd>↑</kbd><kbd>↓</kbd> 浏览</span>
-          <span><kbd>↵</kbd> 选择</span>
-          <span><kbd>esc</kbd> 关闭</span>
+          <span><kbd>↑</kbd><kbd>↓</kbd>{t('浏览')}</span>
+          <span><kbd>↵</kbd>{t('选择')}</span>
+          <span><kbd>esc</kbd>{t('关闭')}</span>
         </div>
       </section>
     </div>

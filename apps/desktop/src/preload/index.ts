@@ -14,6 +14,7 @@ const api: DesktopApi = {
     chooseWorkspace: noInput('app:choose-workspace'),
     chooseFiles: noInput('app:choose-files'),
     importAttachments: noInput('app:import-attachments'),
+    saveAttachment: (input) => invoke('app:save-attachment', input),
     revealPath: (input) => invoke('app:reveal-path', input),
     openPath: (input) => invoke('app:open-path', input),
     readFileContent: (input) => invoke('app:read-file-content', input),
@@ -22,6 +23,7 @@ const api: DesktopApi = {
     list: noInput('workspaces:list'), create: (input) => invoke('workspaces:create', input), update: (input) => invoke('workspaces:update', input),
     remove: (input) => invoke('workspaces:remove', input), select: (input) => invoke('workspaces:select', input),
     searchFiles: (input) => invoke('workspaces:search-files', input),
+    gitStatus: (input) => invoke('workspaces:git-status', input),
   },
   runs: {
     list: (input) => invoke('runs:list', input), get: (input) => invoke('runs:get', input), create: (input) => invoke('runs:create', input),

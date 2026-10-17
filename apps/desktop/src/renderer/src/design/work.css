@@ -132,8 +132,37 @@
 }
 .user-message .message-meta span { color: var(--text-tertiary); font-size: 11px; }
 .user-message .markdown-content { color: var(--text); font-size: 14px; line-height: 1.6; }
+.user-prompt-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.user-attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: var(--radius-control);
+  background: var(--surface-muted);
+  border: 1px solid var(--separator);
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.user-attachment-chip:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+  border-color: var(--accent);
+}
+.user-attachment-chip.is-image {
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+  color: var(--accent-hover);
+}
 .user-message.is-optimistic .message-content { opacity: .7; border-style: dashed; }
-.user-message.is-optimistic .message-meta::after { color: var(--text-tertiary); font-size: 11px; content: "提交中…"; }
+.user-message.is-optimistic .message-meta::after { color: var(--text-tertiary); font-size: 11px; content: attr(data-pending-label); }
 .agent-message { margin-right: 0; }
 .agent-turn-entries { display: flex; min-width: 0; flex-direction: column; gap: 16px; }
 .agent-turn-text { min-width: 0; }
@@ -1068,3 +1097,107 @@
 .session-rule-main strong { overflow: hidden; font-size: 12px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .session-rule-main small { color: var(--text-tertiary); font-size: 11px; }
 .session-rules-empty, .session-rules-footnote { display: flex; align-items: center; gap: 5px; margin: 0; color: var(--text-tertiary); font-size: 11px; line-height: 1.5; }
+
+/* Git Status Card & Inspector Diff */
+.git-status-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-surface);
+}
+.git-status-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.git-status-branch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+.git-ahead-badge,
+.git-behind-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 5px;
+  border-radius: var(--radius-control);
+  font-size: 11px;
+  font-weight: 600;
+}
+.git-ahead-badge {
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+}
+.git-behind-badge {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+.git-clean-hint {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+.git-file-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.git-file-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+}
+.git-status-tag {
+  padding: 1px 4px;
+  border-radius: var(--radius-control);
+  font-size: 11px;
+  font-weight: 600;
+}
+.git-status-tag.is-staged {
+  background: var(--success-soft);
+  color: var(--success);
+}
+.git-status-tag.is-unstaged {
+  background: var(--surface-muted);
+  color: var(--text-tertiary);
+}
+.git-status-op {
+  font-weight: 700;
+  width: 14px;
+  text-align: center;
+}
+.git-op-modified { color: var(--accent-hover); }
+.git-op-added { color: var(--success); }
+.git-op-deleted { color: var(--danger); }
+.git-op-untracked { color: var(--text-tertiary); }
+.git-file-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+}
+.diff-modal-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.diff-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 8px;
+  border-top: 1px solid var(--separator);
+}
+.danger-text {
+  color: var(--danger) !important;
+}

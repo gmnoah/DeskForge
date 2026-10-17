@@ -1,3 +1,4 @@
+import { t, useLocale, getLocale } from '../../i18n'
 import { useMemo, useState } from 'react'
 import { Icon } from '../../icons'
 import type { ApprovalDiffView } from '../../types'
@@ -7,17 +8,18 @@ const MARK = { add: '+', del: '−', context: ' ' } as const
 
 /** Readable diff of the pending file change, shown before the user approves. */
 export function ApprovalDiff({ diff }: { diff: ApprovalDiffView }) {
+  useLocale()
   const [mode, setMode] = useState<'unified' | 'split'>('unified')
-  const rows = useMemo(() => (mode === 'split' ? sideBySideRows(diff.hunks) : []), [diff.hunks, mode])
+  const rows = useMemo(() => (mode === 'split' ? sideBySideRows(diff.hunks) : []), [getLocale(), diff.hunks, mode])
   const hasLines = diff.hunks.length > 0
   return (
-    <section className="approval-diff" aria-label="变更预览">
+    <section className="approval-diff" aria-label={t('变更预览')}>
       <header>
         <span className="approval-diff-path"><Icon name="file" size={14} /><strong title={diff.path}>{diff.path}</strong></span>
         <span className="approval-diff-stats"><em className={`diff-op diff-op-${diff.operation}`}>{diffSummary(diff)}</em></span>
-        {hasLines && <span className="approval-diff-toggle" role="group" aria-label="对比方式">
-          <button type="button" aria-pressed={mode === 'unified'} onClick={() => setMode('unified')}>统一</button>
-          <button type="button" aria-pressed={mode === 'split'} onClick={() => setMode('split')}>并排</button>
+        {hasLines && <span className="approval-diff-toggle" role="group" aria-label={t('对比方式')}>
+          <button type="button" aria-pressed={mode === 'unified'} onClick={() => setMode('unified')}>{t('统一')}</button>
+          <button type="button" aria-pressed={mode === 'split'} onClick={() => setMode('split')}>{t('并排')}</button>
         </span>}
       </header>
       {hasLines && mode === 'unified' && <div className="approval-diff-body mono" role="table">
@@ -41,7 +43,7 @@ export function ApprovalDiff({ diff }: { diff: ApprovalDiffView }) {
             <span className={`diff-text ${row.right ? `diff-${row.right.kind}` : 'diff-empty'}`}>{row.right ? row.right.text || ' ' : ''}</span>
           </div>)}
       </div>}
-      {(diff.note || diff.truncated) && <p className="approval-diff-note"><Icon name="info" size={13} />{diff.note ?? `… 已截断 ${diff.omittedLines} 行`}</p>}
+      {(diff.note || diff.truncated) && <p className="approval-diff-note"><Icon name="info" size={13} />{diff.note ?? t('… 已截断 {0} 行', { 0: diff.omittedLines })}</p>}
     </section>
   )
 }

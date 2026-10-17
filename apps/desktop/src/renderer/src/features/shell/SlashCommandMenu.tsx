@@ -1,3 +1,4 @@
+import { t, useLocale } from '../../i18n'
 import { useEffect, useRef } from 'react'
 import { Icon } from '../../icons'
 import type { SkillItem } from '../../types'
@@ -10,6 +11,7 @@ export interface SlashCommandMenuProps {
 }
 
 export function SlashCommandMenu({ skills, query, selectedIndex, onSelect }: SlashCommandMenuProps) {
+  useLocale()
   const listRef = useRef<HTMLDivElement>(null)
 
   const normalizedQuery = query.trim().toLowerCase()
@@ -33,13 +35,13 @@ export function SlashCommandMenu({ skills, query, selectedIndex, onSelect }: Sla
   if (filtered.length === 0) return null
 
   return (
-    <div className="slash-command-menu" role="listbox" aria-label="可用 Skills">
+    <div className="slash-command-menu" role="listbox" aria-label={t('可用 Skills')}>
       <div className="slash-menu-header">
         <span className="slash-menu-title">
           <Icon name="skill" size={13} />
-          <span>调用全局 / 本地技能</span>
+          <span>{t('调用全局 / 本地技能')}</span>
         </span>
-        <small className="slash-menu-count">{filtered.length} 个可用</small>
+        <small className="slash-menu-count">{filtered.length}{t('个可用')}</small>
       </div>
       <div className="slash-menu-list" ref={listRef}>
         {filtered.map((skill, index) => {
@@ -66,9 +68,9 @@ export function SlashCommandMenu({ skills, query, selectedIndex, onSelect }: Sla
         })}
       </div>
       <div className="slash-menu-footer">
-        <span>↑↓ 选择</span>
-        <span>↵ 补全</span>
-        <span>Esc 关闭</span>
+        <span>{t('↑↓ 选择')}</span>
+        <span>{t('↵ 补全')}</span>
+        <span>{t('Esc 关闭')}</span>
       </div>
     </div>
   )

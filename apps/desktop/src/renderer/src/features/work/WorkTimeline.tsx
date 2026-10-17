@@ -1,3 +1,4 @@
+import { t, useLocale, getLocale } from '../../i18n'
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -38,7 +39,7 @@ function formatTime(value?: unknown): string {
   if (typeof value !== 'string' || !value) return ''
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return ''
-  return new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit' }).format(date)
+  return new Intl.DateTimeFormat(getLocale(), { hour: '2-digit', minute: '2-digit' }).format(date)
 }
 
 function safeHref(value: unknown): string | undefined {
@@ -53,6 +54,7 @@ function safeHref(value: unknown): string | undefined {
 }
 
 export function CodeBlock({ children }: { children?: ReactNode }) {
+  useLocale()
   const [copied, setCopied] = useState(false)
   let language = ''
   let rawCode = ''
@@ -106,12 +108,12 @@ export function CodeBlock({ children }: { children?: ReactNode }) {
       }
     }
     return ''
-  }, [language, rawCode])
+  }, [getLocale(), language, rawCode])
 
   const lineCount = useMemo(() => {
     if (!rawCode) return 0
     return rawCode.split('\n').length
-  }, [rawCode])
+  }, [getLocale(), rawCode])
 
   const displayLang = language ? language.toUpperCase() : 'CODE'
 
@@ -119,16 +121,16 @@ export function CodeBlock({ children }: { children?: ReactNode }) {
     <div className="code-block-wrapper">
       <div className="code-block-header">
         <span className="code-block-language">{displayLang}</span>
-        {lineCount > 1 && <span className="code-block-lines">{lineCount} 行</span>}
+        {lineCount > 1 && <span className="code-block-lines">{lineCount}{t('行')}</span>}
         <button
           type="button"
           className={`code-block-copy-btn${copied ? ' is-copied' : ''}`}
           onClick={handleCopy}
-          aria-label={copied ? '已复制' : '复制代码'}
-          title={copied ? '已复制到剪贴板' : '复制代码'}
+          aria-label={copied ? t('已复制') : t('复制代码')}
+          title={copied ? t('已复制到剪贴板') : t('复制代码')}
         >
           <Icon name={copied ? 'check' : 'copy'} size={12} />
-          <span>{copied ? '已复制' : '复制代码'}</span>
+          <span>{copied ? t('已复制') : t('复制代码')}</span>
         </button>
       </div>
       {highlighted ? (
@@ -149,6 +151,7 @@ export const Markdown = memo(function Markdown({
   onOpenPath?: ((path: string) => void) | undefined
   onPreviewDocument?: ((target: DocumentPreviewTarget) => void) | undefined
 }) {
+  useLocale()
   const components = useMemo<Components>(() => ({
     pre: PRE_COMPONENT,
     a: ({ href, children: linkChildren, ...props }) => {
@@ -160,7 +163,7 @@ export const Markdown = memo(function Markdown({
           <button
             type="button"
             className="inline-file-link"
-            title={isPreviewable ? `点击内置预览：${cleanPath}` : `点击使用默认程序打开：${cleanPath}`}
+            title={isPreviewable ? t('点击内置预览：{0}', { 0: cleanPath }) : t('点击使用默认程序打开：{0}', { 0: cleanPath })}
             onClick={(e) => {
               e.preventDefault()
               if (isPreviewable && onPreviewDocument) {
@@ -180,7 +183,7 @@ export const Markdown = memo(function Markdown({
         ? <a {...props} href={target} target="_blank" rel="noreferrer noopener">{linkChildren}</a>
         : <span>{linkChildren}</span>
     },
-  }), [onOpenPath, onPreviewDocument])
+  }), [getLocale(), onOpenPath, onPreviewDocument])
 
   return (
     <div className="markdown-content">
@@ -210,6 +213,7 @@ function ResultSummary({
   onOpenPath?: ((path: string) => void) | undefined
   onPreviewDocument?: ((target: DocumentPreviewTarget) => void) | undefined
 }) {
+  useLocale()
   const changes = result.changes?.length ?? 0
   const outputs = useMemo(() => {
     const list = result.outputs ?? []
@@ -222,7 +226,7 @@ function ResultSummary({
       seen.add(key)
       return true
     })
-  }, [result.outputs])
+  }, [getLocale(), result.outputs])
   const checks = result.checks?.length ?? 0
   const sources = result.sources?.length ?? 0
   if (!changes && !outputs.length && !checks && !sources) return null
@@ -230,14 +234,14 @@ function ResultSummary({
     <div className="result-summary">
       <div className="result-summary-header">
         <div className="result-summary-items">
-          {changes > 0 && <span><Icon name="edit" size={15} />修改了 {changes} 个文件</span>}
-          {checks > 0 && <span><Icon name={result.status === 'partial' ? 'warning' : 'check'} size={15} />{result.status === 'partial' ? `还有内容未检查` : `${checks} 项检查通过`}</span>}
-          {sources > 0 && <span><Icon name="globe" size={15} />{sources} 条来源</span>}
-          {outputs.length > 0 && <span><Icon name="file" size={15} />{outputs.length} 个输出</span>}
+          {changes > 0 && <span><Icon name="edit" size={15} />{t('修改了')}{changes}{t('个文件')}</span>}
+          {checks > 0 && <span><Icon name={result.status === 'partial' ? 'warning' : 'check'} size={15} />{result.status === 'partial' ? t('还有内容未检查') : t('{0} 项检查通过', { 0: checks })}</span>}
+          {sources > 0 && <span><Icon name="globe" size={15} />{sources}{t('条来源')}</span>}
+          {outputs.length > 0 && <span><Icon name="file" size={15} />{outputs.length}{t('个输出')}</span>}
         </div>
         <div className="result-summary-actions">
-          {changes > 0 || outputs.length > 0 ? <button type="button" onClick={onOpenChanges}>查看变更</button> : null}
-          {checks > 0 || sources > 0 ? <button type="button" onClick={onOpenDetails}>查看依据</button> : null}
+          {changes > 0 || outputs.length > 0 ? <button type="button" onClick={onOpenChanges}>{t('查看变更')}</button> : null}
+          {checks > 0 || sources > 0 ? <button type="button" onClick={onOpenDetails}>{t('查看依据')}</button> : null}
         </div>
       </div>
       {outputs.length > 0 && (onOpenArtifact || onOpenPath || onPreviewDocument) && (
@@ -266,31 +270,31 @@ function ResultSummary({
                 type="button"
                 key={artifact.id}
                 className="result-artifact-chip"
-                title={`目标文件: ${displayName}${displayLabel ? `\n说明: ${displayLabel}` : ''}${displayPath ? `\n存放路径: ${displayPath}` : ''}\n点击在 DeskForge 内置沙箱预览`}
+                title={t('目标文件: {0}{1}{2}\n点击在 DeskForge 内置沙箱预览', { 0: displayName, 1: displayLabel ? `\n说明: ${displayLabel}` : '', 2: displayPath ? `\n存放路径: ${displayPath}` : '' })}
                 onClick={handleAction}
               >
                 <Icon name={isHtml ? 'globe' : 'file'} size={13} />
-                <span className="result-artifact-name" title={`目标文件: ${displayName}${displayLabel ? ` (${displayLabel})` : ''}`}>
+                <span className="result-artifact-name" title={t('目标文件: {0}{1}', { 0: displayName, 1: displayLabel ? ` (${displayLabel})` : '' })}>
                   {displayName}
                   {displayLabel ? <small className="result-artifact-sublabel">（{displayLabel}）</small> : null}
                 </span>
-                <span className="result-artifact-action">{isHtml ? '网页预览' : '预览'}</span>
+                <span className="result-artifact-action">{isHtml ? t('网页预览') : t('预览')}</span>
                 <span className="result-artifact-tooltip" role="tooltip">
-                  <span className="artifact-tooltip-label">目标文件</span>
+                  <span className="artifact-tooltip-label">{t('目标文件')}</span>
                   <span className="artifact-tooltip-name">{displayName}</span>
                   {displayLabel ? (
                     <>
-                      <span className="artifact-tooltip-label">成果说明</span>
+                      <span className="artifact-tooltip-label">{t('成果说明')}</span>
                       <span className="artifact-tooltip-desc">{displayLabel}</span>
                     </>
                   ) : null}
                   {displayPath ? (
                     <>
-                      <span className="artifact-tooltip-label">存放路径</span>
+                      <span className="artifact-tooltip-label">{t('存放路径')}</span>
                       <span className="artifact-tooltip-path">{displayPath}</span>
                     </>
                   ) : null}
-                  <span className="artifact-tooltip-hint">{isHtml ? '点击在 DeskForge 内置安全沙箱中预览网页' : '点击在 DeskForge 内置预览'}</span>
+                  <span className="artifact-tooltip-hint">{isHtml ? t('点击在 DeskForge 内置安全沙箱中预览网页') : t('点击在 DeskForge 内置预览')}</span>
                 </span>
               </button>
             )
@@ -312,6 +316,7 @@ interface TurnRowProps {
   onOpenArtifact?: ((id: string) => void) | undefined
   onOpenPath?: ((path: string) => void) | undefined
   onPreviewDocument?: ((target: DocumentPreviewTarget) => void) | undefined
+  artifacts?: RunDetailView['artifacts']
 }
 
 const TurnRow = memo(function TurnRow({
@@ -325,18 +330,51 @@ const TurnRow = memo(function TurnRow({
   onOpenArtifact,
   onOpenPath,
   onPreviewDocument,
+  artifacts = [],
 }: TurnRowProps) {
+  useLocale()
+  const promptArtifacts = useMemo(() => {
+    if (!turn.prompt.artifactIds?.length || !artifacts?.length) return []
+    const ids = new Set(turn.prompt.artifactIds)
+    return artifacts.filter((a) => ids.has(a.id))
+  }, [turn.prompt.artifactIds, artifacts])
+
   return (
     <section className="work-turn">
       <article className={`message user-message${isOptimistic ? ' is-optimistic' : ''}`}>
         <div className="message-content">
-          <div className="message-meta">
-            <strong>你</strong>
+          <div className="message-meta" data-pending-label={isOptimistic ? t('提交中…') : undefined}>
+            <strong>{t('你')}</strong>
             <span>{formatTime(turn.prompt.createdAt)}</span>
           </div>
           <Markdown onOpenPath={onOpenPath} onPreviewDocument={onPreviewDocument}>
             {turn.prompt.content}
           </Markdown>
+          {promptArtifacts.length > 0 && (
+            <div className="user-prompt-attachments">
+              {promptArtifacts.map((art) => {
+                const isImg = art.mime?.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp)$/i.test(art.name)
+                return (
+                  <button
+                    key={art.id}
+                    type="button"
+                    className={`user-attachment-chip${isImg ? ' is-image' : ''}`}
+                    onClick={() => {
+                      if (onPreviewDocument) {
+                        onPreviewDocument({ title: art.name, artifactId: art.id, path: art.path })
+                      } else if (art.path && onOpenPath) {
+                        onOpenPath(art.path)
+                      }
+                    }}
+                    title={t('点击预览附件: {0}', { 0: art.name })}
+                  >
+                    <Icon name={isImg ? 'image' : 'file'} size={13} />
+                    <span>{art.name}</span>
+                  </button>
+                )
+              })}
+            </div>
+          )}
         </div>
       </article>
       <article className="message agent-message agent-turn">
@@ -382,10 +420,11 @@ const TurnRow = memo(function TurnRow({
 })
 
 export function WorkTimeline({ detail, approvals, onOpenDetails, onOpenChanges, onOpenArtifact, onOpenPath, onPreviewDocument }: WorkTimelineProps) {
+  useLocale()
   const tailRef = useRef<HTMLDivElement>(null)
   const followTailRef = useRef(true)
   const [openProcessTurnId, setOpenProcessTurnId] = useState<string>()
-  const turns = useMemo(() => buildWorkTurns(detail), [detail])
+  const turns = useMemo(() => buildWorkTurns(detail), [getLocale(), detail])
   const tokenUsage = readTokenUsage(detail.tokenUsage)
 
   const onToggleProcess = useCallback((turnId: string) => {
@@ -407,7 +446,7 @@ export function WorkTimeline({ detail, approvals, onOpenDetails, onOpenChanges, 
     onOpenArtifact: hasArtifact ? (id: string) => handlersRef.current.onOpenArtifact?.(id) : undefined,
     onOpenPath: hasPath ? (path: string) => handlersRef.current.onOpenPath?.(path) : undefined,
     onPreviewDocument: hasPreview ? (target: DocumentPreviewTarget) => handlersRef.current.onPreviewDocument?.(target) : undefined,
-  }), [hasArtifact, hasPath, hasPreview])
+  }), [getLocale(), hasArtifact, hasPath, hasPreview])
 
   const [showScrollBottom, setShowScrollBottom] = useState(false)
 
@@ -448,22 +487,23 @@ export function WorkTimeline({ detail, approvals, onOpenDetails, onOpenChanges, 
             approvals={index === turns.length - 1 ? approvals : undefined}
             processOpen={openProcessTurnId === turn.id}
             onToggleProcess={onToggleProcess}
+            artifacts={detail.artifacts}
             {...handlers}
           />
         )
       })}
       {detail.status === 'failed' && <FailureNotice lastError={detail.lastError} />}
-      {tokenUsage && <div className="run-token-usage" title="服务商返回的用量合计（含工具调用回合）">{tokenUsageSummary(tokenUsage)}</div>}
+      {tokenUsage && <div className="run-token-usage" title={t('服务商返回的用量合计（含工具调用回合）')}>{tokenUsageSummary(tokenUsage)}</div>}
       {showScrollBottom && (
         <button
           type="button"
           className="scroll-bottom-fab"
           onClick={scrollToBottom}
-          aria-label="回到最新消息"
-          title="回到最新消息"
+          aria-label={t('回到最新消息')}
+          title={t('回到最新消息')}
         >
           <Icon name="chevronDown" size={14} />
-          <span>回到最新</span>
+          <span>{t('回到最新')}</span>
         </button>
       )}
       <div ref={tailRef} className="timeline-tail" aria-hidden="true" />
@@ -472,12 +512,13 @@ export function WorkTimeline({ detail, approvals, onOpenDetails, onOpenChanges, 
 }
 
 function FailureNotice({ lastError }: { lastError: unknown }) {
+  useLocale()
   const technical = failureTechnicalDetail(lastError)
   return <div className="inline-notice error run-failure">
     <Icon name="warning" />
     <span>
       {failureMessage(lastError)}
-      {technical && <details className="run-failure-detail"><summary>技术信息</summary><code>{technical}</code></details>}
+      {technical && <details className="run-failure-detail"><summary>{t('技术信息')}</summary><code>{technical}</code></details>}
     </span>
   </div>
 }

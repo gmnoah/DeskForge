@@ -1,3 +1,4 @@
+import { t } from './i18n'
 import type {
   ApprovalDiffLineView,
   ApprovalDiffView,
@@ -50,6 +51,7 @@ import type {
   WorkspaceFileItem,
   TokenUsageMetricsReport,
   TokenUsageQuery,
+  GitStatusResult,
 } from './types'
 
 type UnknownFn = (...args: unknown[]) => unknown
@@ -65,7 +67,7 @@ const EMPTY_CHROME: ChromeStatusView = { connected: false, grants: [] }
 function rootBridge(): JsonRecord {
   const value = (window as Window & { deskforge?: unknown }).deskforge
   if (!value || typeof value !== 'object') {
-    throw new Error('桌面安全组件尚未就绪，请重启应用后再试。')
+    throw new Error(t('桌面安全组件尚未就绪，请重启应用后再试。'))
   }
   return value as unknown as JsonRecord
 }
@@ -90,7 +92,7 @@ async function call<T>(variants: Array<{ path: string; args?: unknown[] }>): Pro
     return await Promise.resolve(method.fn.apply(method.owner, variant.args ?? [])) as T
   }
   const names = variants.map((variant) => variant.path).join(' / ')
-  throw new Error(`当前桌面桥不支持此操作（${names}）。请升级或重启应用。`)
+  throw new Error(t('当前桌面桥不支持此操作（{0}）。请升级或重启应用。', { 0: names }))
 }
 
 async function optionalCall<T>(variants: Array<{ path: string; args?: unknown[] }>): Promise<T | undefined> {
@@ -149,7 +151,7 @@ function normalizeWorkspace(value: unknown, index: number): WorkspaceItem {
   return {
     ...source,
     id: idValue(source, 'workspace', index),
-    name: textValue(source, ['name', 'title'], path.split('/').filter(Boolean).at(-1) ?? '未命名工作区'),
+    name: textValue(source, ['name', 'title'], path.split('/').filter(Boolean).at(-1) ?? t('未命名工作区')),
     path,
     selected: booleanValue(source, ['selected', 'isSelected']),
   }
@@ -167,7 +169,7 @@ function normalizeRun(value: unknown, index: number): RunItem {
   const item: RunItem = {
     ...source,
     id: idValue(source, 'run', index),
-    title: textValue(source, ['title', 'name', 'goal', 'prompt'], '新工作'),
+    title: textValue(source, ['title', 'name', 'goal', 'prompt'], t('新工作')),
     status,
   }
   const prompt = textValue(source, ['prompt', 'request'])
@@ -197,7 +199,7 @@ function normalizeModel(value: unknown, index: number): ModelProfileItem {
   const provider: ModelProvider = rawProvider === 'kimi' || rawProvider === 'tongyi' || rawProvider === 'custom' || rawProvider === 'deepseek'
     ? rawProvider
     : 'custom'
-  const providerName = provider === 'deepseek' ? 'DeepSeek' : provider === 'kimi' ? 'Kimi' : provider === 'tongyi' ? '通义' : '自定义'
+  const providerName = provider === 'deepseek' ? 'DeepSeek' : provider === 'kimi' ? 'Kimi' : provider === 'tongyi' ? t('通义') : t('自定义')
   const baseUrl = textValue(source, ['baseUrl', 'base_url'])
   return {
     ...source,
@@ -330,7 +332,7 @@ export function normalizeMcpTest(value: unknown): McpTestResult {
   if (toolCount !== undefined) result.toolCount = toolCount
   if (via) result.connectedVia = via
   if (version) result.serverVersion = version
-  if (!result.ok) result.error = error || 'MCP 连接测试失败'
+  if (!result.ok) result.error = error || t('MCP 连接测试失败')
   return result
 }
 
@@ -358,8 +360,8 @@ export function normalizeSkill(value: unknown, index: number): SkillItem {
   const item: SkillItem = {
     ...source,
     id: idValue(source, 'skill', index),
-    name: textValue(source, ['name', 'title'], '未命名 Skill'),
-    description: textValue(source, ['description', 'summary'], '暂无描述'),
+    name: textValue(source, ['name', 'title'], t('未命名 Skill')),
+    description: textValue(source, ['description', 'summary'], t('暂无描述')),
     enabled: booleanValue(source, ['enabled', 'isEnabled'], true),
   }
   const origin = normalizeSkillOrigin(source.source)
@@ -389,7 +391,7 @@ export function normalizeSkillPreview(value: unknown): SkillImportPreviewItem | 
   const preview: SkillImportPreviewItem = {
     selectionId,
     origin: normalizeSkillOrigin(source.source) ?? { kind: 'folder' },
-    name: textValue(source, ['name'], '未命名 Skill'),
+    name: textValue(source, ['name'], t('未命名 Skill')),
     description: textValue(source, ['description']),
     version: textValue(source, ['version'], '0.0.0'),
     permissions: permissionLabels(source.permissions),
@@ -411,7 +413,7 @@ function normalizeAutomation(value: unknown, index: number): AutomationItem {
   const item: AutomationItem = {
     ...source,
     id: idValue(source, 'automation', index),
-    name: textValue(source, ['name', 'title'], '未命名自动化'),
+    name: textValue(source, ['name', 'title'], t('未命名自动化')),
     prompt: textValue(source, ['prompt', 'instruction', 'objective']),
     schedule: textValue(source, ['normalizedSchedule', 'cron', 'expression']) || textValue(record(source.schedule), ['expression', 'runAt']),
     enabled: booleanValue(source, ['enabled', 'isEnabled'], true),
@@ -482,7 +484,7 @@ function normalizeCapabilityPackage(value: unknown, index: number): CapabilityPa
   const item: CapabilityPackageItem = {
     ...source,
     id: idValue(source, 'capability-package', index),
-    name: textValue(source, ['name'], '本地能力包'),
+    name: textValue(source, ['name'], t('本地能力包')),
     version: textValue(source, ['version'], '1.0.0'),
     skillIds: arrayValue(source.skillIds).filter((entry): entry is string => typeof entry === 'string'),
     mcpServerIds: arrayValue(source.mcpServerIds).filter((entry): entry is string => typeof entry === 'string'),
@@ -565,7 +567,7 @@ function normalizeStep(value: unknown, index: number): PlanStepItem {
   const item: PlanStepItem = {
     ...source,
     id: idValue(source, 'step', index),
-    title: textValue(source, ['title', 'name', 'description'], `步骤 ${index + 1}`),
+    title: textValue(source, ['title', 'name', 'description'], t('步骤 {0}', { 0: index + 1 })),
     status: status === 'running' || status === 'in_progress' ? 'running' : status === 'completed' ? 'completed' : status === 'failed' || status === 'blocked' ? 'failed' : 'pending',
   }
   const detail = textValue(source, ['detail', 'description'])
@@ -603,7 +605,7 @@ function normalizeToolActivity(value: unknown, index: number): ToolActivityItem 
   const item: ToolActivityItem = {
     ...source,
     id: idValue(source, 'tool', index),
-    toolName: textValue(source, ['toolName', 'toolId', 'name'], '工具调用'),
+    toolName: textValue(source, ['toolName', 'toolId', 'name'], t('工具调用')),
     status,
     sources: arrayValue(source.sources).map(normalizeSource).filter((item): item is SourceItem => Boolean(item)),
   }
@@ -650,7 +652,7 @@ function normalizeVerification(value: unknown): VerificationView | undefined {
     const status: VerificationView['checks'][number]['status'] = rawCheckStatus === 'passed' || rawCheckStatus === 'failed' ? rawCheckStatus : 'not_run'
     return {
       ...check,
-      name: textValue(check, ['name', 'title'], '验证项'),
+      name: textValue(check, ['name', 'title'], t('验证项')),
       status,
       ...(textValue(check, ['detail', 'summary']) ? { detail: textValue(check, ['detail', 'summary']) } : {}),
     }
@@ -735,7 +737,7 @@ export function normalizeSessionRule(value: unknown, index: number): SessionRule
     toolName: textValue(source, ['toolName']),
     riskLevel: textValue(source, ['riskLevel'], 'reversible_write'),
     ...(commandPrefix ? { commandPrefix } : {}),
-    label: textValue(source, ['label'], '会话规则'),
+    label: textValue(source, ['label'], t('会话规则')),
     useCount: numberValue(source, ['useCount']) ?? 0,
     createdAt: textValue(source, ['createdAt']),
     ...(lastUsedAt ? { lastUsedAt } : {}),
@@ -746,7 +748,7 @@ export function normalizeSessionHit(value: unknown): SessionSearchHitItem {
   const source = record(value)
   return {
     runId: textValue(source, ['runId']),
-    title: textValue(source, ['title'], '未命名会话'),
+    title: textValue(source, ['title'], t('未命名会话')),
     workspaceId: textValue(source, ['workspaceId']),
     status: textValue(source, ['status'], 'completed') as RunStatus,
     updatedAt: textValue(source, ['updatedAt']),
@@ -766,7 +768,7 @@ export function normalizeKnowledgeStatus(value: unknown): KnowledgeStatusItem {
   const optionalText = (key: string) => (typeof source[key] === 'string' && source[key] ? { [key]: source[key] as string } : {})
   return {
     workspaceId: textValue(source, ['workspaceId']),
-    workspaceName: textValue(source, ['workspaceName'], '工作区'),
+    workspaceName: textValue(source, ['workspaceName'], t('工作区')),
     rootPath: textValue(source, ['rootPath']),
     state: (KNOWLEDGE_STATES.has(String(source.state)) ? source.state : 'empty') as KnowledgeStatusItem['state'],
     fileCount: count(source, 'fileCount'),
@@ -850,7 +852,7 @@ export function normalizeAuditQuery(value: unknown): AuditQueryView {
     total: numberValue(source, ['total']) ?? 0,
     truncated: booleanValue(source, ['truncated']),
     categories: strings(source.categories),
-    runs: arrayValue(source.runs, []).map((runValue) => { const run = record(runValue); return { id: textValue(run, ['id']), title: textValue(run, ['title'], '工作') } }).filter((run) => run.id),
+    runs: arrayValue(source.runs, []).map((runValue) => { const run = record(runValue); return { id: textValue(run, ['id']), title: textValue(run, ['title'], t('工作')) } }).filter((run) => run.id),
     chain: {
       valid: chain.valid !== false,
       checkedEntries: numberValue(chain, ['checkedEntries']) ?? 0,
@@ -874,7 +876,7 @@ function normalizeApproval(value: unknown, index: number): ApprovalItem {
   const item: ApprovalItem = {
     ...source,
     id: idValue(source, 'approval', index),
-    title: textValue(source, ['title', 'toolName', 'action'], '需要批准的操作'),
+    title: textValue(source, ['title', 'toolName', 'action'], t('需要批准的操作')),
     summary: textValue(source, ['summary', 'description', 'reason', 'target']),
     risk,
     reversible: booleanValue(source, ['reversible'], risk === 'reversible_write'),
@@ -902,7 +904,7 @@ function normalizeApprovalHistory(value: unknown, index: number): ApprovalHistor
   const item: ApprovalHistoryItem = {
     ...source,
     id: idValue(source, 'approval-history', index),
-    title: textValue(source, ['title', 'toolName', 'action'], '操作审批'),
+    title: textValue(source, ['title', 'toolName', 'action'], t('操作审批')),
     summary: textValue(source, ['summary', 'reason', 'target']),
     status,
   }
@@ -924,7 +926,7 @@ export function normalizeArtifact(value: unknown, index: number): ArtifactItem {
   const fileName = textValue(metadata, ['fileName']) || fileNameFromSource || undefined
   const rawName = textValue(source, ['name', 'filename', 'displayName']) || ''
   const label = textValue(metadata, ['label']) || (rawName && rawName !== fileName ? rawName : undefined)
-  const name = fileName || rawName || '输出'
+  const name = fileName || rawName || t('输出')
 
   const item: ArtifactItem = {
     ...source,
@@ -937,9 +939,11 @@ export function normalizeArtifact(value: unknown, index: number): ArtifactItem {
   const kind = textValue(source, ['kind', 'type'])
   const path = sourcePath || rawPath
   const size = numberValue(source, ['size', 'sizeBytes', 'byteLength'])
+  const mime = textValue(source, ['mime', 'mimeType']) || textValue(metadata, ['mime', 'mimeType'])
   if (kind) item.kind = kind
   if (path) item.path = path
   if (size !== undefined) item.size = size
+  if (mime) item.mime = mime
   return item
 }
 
@@ -948,7 +952,7 @@ function normalizeDiff(value: unknown, index: number): DiffItem {
   const item: DiffItem = {
     ...source,
     id: idValue(source, 'diff', index),
-    path: textValue(source, ['path', 'filePath'], '未知文件'),
+    path: textValue(source, ['path', 'filePath'], t('未知文件')),
   }
   const additions = numberValue(source, ['additions', 'added'])
   const deletions = numberValue(source, ['deletions', 'removed'])
@@ -985,7 +989,7 @@ function normalizeTraceSpan(value: unknown, index: number): TraceSpanItem {
     id: idValue(source, 'span', index),
     traceId: textValue(source, ['traceId', 'trace_id']),
     kind: TRACE_KINDS.has(kind) ? kind : 'tool_call',
-    name: textValue(source, ['name'], '执行阶段'),
+    name: textValue(source, ['name'], t('执行阶段')),
     status: TRACE_STATUSES.has(status) ? status : 'interrupted',
     startedAt: textValue(source, ['startedAt', 'started_at']),
     attributes: record(source.attributes),
@@ -1112,6 +1116,13 @@ export const bridge = {
     ])
     return arrayValue(result, ['items', 'artifacts']).map(normalizeArtifact)
   },
+  saveAttachment: async (input: { name: string; mimeType: string; dataBase64: string }): Promise<ArtifactItem> => {
+    const result = await call<unknown>([
+      { path: 'app.saveAttachment', args: [input] },
+      { path: 'saveAttachment', args: [input] },
+    ])
+    return normalizeArtifact(result, 0)
+  },
   addWorkspace: (path: string) => call<unknown>([
     { path: 'workspaces.create', args: [{ path }] },
     { path: 'addWorkspace', args: [path] },
@@ -1134,6 +1145,16 @@ export const bridge = {
       { path: 'workspaces.search-files', args: [{ workspaceId, query, limit }] },
     ])
     return Array.isArray(result) ? (result as WorkspaceFileItem[]) : []
+  },
+  getGitStatus: async (workspaceId: string): Promise<GitStatusResult> => {
+    const result = await optionalCall<unknown>([
+      { path: 'workspaces.gitStatus', args: [{ workspaceId }] },
+      { path: 'workspaces.git-status', args: [{ workspaceId }] },
+    ])
+    if (result && typeof result === 'object' && 'isGitRepo' in result) {
+      return result as GitStatusResult
+    }
+    return { isGitRepo: false, clean: true, files: [] }
   },
   saveModel: (input: JsonRecord) => call<unknown>([
     { path: 'models.upsert', args: [input] },
@@ -1340,5 +1361,5 @@ export function errorMessage(error: unknown): string {
   if (error instanceof Error && error.message) return error.message
   if (typeof error === 'string') return error
   const source = record(error)
-  return textValue(source, ['message', 'error'], '操作失败，请重试。')
+  return textValue(source, ['message', 'error'], t('操作失败，请重试。'))
 }

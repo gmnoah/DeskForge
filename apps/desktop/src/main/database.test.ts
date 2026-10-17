@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import Database from 'better-sqlite3'
 import { afterEach, describe, expect, it } from 'vitest'
 import { AppDatabase } from './database'
+import { DesktopInvokeContracts } from '@deskforge/contracts'
 
 const directories: string[] = []
 
@@ -19,6 +20,17 @@ afterEach(async () => {
 })
 
 describe('AppDatabase persistence boundary', () => {
+  it('persists the interface locale without changing existing permission settings', async () => {
+    const { path, database } = await temporaryDatabase()
+    expect(DesktopInvokeContracts['settings:update'].input.parse({ locale: 'en-US' })).toEqual({ locale: 'en-US' })
+    database.setSetting('appSettings', { locale: 'en-US', defaultAccessMode: 'approval', theme: 'dark' })
+    database.close()
+    const reopened = new AppDatabase(path)
+    try {
+      expect(reopened.getSetting('appSettings', {})).toEqual({ locale: 'en-US', defaultAccessMode: 'approval', theme: 'dark' })
+    } finally { reopened.close() }
+  })
+
   it('persists the per-run permission without widening filesystem access', async () => {
     const { path, database } = await temporaryDatabase()
     const automatic = database.createRun({ title: 'Automatic workspace', prompt: 'Write a note', permissionMode: 'workspace_auto' })

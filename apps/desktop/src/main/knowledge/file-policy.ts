@@ -19,7 +19,7 @@ const KNOWN_TEXT_NAMES = new Set([
 const NOISY_NAMES = new Set(['package-lock.json', 'pnpm-lock.yaml', 'yarn.lock', 'cargo.lock', 'poetry.lock', 'composer.lock', 'gemfile.lock', 'go.sum', 'bun.lockb'])
 const ALLOWED_ENV_TEMPLATES = new Set(['.env.example', '.env.sample', '.env.template'])
 
-export type KnowledgeFileKind = 'text' | 'code' | 'docx'
+export type KnowledgeFileKind = 'text' | 'code' | 'docx' | 'pdf' | 'xlsx'
 
 /** Files that commonly hold credentials are never indexed, even when not ignored. */
 export function isSensitiveFile(path: string): boolean {
@@ -39,6 +39,8 @@ export function knowledgeFileKind(path: string): KnowledgeFileKind | undefined {
   if (NOISY_NAMES.has(name) || /\.(min\.(js|css)|map)$/.test(name)) return undefined
   const extension = extname(name).slice(1)
   if (extension === 'docx') return 'docx'
+  if (extension === 'pdf') return 'pdf'
+  if (extension === 'xlsx') return 'xlsx'
   if (CODE_EXTENSIONS.has(extension)) return 'code'
   if (TEXT_EXTENSIONS.has(extension)) return 'text'
   if (KNOWN_TEXT_NAMES.has(name) || KNOWN_TEXT_NAMES.has(name.replace(/\.[^.]+$/, ''))) return 'text'
